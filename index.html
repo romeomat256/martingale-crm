@@ -1060,6 +1060,8 @@ function selectDocLocale(code){
   });
   const fxBox = document.getElementById('dg-fx-box');
   if(fxBox) fxBox.style.display = locale.currency === 'EUR' ? 'none' : 'flex';
+  const usBox = document.getElementById('dg-us-box');
+  if(usBox) usBox.style.display = locale.code === 'US' ? 'block' : 'none';
   const fxInput = document.getElementById('dg-fx-rate');
   if(fxInput){ fxInput.dataset.manual = ''; }
   // US et UK sont hors UE : export exonéré de TVA par défaut
@@ -1079,6 +1081,18 @@ function selectDocLocale(code){
   updateDocCalc();
 }
 
+// Paramètres droits & taxes US saisis dans le menu (null hors devis US)
+function getUsDutySettings(locale){
+  if(!locale || locale.code !== 'US') return null;
+  const num = id => { const v = parseMoneyAmount(document.getElementById(id)?.value); return Number.isFinite(v) ? v : 0; };
+  return {
+    dutyRate: num('dg-us-duty')/100,
+    clearanceEUR: num('dg-us-clearance'),
+    salesTaxRate: num('dg-us-salestax')/100,
+    included: document.getElementById('dg-us-included')?.checked !== false
+  };
+}
+
 // Montants du devis convertis dans la devise du document (arrondis au centime)
 function convertDocAmounts(eur, fx){
   const r2 = v => Math.round(v*100)/100;
@@ -1094,7 +1108,17 @@ function convertDocAmounts(eur, fx){
   const shipHT = r2(eur.shipHT*fx);
   const baseHT = r2(sousTotalNet+shipHT);
   const tva = r2(baseHT*eur.vatRate);
-  return {lines, sousTotalBrut, sousTotal, remiseMontant, sousTotalNet, shipHT, baseHT, tva, ttc: r2(baseHT+tva), remisePct: eur.remisePct, vatRate: eur.vatRate};
+  // Droits & taxes US (devis US uniquement)
+  const us = eur.us || null;
+  let duties = 0, clearance = 0, salesTax = 0, landed = 0;
+  if(us){
+    duties = r2(sousTotalNet*us.dutyRate);            // droits sur la valeur des marchandises
+    clearance = r2(us.clearanceEUR*fx);
+    landed = us.included ? r2(duties+clearance) : 0;
+    salesTax = r2((baseHT+landed)*us.salesTaxRate);
+  }
+  return {lines, sousTotalBrut, sousTotal, remiseMontant, sousTotalNet, shipHT, baseHT, tva, duties, clearance, salesTax, us,
+    ttc: r2(baseHT+tva+landed+salesTax), remisePct: eur.remisePct, vatRate: eur.vatRate};
 }
 
 const COQUELLE = {'01':[94.43,155.45,209.04,262.64,316.23,369.82],'02':[140.03,230.79,314.18,395.96,456.28,537.75],'03':[130.48,212.45,286.68,359.28,412.34,485.03],'04':[155.17,259.85,357.78,455.71,525.91,621.31],'05':[145.31,240.93,329.39,416.24,480.58,566.91],'06':[167.25,283.05,392.57,500.48,581.49,688.01],'07':[139.67,230.10,313.16,394.60,454.65,535.80],'08':[159.86,268.86,371.29,472.10,547.49,647.21],'09':[123.05,207.64,283.31,358.54,434.65,510.11],'10':[128.27,208.20,280.31,350.79,402.18,472.83],'11':[114.76,196.11,270.03,343.96,417.88,491.80],'12':[150.32,250.55,343.83,435.49,503.63,594.58],'13':[167.87,284.25,394.37,502.88,584.36,691.45],'14':[106.86,178.82,238.91,297.50,354.62,416.19],'15':[147.56,245.24,335.86,424.86,490.90,579.30],'16':[101.65,153.23,199.14,244.56,278.81,322.59],'17':[101.65,153.23,199.14,244.56,278.81,322.59],'18':[135.52,222.13,301.21,378.66,435.55,512.88],'19':[151.35,252.53,346.79,439.44,508.37,600.26],'20':[246.02,460.21,673.71,895.31,1068.82,1261.00],'21':[114.18,181.15,239.73,296.69,337.36,395.05],'22':[112.62,188.45,253.34,316.75,378.68,445.05],'23':[139.61,229.98,312.97,394.34,454.34,535.43],'24':[101.65,153.23,199.14,244.56,278.81,322.59],'25':[110.25,175.80,232.95,289.82,346.41,403.17],'26':[137.24,225.44,306.16,385.27,443.47,522.39],'27':[94.99,144.31,184.47,223.01,249.10,289.14],'28':[78.06,107.93,131.19,153.97,170.29,192.37],'29':[119.81,191.97,255.96,318.33,363.29,426.16],'30':[169.19,286.77,398.16,507.93,590.42,698.72],'31':[106.45,162.43,212.94,262.96,300.86,349.05],'32':[138.63,228.10,310.15,390.58,449.84,530.02],'33':[92.24,140.65,184.65,228.65,261.29,303.45],'34':[130.58,216.46,293.94,371.14,448.06,525.15],'35':[105.58,176.27,235.08,292.40,348.23,408.52],'36':[105.50,164.49,214.75,263.38,297.46,347.17],'37':[86.62,117.55,142.78,167.71,184.32,208.09],'38':[139.78,230.30,313.45,394.99,455.12,536.36],'39':[94.43,155.45,209.04,262.64,316.23,369.82],'40':[145.82,241.90,330.85,418.19,482.91,569.71],'41':[78.06,107.93,131.19,153.97,170.29,192.37],'42':[126.61,205.03,275.55,344.44,394.57,463.70],'43':[140.50,231.69,315.54,397.77,458.45,540.36],'44':[110.36,173.83,228.74,282.04,319.82,374.00],'45':[68.65,95.35,116.70,138.06,152.77,173.23],'46':[141.11,232.86,317.29,400.11,461.25,543.72],'47':[101.65,153.23,199.14,244.56,278.81,322.59],'48':[145.88,242.03,331.05,418.45,483.22,570.08],'49':[105.01,163.56,213.34,261.50,295.21,344.47],'50':[107.90,180.90,242.03,301.66,359.82,422.42],'51':[136.57,224.14,304.22,382.68,440.37,518.66],'52':[124.74,201.43,270.15,337.25,385.95,453.36],'53':[100.59,155.07,200.60,244.52,274.87,320.06],'54':[131.93,215.23,290.85,364.86,419.02,493.04],'55':[137.26,225.47,306.21,385.33,443.55,522.48],'56':[112.98,178.85,236.28,292.09,331.85,388.44],'57':[96.86,144.03,185.33,226.15,256.77,296.14],'58':[130.83,213.13,287.70,360.64,413.97,486.99],'59':[75.36,108.25,136.05,163.85,183.66,210.30],'60':[89.91,134.56,169.84,203.50,225.73,261.10],'61':[106.95,167.28,218.93,268.95,304.13,355.18],'62':[75.36,108.25,136.05,163.85,183.66,210.30],'63':[142.64,235.81,321.72,406.00,468.31,552.19],'64':[146.44,243.10,332.65,420.58,485.78,573.15],'65':[143.74,237.91,324.87,410.22,473.36,558.25],'66':[123.05,207.64,283.31,358.54,434.65,510.11],'67':[87.45,131.45,170.85,210.24,239.24,277.00],'68':[96.86,144.03,185.33,226.15,256.77,296.14],'69':[126.61,205.03,275.55,344.44,394.57,463.70],'70':[125.16,202.24,271.37,338.87,387.89,455.69],'71':[126.68,205.16,275.74,344.70,394.88,464.07],'72':[111.93,176.84,233.26,288.07,327.03,382.66],'73':[138.00,226.90,308.35,388.18,446.96,526.58],'74':[134.63,220.42,298.63,375.22,431.44,507.95],'75':[70.81,99.02,120.85,143.20,162.30,174.59],'76':[91.53,137.67,174.51,209.73,233.19,270.04],'77':[64.37,90.02,109.87,130.18,147.54,158.72],'78':[70.81,99.02,120.85,143.20,162.30,174.59],'79':[109.38,171.95,225.93,278.28,315.31,368.59],'80':[94.35,143.08,182.62,218.93,246.15,285.60],'81':[123.05,207.64,283.31,358.54,434.65,510.11],'82':[137.45,225.83,306.75,386.05,444.40,523.50],'83':[188.65,301.45,426.66,546.20,634.89,751.78],'84':[158.27,265.81,366.72,466.01,540.19,638.45],'85':[108.69,170.62,223.93,275.63,312.13,364.78],'86':[104.74,163.04,212.56,260.46,293.97,342.98],'87':[111.73,176.45,232.68,287.29,326.10,381.54],'88':[130.28,212.06,286.09,358.51,411.41,483.91],'89':[128.40,208.46,280.70,351.31,402.80,473.57],'90':[129.72,210.99,284.49,356.37,408.85,480.84],'91':[64.37,90.02,109.87,130.18,147.54,158.72],'92':[64.37,90.02,109.87,130.18,147.54,158.72],'93':[64.37,90.02,109.87,130.18,147.54,158.72],'94':[64.37,90.02,109.87,130.18,147.54,158.72],'95':[70.81,99.02,120.85,143.20,162.30,174.59]};
@@ -3432,6 +3456,25 @@ function openDocGenerator(prospectId){
             <button type="button" onclick="refreshDocFxField(true)" style="padding:5px 10px;border:1px solid #403F21;border-radius:5px;background:transparent;color:#403F21;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Taux du jour</button>
             <span id="dg-fx-info" style="font-size:11px;color:#2980B9"></span>
           </div>
+          <div id="dg-us-box" style="display:none;margin-top:12px;background:#F7F6EF;border:1px solid #E0DFD5;border-radius:9px;padding:12px 14px">
+            <div style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Droits &amp; taxes US</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Droits de douane (%)
+                <input type="text" id="dg-us-duty" value="10" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Dédouanement (€)
+                <input type="text" id="dg-us-clearance" value="" placeholder="0" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Sales tax État (%)
+                <input type="text" id="dg-us-salestax" value="0" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+              </label>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#555;margin-top:10px">
+              <input type="checkbox" id="dg-us-included" checked onchange="updateDocCalc()" style="width:16px;height:16px;cursor:pointer">
+              Droits et dédouanement inclus dans le total (DDP)
+            </label>
+            <div style="font-size:11px;color:#888;margin-top:6px">Droits calculés sur la valeur des chaises (hors livraison). Sales tax : laisser à 0 tant que tu ne dépasses pas le seuil de l'État.</div>
+          </div>
         </div>
 
         <!-- PROSPECT SELECTOR -->
@@ -3786,7 +3829,7 @@ function updateDocCalc(){
       el('dg-fx-line').style.display = 'flex';
       el('dg-fx-label').textContent = 'Total du devis en '+docLocale.currency+(vatSettings.isVatExempt?'':' TTC');
       el('dg-fx-val').textContent = fx > 0
-        ? formatMoneyIn(convertDocAmounts({lines, remisePct, shipHT: shipping.shipHT, vatRate: vatSettings.vatRate}, fx).ttc, docLocale.currency, docLocale.intl)
+        ? formatMoneyIn(convertDocAmounts({lines, remisePct, shipHT: shipping.shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, fx).ttc, docLocale.currency, docLocale.intl)
         : 'Taux à renseigner';
     }
   }
@@ -3905,6 +3948,16 @@ function buildEnglishQuoteHtml(ctx){
     : (A.shipHT > 0 ? money(A.shipHT) : 'To be confirmed');
   const vatRowLabel = vatSettings.isVatExempt ? sp('Tax exempt (French VAT)','VAT exempt') : 'VAT (20%)';
   const netLabel = vatSettings.isVatExempt ? 'TOTAL DUE' : 'TOTAL DUE (incl. VAT)';
+  const US = A.us;
+  const pctTxt = r => (r*100).toLocaleString('en-US',{maximumFractionDigits:3})+'%';
+  const usLine = (label, value) => '<tr><td class="lbl">'+label+'</td><td>'+value+'</td></tr>';
+  let usIncludedRows = '';
+  if(US){
+    const dutyRows = (US.dutyRate>0 ? usLine('US IMPORT DUTIES ('+pctTxt(US.dutyRate)+')', money(A.duties)) : '')
+      + (A.clearance>0 ? usLine('CUSTOMS CLEARANCE', money(A.clearance)) : '');
+    if(US.included) usIncludedRows = dutyRows;
+    if(US.salesTaxRate>0) usIncludedRows += usLine('STATE SALES TAX ('+pctTxt(US.salesTaxRate)+')', money(A.salesTax));
+  }
 
   let vatNote = '';
   if(vatSettings.vatRegime === VAT_REGIME_EXPORT && vatSettings.isVatExempt){
@@ -3916,7 +3969,11 @@ function buildEnglishQuoteHtml(ctx){
 
   const conditions = [
     `Payment upon receipt of invoice by international bank transfer (SWIFT). Prices in ${locale.currency}, converted at 1 EUR = ${fx.toFixed(4)} ${locale.currency}${fxDate?' (rate of '+fxDate+')':''}.`,
-    `Prices exclude import duties, customs fees and local taxes (${sp('sales tax','import VAT')}), payable by the buyer.`,
+    US && US.included
+      ? `Delivered Duty Paid: US import duties${US.dutyRate>0?' ('+pctTxt(US.dutyRate)+' on the value of the goods)':''}${A.clearance>0?' and customs clearance':''} are included. ${US.salesTaxRate>0?'State sales tax is included.':'State sales tax, if applicable, is not included.'}`
+      : US
+        ? `Not included, payable by the buyer at import: US import duties${US.dutyRate>0?' estimated at '+money(A.duties)+' ('+pctTxt(US.dutyRate)+' on the value of the goods)':''}${A.clearance>0?', customs clearance estimated at '+money(A.clearance):''}.${US.salesTaxRate>0?'':' State sales tax, if applicable, is not included.'}`
+        : `Prices exclude import duties, customs fees and local taxes (${sp('sales tax','import VAT')}), payable by the buyer.`,
     'Late payment: ECB rate + 10 points, plus a €40 recovery fee (French Commercial Code). Signing implies acceptance of the Terms on page 2.'
   ].join('\n');
 
@@ -3963,6 +4020,10 @@ function buildEnglishQuoteHtml(ctx){
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
 ${DOC_PRINT_CSS}
+/* Devis EN : espacement resserré (lignes droits / taxes US) */
+.totaux td{padding:3px 14px}
+.conditions-box{margin:10px 0}
+.validation-sub{padding:5px 0 10px}
 </style>
 </head>
 <body>
@@ -4002,6 +4063,7 @@ ${DOC_PRINT_CSS}
     <tr><td class="lbl">SUBTOTAL ${tax.toUpperCase()}</td><td style="color:#403F21;font-weight:600">${money(A.sousTotalNet)}</td></tr>
     <tr><td class="lbl">SHIPPING</td><td>${shipCell}</td></tr>
     <tr><td class="lbl">${vatRowLabel}</td><td>${vatSettings.isVatExempt ? money(0) : money(A.tva)}</td></tr>
+    ${usIncludedRows}
     <tr style="height:6px"><td colspan="2"></td></tr>
     <tr class="net-row"><td colspan="2">${netLabel} &nbsp;&nbsp;&nbsp; ${money(A.ttc)}</td></tr>
   </table>
@@ -4197,7 +4259,7 @@ async function generateAndPrint(){
   const docHTML = isEnglishQuote ? buildEnglishQuoteHtml({
     locale: docLocale, fx: docFx, docNum, today, validite, contact, company, addr, livraison,
     vatSettings, shipping,
-    amounts: convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate}, docFx)
+    amounts: convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx)
   }) : `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -4439,7 +4501,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     ...getVatStorageFields(vatSettings),
     prospectId: prospectId,
     ...(isInvoice?{invoiceDetails}:{}),
-    ...(isEnglishQuote?(()=>{const conv=convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate}, docFx);return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: conv.ttc, htCurrency: conv.baseHT};})():{}),
+    ...(isEnglishQuote?(()=>{const conv=convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx);return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: conv.ttc, htCurrency: conv.baseHT, ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
     createdAt: generatedAt.toISOString(),
     date: generatedAt.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})
   };
