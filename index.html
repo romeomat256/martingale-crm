@@ -264,6 +264,7 @@ textarea{resize:vertical;line-height:1.6}
 <div class="modal-overlay" id="modal-prospect">
   <div class="modal">
     <div class="modal-title" id="modal-prospect-title">Nouveau prospect</div>
+    <div id="np-company-search" style="margin-bottom:12px"></div>
     <div class="grid-2">
       <div class="field"><label>Nom de l'établissement *</label><input type="text" id="np-name" placeholder="Nom de l'établissement"></div>
       <div class="field"><label>Contact</label><input type="text" id="np-contact" placeholder="Prénom Nom"></div>
@@ -871,7 +872,7 @@ const PRODUCTS = [
 ];
 
 const SELLER_VAT_NUMBER = 'FR56928180728';
-const INVOICE_SELLER = {name:'MARTINGALE',legalForm:'EURL',capital:1000,siren:'928180728',siret:'92818072800018',rcs:'BAYONNE',address:"30 rue de l'Étang, 64600 Anglet",vat:SELLER_VAT_NUMBER};
+const INVOICE_SELLER = {name:'MARTINGALE',legalForm:'SARL',capital:1000,siren:'928180728',siret:'92818072800018',rcs:'BAYONNE',address:"30 rue de l'Étang, 64600 Anglet",vat:SELLER_VAT_NUMBER};
 const VAT_RATE_FRANCE = 0.20;
 const VAT_RATE_EXEMPT = 0;
 const VAT_REGIME_FRANCE = 'france';
@@ -952,9 +953,9 @@ table{width:100%;border-collapse:collapse}
 /* CGV page */
 .cgv-title{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
 .cgv-sub{font-size:9px;color:#888;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0D0}
-.cgv-section{margin-bottom:10px}
-.cgv-section-title{font-size:9px;font-weight:700;color:#fff;background:#403F21;padding:3px 8px;margin-bottom:4px;display:inline-block}
-.cgv-section-body{font-size:8px;color:#444;line-height:1.75;white-space:pre-line;padding:0 2px}
+.cgv-section{margin-bottom:6px}
+.cgv-section-title{font-size:8.5px;font-weight:700;color:#fff;background:#403F21;padding:2px 8px;margin-bottom:3px;display:inline-block}
+.cgv-section-body{font-size:7.8px;color:#444;line-height:1.55;white-space:pre-line;padding:0 2px}
 @media print{
   html,body{padding:0}
   .page{padding:12mm 13mm 20mm}
@@ -1566,6 +1567,8 @@ function openFiche(id){currentProspectId=id;go('fiche');populateFiche(id);}
 // MODAL PROSPECT
 // ══════════════════════════════════════════════════════════════
 function openNewProspect(){
+  mountCompanySearch(document.getElementById('np-company-search'), fillProspectFromCompany);
+  { const i=document.querySelector('#np-company-search input'); if(i) i.value=''; }
   editingProspectId=null;tempProduits=[];
   editingProspectProducts = '';
   document.getElementById('modal-prospect-title').textContent='Nouveau prospect';
@@ -3215,15 +3218,29 @@ function getDocClientLabel(doc){
   return doc.clientName || doc.client_name || doc.contact || doc.company || doc.contactName || doc.contact_name || 'Client sans nom';
 }
 
+// Comparaison tolérante (casse, espaces, accents) pour éviter les doublons d'affichage
+function sameDocText(a, b){
+  const n = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+  return n(a) !== '' && n(a) === n(b);
+}
+
+// Nom principal + société du destinataire, sans répétition
+function getDocRecipient(contact, company){
+  const c = String(contact ?? '').trim();
+  const s = String(company ?? '').trim();
+  const name = c || s;
+  return {name, company: s && !sameDocText(s, name) ? s : ''};
+}
+
 function getDocClientSubLabel(doc){
   const client = getDocClientLabel(doc);
+  const shown = [client];
   const bits = [];
-  const company = doc.company || '';
-  const contactName = doc.contactName || doc.contact_name || '';
-  if(company && company !== client) bits.push(company);
-  if(contactName && contactName !== client && contactName !== company) bits.push(contactName);
-  if(doc.email) bits.push(doc.email);
-  if(doc.tel) bits.push(doc.tel);
+  const add = v => { if(v && !shown.some(x=>sameDocText(x, v))){ shown.push(v); bits.push(v); } };
+  add(doc.company || '');
+  add(doc.contactName || doc.contact_name || '');
+  add(doc.email || '');
+  add(doc.tel || '');
   return bits.join(' · ');
 }
 
@@ -3479,6 +3496,8 @@ function openDocGenerator(prospectId){
 
         <!-- PROSPECT SELECTOR -->
         <div style="margin-bottom:18px">
+          <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Rechercher une entreprise (remplit société, adresse, SIREN, TVA)</label>
+          <div id="dg-company-search" style="margin-bottom:12px"></div>
           <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Sélectionner un prospect existant</label>
           <select id="dg-prospect-sel" onchange="prefillFromProspect(this.value)"
             style="width:100%;padding:10px 12px;border:2px solid #403F21;border-radius:8px;font-size:13px;font-family:inherit;background:#F5F5EE;color:#403F21;cursor:pointer">
@@ -3629,6 +3648,7 @@ function openDocGenerator(prospectId){
   
   // Populate prospect selector NOW that overlay is in DOM
   populateDocProspectSelect(p?.id||null);
+  mountCompanySearch(document.getElementById('dg-company-search'), fillDocFromCompany);
   
   // Init multi-product lines
   dgLignes = [];
@@ -3673,6 +3693,135 @@ function selectDocType(btn, type){
   else if(type==='SOL'){ aLine.style.display='flex'; aLabel.textContent='Solde restant à régler'; }
   else{ aLine.style.display='none'; }
   updateDocCalc();
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// ANNUAIRE DES ENTREPRISES (API publique recherche-entreprises.api.gouv.fr)
+// ══════════════════════════════════════════════════════════════
+const COMPANY_LEGAL_FORMS = {'5499':'SARL','5498':'EURL','5710':'SAS','5720':'SASU','5599':'SA','5505':'SA','5785':'SELAS','5485':'SELARL','6540':'SCI','5202':'SNC','5306':'SCS'};
+
+function titleCaseFr(v){
+  return String(v||'').toLowerCase().replace(/(^|[\s\-'’])([a-zà-ÿ])/g,(m,a,b)=>a+b.toUpperCase());
+}
+
+function frVatFromSiren(siren){
+  if(!/^\d{9}$/.test(siren||'')) return '';
+  const key = (12 + 3*(Number(siren) % 97)) % 97;
+  return 'FR'+String(key).padStart(2,'0')+siren;
+}
+
+function mapCompanyResult(r){
+  const siege = r.siege || {};
+  const etab = (r.matching_etablissements||[])[0] || siege;
+  const form = COMPANY_LEGAL_FORMS[String(r.nature_juridique||'')] || '';
+  let legalName = (r.nom_raison_sociale || r.nom_complet || '').trim();
+  if(form && !new RegExp('(^|\\s)'+form+'(\\s|$)','i').test(legalName)) legalName = form+' '+legalName;
+  const enseigne = ((etab.liste_enseignes||siege.liste_enseignes||[])[0] || '').trim();
+  const boss = (r.dirigeants||[]).find(d=>d.type_dirigeant==='personne physique' && (d.nom||d.prenoms));
+  const contact = boss ? titleCaseFr(String(boss.prenoms||'').split(' ')[0]+' '+(boss.nom||'')).trim() : '';
+  const address = String(siege.adresse||'').replace(/\s+(\d{5})\s+/, ', $1 ').trim();
+  return {
+    siren: r.siren || '',
+    vat: frVatFromSiren(r.siren),
+    legalName,
+    enseigne,
+    contact,
+    address,
+    city: titleCaseFr(siege.libelle_commune||''),
+    dept: String(siege.departement || (siege.code_postal||'').slice(0,2) || ''),
+    closed: r.etat_administratif === 'C',
+    activity: r.libelle_activite_principale || r.activite_principale || ''
+  };
+}
+
+async function searchCompanies(q){
+  const query = String(q||'').trim();
+  if(query.replace(/\s/g,'').length < 3) return [];
+  const url = 'https://recherche-entreprises.api.gouv.fr/search?per_page=8&q='+encodeURIComponent(query);
+  const r = await fetch(url);
+  if(r.status === 429) throw new Error('Trop de recherches, patiente une seconde');
+  if(!r.ok) throw new Error('Annuaire indisponible ('+r.status+')');
+  const j = await r.json();
+  return (j.results||[]).map(mapCompanyResult);
+}
+
+// Champ de recherche réutilisable : mountCompanySearch(conteneur, (entreprise) => {...})
+function mountCompanySearch(host, onPick){
+  if(!host || host.dataset.mounted) return;
+  host.dataset.mounted = '1';
+  host.style.position = 'relative';
+  host.innerHTML = `
+    <input type="text" class="company-search-input" placeholder="Nom, enseigne, SIREN ou SIRET… (annuaire des entreprises)" autocomplete="off"
+      style="width:100%;padding:9px 12px;border:1px dashed #403F21;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;box-sizing:border-box">
+    <div class="company-search-results" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #D4D3B8;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:50;max-height:320px;overflow-y:auto"></div>`;
+  const input = host.querySelector('input');
+  const box = host.querySelector('.company-search-results');
+  let timer = null, seq = 0, items = [];
+  const close = () => { box.style.display = 'none'; };
+  const show = html => { box.innerHTML = html; box.style.display = 'block'; };
+  const render = () => {
+    if(!items.length){ show('<div style="padding:10px 12px;font-size:12px;color:#888">Aucune entreprise trouvée</div>'); return; }
+    show(items.map((c,i)=>`<div data-i="${i}" class="company-search-item" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #F0EFE6">
+      <div style="font-size:13px;font-weight:600;color:#1A1A1A">${escapeHTML(c.enseigne && !sameDocText(c.enseigne,c.legalName) ? c.enseigne+' · '+c.legalName : c.legalName)}${c.closed?' <span style="color:#C0392B;font-size:10px;font-weight:700">FERMÉE</span>':''}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${escapeHTML([c.address, 'SIREN '+c.siren, c.contact].filter(Boolean).join(' · '))}</div>
+    </div>`).join(''));
+    box.querySelectorAll('.company-search-item').forEach(el=>{
+      el.addEventListener('mouseenter',()=>el.style.background='#F5F5EE');
+      el.addEventListener('mouseleave',()=>el.style.background='#fff');
+      el.addEventListener('mousedown',e=>{
+        e.preventDefault();
+        const c = items[+el.dataset.i];
+        input.value = c.legalName;
+        close();
+        onPick(c);
+        toast('Infos de '+c.legalName+' ajoutées');
+      });
+    });
+  };
+  input.addEventListener('input',()=>{
+    clearTimeout(timer);
+    const q = input.value;
+    if(q.replace(/\s/g,'').length < 3){ close(); return; }
+    timer = setTimeout(async ()=>{
+      const mine = ++seq;
+      show('<div style="padding:10px 12px;font-size:12px;color:#888">Recherche…</div>');
+      try{
+        const res = await searchCompanies(q);
+        if(mine !== seq) return;
+        items = res; render();
+      }catch(err){
+        if(mine !== seq) return;
+        show('<div style="padding:10px 12px;font-size:12px;color:#C0392B">'+escapeHTML(err.message)+'</div>');
+      }
+    }, 350);
+  });
+  input.addEventListener('blur',()=>setTimeout(close,150));
+  input.addEventListener('focus',()=>{ if(items.length && input.value.trim().length>=3) render(); });
+}
+
+function fillDocFromCompany(c){
+  const set = (id,v,onlyIfEmpty) => { const el=document.getElementById(id); if(el && v && (!onlyIfEmpty || !el.value.trim())) el.value=v; };
+  set('dg-company', c.legalName);
+  set('dg-addr', c.address);
+  set('dg-contact', c.contact, true);
+  set('dg-client-siren', c.siren);
+  set('dg-client-vat', c.vat);
+  if(/^\d{2,3}$/.test(c.dept)) set('dg-dept', c.dept);
+  if(c.closed) toast('Attention : cette entreprise est fermée au registre','error');
+  updateDocCalc();
+}
+
+function fillProspectFromCompany(c){
+  const set = (id,v,onlyIfEmpty) => { const el=document.getElementById(id); if(el && v && (!onlyIfEmpty || !el.value.trim())) el.value=v; };
+  set('np-name', c.enseigne ? titleCaseFr(c.enseigne) : c.legalName);
+  set('np-contact', c.contact, true);
+  set('np-ville', c.city);
+  if(/^\d{2,3}$/.test(c.dept)) set('np-dept', c.dept);
+  const notes = document.getElementById('np-notes');
+  const line = c.legalName+' · SIREN '+c.siren+' · TVA '+c.vat+' · '+c.address;
+  if(notes && !notes.value.includes(c.siren)) notes.value = (notes.value.trim() ? notes.value.trim()+'\n' : '') + line;
+  if(c.closed) toast('Attention : cette entreprise est fermée au registre','error');
 }
 
 // ── Multi-product line management
@@ -3977,20 +4126,22 @@ function buildEnglishQuoteHtml(ctx){
     'Late payment: ECB rate + 10 points, plus a €40 recovery fee (French Commercial Code). Signing implies acceptance of the Terms on page 2.'
   ].join('\n');
 
+  const Q = sp('quote','quotation');
   const cgv = [
-    ['PREAMBLE', `Applicable to ${sp('quotes','quotations')}\nThese General Terms and Conditions of Sale (the “Terms”) govern all ${sp('quotes','quotations')} issued by: ${escapeHTML(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm} with a share capital of ${eur(INVOICE_SELLER.capital)}, registered with the ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} Trade and Companies Register (RCS) under number ${INVOICE_SELLER.siren}, with its registered office at ${escapeHTML(INVOICE_SELLER.address)}, France, operating the trade name Martingale Paris.\nAcceptance of a ${sp('quote','quotation')} implies full and unreserved acceptance of these Terms.`],
-    ['1. SCOPE', `1.1 In-stock products: where the ${sp('quote','quotation')} covers products available in stock, they are deemed ready for shipment subject to approval and payment of the order.\n1.2 Made-to-order products: where the ${sp('quote','quotation')} covers products manufactured or sourced specifically at the customer's request, its approval constitutes a firm and final commitment.`],
-    ['2. PRICES', `Prices are quoted in ${currencyName}, converted from our prices in euros, excluding taxes and delivery costs unless otherwise stated. The applicable price is the one stated in the accepted ${sp('quote','quotation')}.`],
-    ['3. ORDER AND PAYMENT', '3.1 In-stock products: full payment is due upon order, unless otherwise agreed.\n3.2 Made-to-order products: any approval constitutes an irrevocable contractual commitment. A deposit may be required, with the balance due before shipment. Any late payment may result in the order being suspended.'],
-    ['4. LEAD TIMES', '4.1 In-stock products: indicative processing within 48 business hours, excluding transport.\n4.2 Made-to-order products: lead times are given for information only and do not constitute a guaranteed commitment.'],
-    ['5. DELIVERY', `Delivery is made to the address specified by the customer. Unless otherwise agreed, delivery is made ${sp('curbside, at the back of the truck','kerbside, at the back of the lorry')}. Risk passes to the customer when the goods are handed over to the carrier.`],
-    ['6. RECEIPT AND CLAIMS', 'The customer must check the apparent condition of the goods upon receipt. Any reservation must be written on the carrier\'s delivery note and notified in writing within 48 hours. Failing this, the products are deemed accepted.'],
-    ['7. CANCELLATION', '7.1 In-stock products: returns accepted within 14 days, for unused products in their original packaging. Return costs are borne by the customer.\n7.2 Made-to-order products: no cancellation or return is possible. The order is firm and final.'],
-    ['8. LIABILITY', 'In all cases, the Seller\'s liability is limited to the amount, excluding taxes, of the order concerned.'],
-    ['9. WARRANTY', 'Two (2) year commercial warranty covering manufacturing defects. Excluded: normal wear and tear, misuse, lack of maintenance.'],
-    ['10. RETENTION OF TITLE', 'The goods remain the property of the Seller until full payment of the price.'],
-    ['11. FORCE MAJEURE', 'The Seller cannot be held liable in the event of force majeure within the meaning of Article 1218 of the French Civil Code.'],
-    ['12. GOVERNING LAW AND JURISDICTION', 'These Terms are governed by French law. Any dispute shall fall under the exclusive jurisdiction of the Commercial Court of Bayonne (France).']
+    ['PREAMBLE', `These General Terms and Conditions of Sale (the “Terms”) apply to all sales made by ${escapeHTML(INVOICE_SELLER.name)}, a French ${INVOICE_SELLER.legalForm} (limited liability company) with a share capital of ${eur(INVOICE_SELLER.capital)}, registered with the ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} Trade and Companies Register under number ${INVOICE_SELLER.siren}, registered office ${escapeHTML(INVOICE_SELLER.address)}, France, trading as Martingale Paris (the “Seller”), exclusively to business customers. They prevail over any purchase conditions of the customer unless agreed in writing by the Seller. Signing the ${Q} implies full acceptance of these Terms. These Terms are a translation of the Seller's French General Terms and Conditions of Sale; in case of discrepancy, the French version shall prevail.`],
+    ['1. PRODUCTS', `1.1 In-stock products: available products, shipped after approval and payment of the order.\n1.2 Made-to-order products: products manufactured or sourced specifically for the customer; the order is firm and final once approved.\n1.3 The chairs are handmade and hand-woven from natural rattan. Variations in ${sp('color','colour')}, grain, knots or weave between pieces, or compared with images, are inherent to the material and to the craftsmanship: they are neither a defect nor a non-conformity. Photographs are not contractual.`],
+    ['2. PRICES', `Prices are quoted in ${currencyName}, converted from the Seller's euro prices, excluding taxes and delivery unless otherwise stated. The applicable price is the one in the accepted ${Q}, fixed for its validity period.`],
+    ['3. ORDER AND PAYMENT', `3.1 In-stock products: full payment upon order, unless otherwise agreed.\n3.2 Made-to-order products: 50% deposit upon order, balance due before shipment. Sums paid are a deposit (acompte), not a refundable or forfeitable option fee: the customer is committed to the full price.\n3.3 Payment by bank transfer, with no discount for early payment. Bank charges are borne by the customer. Any late payment automatically incurs, without notice, interest at the ECB refinancing rate plus 10 percentage points and a fixed recovery fee of €40 (French Commercial Code, Articles L. 441-10 and D. 441-5), without prejudice to further damages. The Seller may suspend any order or delivery until full payment.`],
+    ['4. LEAD TIMES', `In-stock products: indicative processing within 48 business hours, excluding transport. Made-to-order products: lead times are indicative. A delay may justify cancellation of the order only after formal notice has remained without effect for thirty (30) days; it gives rise to no penalty or compensation unless agreed in writing.`],
+    ['5. DELIVERY AND RISK', `Delivery to the address specified by the customer, ${sp('curbside','kerbside')} unless otherwise agreed. Risk passes to the customer when the goods are handed over to the carrier. Import formalities, duties and local taxes are borne by the customer unless the ${Q} expressly states that they are included.`],
+    ['6. RECEIPT AND CLAIMS', `The customer must inspect the goods in the presence of the carrier. Any damage or shortage must be recorded with precise reservations on the delivery note and confirmed in writing to the carrier within three (3) days of receipt, with a copy to the Seller. Any apparent non-conformity must be notified in writing to the Seller within 48 hours. Failing this, the products are deemed accepted.`],
+    ['7. CANCELLATION AND RETURNS', `7.1 In-stock products: returns accepted within 14 days of delivery, with the Seller's prior written approval, for unused products in their original packaging. Return costs, duties and taxes are borne by the customer. Refund after receipt and inspection.\n7.2 Made-to-order products: no cancellation or return. In case of cancellation, the deposit is retained by the Seller and the balance remains due.`],
+    ['8. WARRANTY', `Two (2) year commercial warranty from delivery covering manufacturing defects: repair or replacement at the Seller's option. Excluded: normal wear and tear, misuse, lack of maintenance and natural variations of rattan (Article 1.3). This warranty applies without prejudice to the statutory warranty against hidden defects (French Civil Code, Articles 1641 et seq.).`],
+    ['9. LIABILITY', `Except in case of gross negligence or wilful misconduct, the Seller's liability is limited to the amount, excluding taxes, of the order concerned. The Seller is not liable for indirect losses (loss of business, revenue or goodwill).`],
+    ['10. RETENTION OF TITLE', `The goods remain the property of the Seller until full payment of the price, including any accessory amounts. In case of non-payment, the Seller may reclaim them. Risk nevertheless remains with the customer as set out in Article 5.`],
+    ['11. FORCE MAJEURE', `The Seller cannot be held liable for any delay or failure resulting from force majeure within the meaning of Article 1218 of the French Civil Code.`],
+    ['12. PERSONAL DATA', `Contact data of the customer's staff is processed by the Seller to manage the business relationship, in accordance with the GDPR. Rights of access, rectification and erasure: romeo@martingaleparis.fr.`],
+    ['13. GOVERNING LAW AND JURISDICTION', `These Terms are governed by French law. Any dispute falls under the exclusive jurisdiction of the Commercial Court of Bayonne (France), including for interim proceedings, third-party claims or multiple defendants.`]
   ].map(([t,b])=>'<div class="cgv-section"><div class="cgv-section-title">'+t+'</div><div class="cgv-section-body">'+b+'</div></div>').join('\n  ');
 
   const header = `<div class="header">
@@ -4038,10 +4189,10 @@ ${DOC_PRINT_CSS}
     </div>
     <div>
       <div class="dest-label">Bill to</div>
-      <div class="dest-name">${escapeHTML(contact||company)}</div>
-      ${company && company!==contact ? '<div class="dest-company">'+escapeHTML(company)+'</div>' : ''}
+      <div class="dest-name">${escapeHTML(getDocRecipient(contact, company).name)}</div>
+      ${getDocRecipient(contact, company).company ? '<div class="dest-company">'+escapeHTML(getDocRecipient(contact, company).company)+'</div>' : ''}
       ${addr ? '<div class="dest-addr">'+escapeHTML(addr)+'</div>' : ''}
-      ${livraison ? '<div class="dest-addr" style="font-style:italic">Ship to: '+escapeHTML(livraison)+'</div>' : ''}
+      ${livraison && !sameDocText(livraison, addr) ? '<div class="dest-addr" style="font-style:italic">Ship to: '+escapeHTML(livraison)+'</div>' : ''}
       ${vatSettings.vatRegime === VAT_REGIME_EU_B2B ? '<div class="dest-addr">EU VAT number: '+escapeHTML(vatSettings.customerVatNumber)+'</div>' : ''}
     </div>
   </div>
@@ -4201,28 +4352,33 @@ async function generateAndPrint(){
   const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',SOL:'FACTURE DE SOLDE',FDF:'FACTURE DÉFINITIVE'};
   const typeLabel = isSimpleInvoice ? 'FACTURE' : typeLabels[type];
   
+  const latePenaltyText = 'Pénalités de retard : taux de refinancement de la BCE majoré de 10 points, exigibles dès le lendemain de l\'échéance sans rappel. Indemnité forfaitaire pour frais de recouvrement : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).';
   const conditions = {
-    DEV: 'Conditions de règlement : à réception de facture, sans escompte.\nPénalités de retard : Taux directeur de la BCE majoré de 10 points de pourcentage.\nIndemnité forfaitaire pour frais de recouvrement : 40€ (Articles L441-6 et D441-5 du Code de Commerce).\nEn signant ce document, vous acceptez sans réserve l\'intégralité des Conditions Générales de Vente jointes en Page 2.',
-    FAC: 'Acompte de 50% exigible à la commande. Règlement par virement bancaire sous 7 jours.\nPénalités de retard : Taux directeur de la BCE majoré de 10 points de pourcentage.\nIndemnité forfaitaire pour frais de recouvrement : 40€ (Articles L441-6 et D441-5 du Code de Commerce).\nCGV disponibles en Page 2.',
-    SOL: 'Solde exigible avant expédition. Règlement par virement bancaire.\nPénalités de retard : Taux directeur de la BCE majoré de 10 points de pourcentage.\nIndemnité forfaitaire pour frais de recouvrement : 40€ (Articles L441-6 et D441-5 du Code de Commerce).\nCGV disponibles en Page 2.',
-    FDF: 'Facture définitive payable à réception, sauf échéance spécifique indiquée sur le document, sans escompte.\nPénalités de retard : Taux directeur de la BCE majoré de 10 points de pourcentage.\nIndemnité forfaitaire pour frais de recouvrement : 40€ (Articles L441-6 et D441-5 du Code de Commerce).\nLa facture reprend les produits, frais de livraison, remises, TVA et conditions applicables à la commande.'
+    DEV: 'Règlement par virement bancaire, sans escompte : intégral à la commande pour les produits en stock ; acompte de 50 % à la commande et solde avant expédition pour les produits sur commande.\n'+latePenaltyText+'\nEn signant ce devis, vous acceptez sans réserve les Conditions Générales de Vente figurant en page 2.',
+    FAC: 'Acompte de 50 % exigible à la commande, par virement bancaire sous 7 jours. Les sommes versées constituent un acompte et non des arrhes.\n'+latePenaltyText+'\nCGV en page 2.',
+    SOL: 'Solde exigible avant expédition, par virement bancaire.\n'+latePenaltyText+'\nCGV en page 2.',
+    FDF: 'Facture définitive payable à réception, sauf échéance spécifique indiquée sur le document, sans escompte.\n'+latePenaltyText+'\nCGV en page 2.'
   };
   const dateMetaLabel = type === 'DEV' ? 'Validité' : 'Échéance';
-  const cgvPreamble = type === 'DEV'
-    ? `Applicables aux devis\nLes présentes Conditions Générales de Vente (ci-après les « CGV ») régissent l'ensemble des devis émis par : ${escapeHTML(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm} au capital de ${fmt(INVOICE_SELLER.capital)}, immatriculée au RCS de ${INVOICE_SELLER.rcs} sous le numéro ${INVOICE_SELLER.siren}, ayant son siège social ${escapeHTML(INVOICE_SELLER.address)}, exploitant la marque commerciale Martingale Paris.\nToute validation d'un devis emporte acceptation pleine et entière des présentes CGV.`
-    : `Applicables aux factures\nLes présentes Conditions Générales de Vente (ci-après les « CGV ») régissent l'ensemble des factures émises par : ${escapeHTML(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm} au capital de ${fmt(invoiceDetails.seller.capital)}, immatriculée au RCS de ${INVOICE_SELLER.rcs} sous le numéro ${INVOICE_SELLER.siren}, ayant son siège social ${escapeHTML(INVOICE_SELLER.address)}, exploitant la marque commerciale Martingale Paris.\nToute commande ou tout règlement emporte acceptation pleine et entière des présentes CGV.`;
-  const cgvChampApplication = type === 'DEV'
-    ? '1.1 Produits en stock : Lorsque le devis porte sur des produits disponibles en stock, ceux-ci sont réputés prêts à être expédiés sous réserve de validation et règlement de la commande.\n1.2 Produits sur commande : Lorsque le devis porte sur des produits fabriqués ou approvisionnés spécifiquement à la demande du client, leur validation constitue un engagement ferme et définitif.'
-    : '1.1 Produits en stock : Lorsque la facture porte sur des produits disponibles en stock, ceux-ci sont réputés prêts à être expédiés sous réserve de règlement de la commande.\n1.2 Produits sur commande : Lorsque la facture porte sur des produits fabriqués ou approvisionnés spécifiquement à la demande du client, la commande est ferme et définitive.';
-  const cgvCommandePaiement = type === 'DEV'
-    ? '3.1 Produits en stock : Le règlement intégral est exigible à la commande, sauf stipulation contraire.\n3.2 Produits sur commande : Toute validation vaut engagement contractuel irrévocable. Un acompte peut être exigé, le solde étant dû avant expédition. Tout retard de paiement pourra entraîner la suspension de la commande.'
-    : type === 'FDF'
-      ? 'La facture définitive est payable à réception, sauf échéance spécifique indiquée sur le document. Aucun escompte n\'est accordé en cas de paiement anticipé. Tout retard de paiement pourra entraîner la suspension des livraisons et l\'application des pénalités prévues.'
-      : 'Le montant facturé est exigible selon la nature du document : acompte à la commande ou solde avant expédition. Tout retard de paiement pourra entraîner la suspension de la commande.';
-  const cgvPrix = type === 'DEV'
-    ? 'Les prix sont exprimés en euros (€), hors taxes et hors frais de livraison sauf mention contraire. Le prix applicable est celui figurant sur le devis accepté.'
-    : 'Les prix sont exprimés en euros (€), hors taxes et hors frais de livraison sauf mention contraire. Le prix applicable est celui figurant sur la facture.';
-  
+  const sellerCapital = isInvoice ? invoiceDetails.seller.capital : INVOICE_SELLER.capital;
+  const docWord = type === 'DEV' ? 'du devis' : 'de la facture';
+  const cgvSections = [
+    ['PRÉAMBULE', `Les présentes Conditions Générales de Vente (les « CGV ») s'appliquent à toutes les ventes conclues par ${escapeHTML(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm} au capital de ${fmt(sellerCapital)}, RCS ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} ${INVOICE_SELLER.siren}, siège social ${escapeHTML(INVOICE_SELLER.address)}, marque commerciale Martingale Paris (le « Vendeur »), avec des clients professionnels exclusivement. Elles constituent le socle de la négociation commerciale (article L. 441-1 du Code de commerce) et prévalent sur toutes conditions d'achat du client, sauf accord écrit du Vendeur. ${type==='DEV'?'La signature du devis':'Toute commande ou tout règlement'} emporte leur acceptation pleine et entière.`],
+    ['1. PRODUITS', `1.1 Produits en stock : produits disponibles, expédiés après validation et règlement de la commande.\n1.2 Produits sur commande : produits fabriqués ou approvisionnés spécifiquement pour le client ; la commande est ferme et définitive dès sa validation.\n1.3 Les chaises sont fabriquées et tressées à la main en rotin naturel. Les variations de teinte, de grain, de nœuds ou de tressage entre deux pièces, ou par rapport aux visuels, sont inhérentes au matériau et au travail artisanal : elles ne constituent ni un défaut ni une non-conformité. Les photographies sont non contractuelles.`],
+    ['2. PRIX', `Les prix sont exprimés en euros, hors taxes et hors frais de livraison sauf mention contraire. Le prix applicable est celui ${docWord}${type==='DEV'?' accepté, ferme pendant sa durée de validité':''}.`],
+    ['3. COMMANDE ET PAIEMENT', `3.1 Produits en stock : paiement intégral à la commande, sauf stipulation contraire.\n3.2 Produits sur commande : acompte de 50 % à la commande, solde exigible avant expédition. Les sommes versées constituent un acompte et non des arrhes : le client est engagé pour la totalité du prix.\n3.3 Paiement par virement bancaire, sans escompte pour paiement anticipé. Tout retard entraîne de plein droit, sans rappel, des pénalités au taux de refinancement de la BCE majoré de 10 points et une indemnité forfaitaire de 40 € pour frais de recouvrement (articles L. 441-10 et D. 441-5 du Code de commerce), sans préjudice d'une indemnisation complémentaire sur justificatifs. Le Vendeur peut suspendre toute commande ou livraison en cours jusqu'au paiement complet.`],
+    ['4. DÉLAIS', `Produits en stock : traitement indicatif sous 48 heures ouvrées, hors transport. Produits sur commande : délais communiqués à titre indicatif. Un retard ne peut justifier l'annulation de la commande qu'après mise en demeure restée sans effet pendant trente (30) jours ; il ne donne lieu à aucune pénalité ni indemnité, sauf accord écrit.`],
+    ['5. LIVRAISON ET TRANSFERT DES RISQUES', `Livraison à l'adresse indiquée par le client, au pied du camion sauf stipulation contraire. Le client garantit l'accessibilité du lieu de livraison. Les risques sont transférés au client dès la remise des marchandises au transporteur (article 1196 du Code civil).`],
+    ['6. RÉCEPTION ET RÉCLAMATIONS', `Le client vérifie les marchandises en présence du transporteur. Toute avarie ou manquant doit faire l'objet de réserves précises sur le bon de livraison, confirmées au transporteur par lettre recommandée dans les trois (3) jours suivant la réception (article L. 133-3 du Code de commerce), avec copie au Vendeur. Tout défaut de conformité apparent doit être notifié par écrit au Vendeur dans les 48 heures. À défaut, les produits sont réputés acceptés.`],
+    ['7. ANNULATION ET RETOURS', `7.1 Produits en stock : retour possible sous 14 jours à compter de la livraison, après accord écrit du Vendeur, pour des produits non utilisés et dans leur emballage d'origine. Frais de retour à la charge du client. Remboursement après réception et contrôle des produits.\n7.2 Produits sur commande : aucune annulation ni retour possible. En cas d'annulation, l'acompte reste acquis au Vendeur et le solde demeure exigible.`],
+    ['8. GARANTIE', `Garantie commerciale de deux (2) ans à compter de la livraison, couvrant les défauts de fabrication : réparation ou remplacement au choix du Vendeur. Sont exclus l'usure normale, la mauvaise utilisation, le défaut d'entretien et les variations naturelles du rotin (article 1.3). Cette garantie s'applique sans préjudice de la garantie légale des vices cachés (articles 1641 et suivants du Code civil).`],
+    ['9. RESPONSABILITÉ', `Sauf faute lourde ou dolosive, la responsabilité du Vendeur est limitée au montant HT de la commande concernée. Le Vendeur ne répond pas des dommages indirects (perte d'exploitation, de chiffre d'affaires ou de clientèle).`],
+    ['10. RÉSERVE DE PROPRIÉTÉ', `Les marchandises restent la propriété du Vendeur jusqu'au paiement intégral du prix en principal et accessoires (articles 2367 du Code civil et L. 624-16 du Code de commerce). À défaut de paiement, le Vendeur peut les revendiquer. Les risques restent à la charge du client conformément à l'article 5.`],
+    ['11. FORCE MAJEURE', `Le Vendeur ne saurait être tenu responsable d'un retard ou d'une inexécution résultant d'un cas de force majeure au sens de l'article 1218 du Code civil.`],
+    ['12. DONNÉES PERSONNELLES', `Les données des interlocuteurs du client sont traitées par le Vendeur pour la gestion de la relation commerciale, conformément au RGPD. Droits d'accès, de rectification et d'effacement : romeo@martingaleparis.fr.`],
+    ['13. DROIT APPLICABLE ET TRIBUNAL COMPÉTENT', `Les présentes CGV sont soumises au droit français. Tout litige relève de la compétence exclusive du Tribunal de commerce de Bayonne, y compris en cas de référé, d'appel en garantie ou de pluralité de défendeurs.`]
+  ];
+
   const prodDescs = {
     'rose-dragee':'Structure Rotin Malacca - Couleurs : Rose & Blanc\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
     'rouge-cerise':'Structure Rotin Malacca - Couleurs : Rouge & Fraise\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
@@ -4301,10 +4457,10 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     </div>
     <div>
       <div class="dest-label">Destinataire</div>
-      <div class="dest-name">${escapeHTML(contact||company)}</div>
-      ${company && company!==contact ? '<div class="dest-company">'+escapeHTML(company)+'</div>' : ''}
+      <div class="dest-name">${escapeHTML(getDocRecipient(contact, company).name)}</div>
+      ${getDocRecipient(contact, company).company ? '<div class="dest-company">'+escapeHTML(getDocRecipient(contact, company).company)+'</div>' : ''}
       ${addr ? '<div class="dest-addr">'+escapeHTML(addr)+'</div>' : ''}
-      ${livraison ? '<div class="dest-addr" style="font-style:italic">Livraison : '+escapeHTML(livraison)+'</div>' : ''}
+      ${livraison && !sameDocText(livraison, addr) ? '<div class="dest-addr" style="font-style:italic">Livraison : '+escapeHTML(livraison)+'</div>' : ''}
       ${isInvoice&&invoiceDetails.clientSiren?'<div class="dest-addr">SIREN client : '+escapeHTML(invoiceDetails.clientSiren)+'</div>':''}
       ${isInvoice&&invoiceDetails.clientVat?'<div class="dest-addr">TVA client : '+escapeHTML(invoiceDetails.clientVat)+'</div>':''}
       ${isInvoice&&invoiceDetails.purchaseOrder?'<div class="dest-addr">Bon de commande : '+escapeHTML(invoiceDetails.purchaseOrder)+'</div>':''}
@@ -4398,19 +4554,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
   <div class="cgv-title">Conditions Générales de Vente</div>
   <div class="cgv-sub">Annexe au ${typeLabel} N° ${docNum} — ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>
 
-  ${cgvBloc('PRÉAMBULE',cgvPreamble)}
-  ${cgvBloc('1. CHAMP D\'APPLICATION',cgvChampApplication)}
-  ${cgvBloc('2. PRIX',cgvPrix)}
-  ${cgvBloc('3. COMMANDE ET PAIEMENT',cgvCommandePaiement)}
-  ${cgvBloc('4. DÉLAIS','4.1 Produits en stock : Traitement indicatif sous 48 heures ouvrées, hors transport.\n4.2 Produits sur commande : Les délais sont communiqués à titre indicatif et ne constituent pas un engagement de résultat.')}
-  ${cgvBloc('5. LIVRAISON','La livraison s\'effectue à l\'adresse indiquée par le client. Sauf stipulation spécifique, elle est réalisée au pied du camion. Les risques sont transférés au client à la remise des marchandises au transporteur.')}
-  ${cgvBloc('6. RÉCEPTION ET RÉCLAMATIONS','Le client doit vérifier l\'état apparent des marchandises à réception. Toute réserve doit être inscrite sur le bon du transporteur et notifiée par écrit dans un délai de 48 heures. À défaut, les produits sont réputés acceptés.')}
-  ${cgvBloc('7. ANNULATION','7.1 Produits en stock : Retour possible sous 14 jours. Produits non utilisés et dans leur emballage d\'origine. Frais de retour à la charge du client.\n7.2 Produits sur commande : Aucune annulation ni retour possible. Commande ferme et définitive.')}
-  ${cgvBloc('8. RESPONSABILITÉ','La responsabilité du Vendeur est en toute hypothèse limitée au montant HT de la commande concernée.')}
-  ${cgvBloc('9. GARANTIE','Garantie commerciale de deux (2) ans couvrant les défauts de fabrication. Sont exclus : usure normale, mauvaise utilisation, défaut d\'entretien.')}
-  ${cgvBloc('10. RÉSERVE DE PROPRIÉTÉ','Les marchandises demeurent la propriété du Vendeur jusqu\'au paiement intégral du prix.')}
-  ${cgvBloc('11. FORCE MAJEURE','Le Vendeur ne saurait être tenu responsable en cas de force majeure au sens de l\'article 1218 du Code civil.')}
-  ${cgvBloc('12. DROIT APPLICABLE – TRIBUNAL COMPÉTENT','Les présentes CGV sont soumises au droit français. Tout litige relèvera de la compétence exclusive du Tribunal de commerce de Bayonne.')}
+  ${cgvSections.map(([t,c])=>cgvBloc(t,c)).join('\n  ')}
 
   <div class="footer-wrap">
     <div class="footer-line"></div>
