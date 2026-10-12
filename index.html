@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Martingale Paris — CRM</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&display=swap" rel="stylesheet">
+<title>Martingale CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 /* ── SUPABASE CONFIG ── remplace ces valeurs après avoir créé ton projet */
@@ -187,6 +188,259 @@ textarea{resize:vertical;line-height:1.6}
 .draft-amount{font-weight:600;color:var(--vert);font-size:13px}
 .draft-actions{display:flex;gap:4px;flex-wrap:wrap}
 .draft-pending{margin-top:10px;font-size:12px;color:#922B21;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* ════════════════ DESIGN 2026 : même identité que les documents ════════════════ */
+:root{
+  --vert:#4D5038; --vert-sombre:#2F311F; --vert-pale:#EEEDE4; --vert-moyen:#D4D1C4; --vert-clair:#8A8B6C;
+  --noir:#1F1F1A; --gris-f:#4A4A40; --gris-l:#8A8A7C; --border:#E3E0D6; --bg:#FBFAF7; --ligne:#ECE9E0;
+  --ok:#3F6B3A; --ok-bg:#E8EFE2; --warn:#B07A1F; --warn-bg:#F6EEDC; --late:#A33A2A; --late-bg:#F6E4E0;
+  --rouge:#A33A2A; --orange:#B07A1F; --vert-ok:#3F6B3A; --bleu:#4D5038;
+  --display:'Bricolage Grotesque','Helvetica Neue',Helvetica,Arial,sans-serif;
+}
+body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;background:var(--bg);color:var(--noir);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit}
+:focus-visible{outline:2px solid var(--vert);outline-offset:2px}
+
+/* Connexion */
+#login-screen{background:#F3F1EA}
+.login-card{border:1px solid var(--border);box-shadow:0 2px 24px rgba(31,31,26,.06)}
+.login-logo{font-family:var(--display);font-weight:500;letter-spacing:3px;color:var(--noir)}
+.login-btn{background:var(--vert)}.login-btn:hover{background:var(--vert-sombre)}
+
+/* Menu latéral */
+#nav{width:232px;background:#fff;border-right:1px solid var(--border);padding:22px 16px 16px;gap:18px}
+#nav-logo{padding:4px 8px 0;border:0}
+#nav-logo img{height:24px;width:auto;display:block}
+.nav-new{display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 14px;background:var(--vert);color:#F7F5F0;border:0;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer}
+.nav-new:hover{background:var(--vert-sombre)}
+.nav-search{position:relative;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--border);border-radius:8px;color:var(--gris-l)}
+.nav-search input{border:0;outline:none;background:transparent;padding:9px 0;font-size:14px;width:100%;color:var(--noir)}
+.nav-search:focus-within{border-color:var(--vert)}
+.gs-results{position:absolute;left:0;top:calc(100% + 6px);width:340px;max-width:calc(100vw - 32px);background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(31,31,26,.12);z-index:400;padding:6px;max-height:70vh;overflow:auto}
+.gs-group{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris-l);padding:8px 10px 4px}
+.gs-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:7px;cursor:pointer;color:var(--noir);font-size:14px}
+.gs-item span{font-size:12px;color:var(--gris-l)}
+.gs-item:hover,.gs-item:focus-visible{background:var(--vert-pale)}
+.gs-empty{padding:12px;color:var(--gris-l);font-size:13px}
+#nav-menu{padding:0;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav-item{width:100%;justify-content:space-between;padding:10px 12px;border:0;border-left:0;border-radius:8px;background:none;color:var(--gris-f);font-size:14px;font-weight:400;letter-spacing:0;text-transform:none;text-align:left}
+.nav-item:hover{background:#F5F4EE;color:var(--noir)}
+.nav-item.active{background:var(--vert-pale);color:var(--noir);font-weight:700;border-left:0}
+.nav-badge{background:var(--late);font-size:12px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:auto}
+#nav-footer{padding:0 12px;border:0;color:var(--gris-l);font-size:12px}
+.nav-user{color:var(--noir);font-weight:700;font-size:13px}
+.nav-mail{margin-top:2px;font-size:12px;overflow-wrap:anywhere}
+#logout-btn{background:none;border:0;color:var(--gris-l);padding:6px 0 0;width:auto;font-size:12px;text-decoration:underline}
+#logout-btn:hover{background:none;color:var(--noir)}
+#main{margin-left:232px}
+#mbar,#nav-scrim{display:none}
+
+/* En-têtes de page */
+.page-header{background:var(--bg);border-bottom:0;padding:32px 40px 8px;align-items:flex-end;position:static}
+.page-kicker{font-size:13px;color:var(--gris-l);margin-bottom:4px}
+.page-title{font-family:var(--display);font-size:32px;font-weight:500;line-height:1.1;color:var(--noir)}
+.page-subtitle{font-size:13px;color:var(--gris-l);margin-top:6px}
+.page-content{padding:20px 40px 48px}
+.subtabs{display:flex;gap:4px;margin-top:14px;flex-wrap:wrap}
+.subtabs button{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:#fff;border-radius:8px;padding:8px 14px;font-size:13px;color:var(--gris-f);cursor:pointer}
+.subtabs button.on{background:var(--vert-pale);color:var(--noir);font-weight:700;border-color:var(--vert-pale)}
+.subtabs button:not(.on):hover{border-color:var(--vert-moyen)}
+.subtab-n{font-weight:400;color:var(--gris-l);font-size:12px}
+
+/* Composants */
+.card,.metric,.table-wrap{border-color:var(--border);border-radius:10px}
+.card-title{font-size:12px;font-weight:700;letter-spacing:1px;color:var(--gris-l)}
+.metric-val{font-family:var(--display);font-weight:500;color:var(--noir)}
+th{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--gris-l);background:#fff;padding:12px 14px}
+td{border-bottom-color:var(--ligne);padding:12px 14px}
+tbody tr:hover td{background:#FAF9F5}
+.btn{border-radius:8px;font-size:13px;padding:8px 14px;color:var(--noir)}
+.btn:hover{background:#F5F4EE;border-color:var(--vert-moyen)}
+.btn-primary{background:var(--vert);border-color:var(--vert);color:#F7F5F0;font-weight:700}
+.btn-primary:hover{background:var(--vert-sombre);border-color:var(--vert-sombre)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:7px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.sort-btn{border-radius:8px;font-size:13px;padding:7px 12px}
+.sort-btn.active{background:var(--vert-pale);color:var(--noir);border-color:var(--vert-pale);font-weight:700}
+.tab.active{color:var(--noir);border-bottom-color:var(--vert);font-weight:700}
+.tab{font-size:13px}
+input,select,textarea{border-radius:8px;font-size:14px;padding:9px 12px}
+input:focus,select:focus,textarea:focus{border-color:var(--vert)}
+.modal{border-radius:12px}
+.modal-title{font-family:var(--display);font-size:22px;font-weight:500}
+#toast{background:var(--noir);border-radius:8px;font-size:13px}
+
+/* Trois couleurs d'état : fait, à faire, en retard */
+.badge{font-size:11px;font-weight:700;letter-spacing:0;padding:3px 9px}
+.b-won,.b-auto,.b-res,.b-attente{background:var(--ok-bg);color:var(--ok);border:0}
+.b-devis,.b-relance,.b-pre,.b-new{background:var(--warn-bg);color:#7A5413;border:0}
+.b-contact,.b-arc{background:var(--vert-pale);color:var(--gris-f);border:0}
+.b-lost,.b-cold{background:var(--late-bg);color:var(--late);border:0}
+.dot-r{background:var(--late)}.dot-o{background:var(--warn)}.dot-g{background:var(--ok)}
+.stock-bar-fill{background:var(--vert)}.stock-bar-fill.low{background:var(--late)}.stock-bar-fill.med{background:var(--warn)}
+
+/* Réglages : on ne garde que le catalogue (automatisations et modèles jamais branchés) */
+#ptab-auto,#ptab-tpl{display:none}
+
+/* Brouillons de facture */
+.drafts{background:var(--warn-bg);border-color:#E9D9B4}
+.drafts-title{font-family:var(--display);font-size:18px;font-weight:500}
+.drafts-sub{color:#7A5413;font-size:13px}
+.draft-row{border-color:#EDE2C8}
+.draft-meta{font-size:12px;color:var(--gris-l)}
+.draft-amount{color:var(--noir);font-size:14px}
+
+/* ════════════════ NOUVEAU DEVIS : formulaire à gauche, aperçu à droite ════════════════ */
+body.nd-open{overflow:hidden}
+.nd{position:fixed;inset:0;z-index:600;background:var(--bg);overflow-y:auto;display:flex;flex-direction:column}
+.nd-head{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:14px 32px;background:#fff;border-bottom:1px solid var(--border)}
+.nd-head-l{display:flex;align-items:center;gap:18px;min-width:0}
+.nd-head-r{display:flex;gap:8px;flex-wrap:wrap}
+.nd-back{border:0;background:none;color:var(--gris-l);font-size:13px;cursor:pointer;padding:6px 0}
+.nd-back:hover{color:var(--noir)}
+.nd-title{margin:0;font-family:var(--display);font-size:22px;font-weight:500;line-height:1.15}
+.nd-subtitle{font-size:12px;color:var(--gris-l);margin-top:2px}
+.nd-cta{padding:10px 18px;font-size:14px}
+.nd-body{display:flex;flex-wrap:wrap;gap:32px;padding:26px 32px 60px;align-items:flex-start;max-width:1320px;width:100%;margin:0 auto}
+.nd-form{flex:999 1 520px;min-width:0;max-width:760px;display:flex;flex-direction:column;gap:18px}
+.nd-side{flex:1 1 360px;min-width:0;max-width:470px;display:flex;flex-direction:column;gap:14px;position:sticky;top:84px}
+.nd-types{display:flex;gap:6px;flex-wrap:wrap}
+.nd-types .doc-type-btn{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;padding:9px 14px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:14px;color:var(--gris-f);text-align:left}
+.nd-types .doc-type-btn small{font-size:11px;color:var(--gris-l)}
+.nd-types .doc-type-btn.on{background:var(--vert);border-color:var(--vert);color:#F7F5F0;font-weight:700}
+.nd-types .doc-type-btn.on small{color:#D9D8C6}
+.nd-hint{font-size:12px;color:var(--gris-l);margin-top:-8px}
+.nd-card{margin:0;padding:18px 20px 20px;border:1px solid var(--border);border-radius:10px;background:#fff;display:flex;flex-direction:column;gap:12px;min-width:0}
+.nd-card legend{padding:0 6px;font-weight:700;font-size:14px;color:var(--noir)}
+.nd-lab{font-size:12px;color:var(--gris-l)}
+.nd-f{display:flex;flex-direction:column;gap:5px;min-width:0}
+.nd-f>span:first-child{font-size:12px;color:var(--gris-l)}
+.nd-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.nd-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.nd-gap{gap:18px}
+.nd-span2{grid-column:1/-1}
+.nd-stack{display:flex;flex-direction:column;gap:12px}
+.nd-sub{display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#F7F6F1;border-radius:8px}
+.nd-check{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--gris-f);cursor:pointer}
+.nd-check input{width:18px;height:18px;padding:0;accent-color:var(--vert);flex:none}
+.nd-inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--gris-f)}
+.nd-note{font-size:12px;color:var(--gris-l)}
+.nd-ok{font-size:12px;color:var(--ok);background:var(--ok-bg);border-radius:7px;padding:8px 10px;font-weight:700}
+.nd-minus{color:var(--vert);font-weight:700}
+.nd-seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+.nd-seg label{flex:1 1 auto;display:flex;cursor:pointer}
+.nd-seg input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.nd-seg label span{flex:1;text-align:center;padding:9px 10px;font-size:13px;color:var(--gris-f)}
+.nd-seg input:checked+span{background:var(--vert);color:#F7F5F0;font-weight:700}
+.nd-seg input:focus-visible+span{outline:2px solid var(--vert);outline-offset:-2px}
+.nd-seg-btn button{flex:1 1 auto;border:0;background:#fff;padding:9px 10px;font-size:13px;color:var(--gris-f);cursor:pointer}
+.nd-seg-btn button+button{border-left:1px solid var(--border)}
+.nd-seg-btn button.on{background:var(--vert-pale);color:var(--noir);font-weight:700}
+.nd-lines-head,.nd-line{display:grid;grid-template-columns:40px minmax(0,1fr) 72px 92px 96px 28px;gap:10px;align-items:center}
+.nd-lines-head{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris-l)}
+.nd-lines-head span:nth-child(5){text-align:right}
+#dg-lignes{display:flex;flex-direction:column;gap:8px}
+.nd-thumb{width:40px;height:60px;border-radius:4px;background:#ECE9E0;overflow:hidden}
+.nd-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.nd-line select{padding:9px 10px;font-size:14px}
+.nd-line .nd-num{text-align:center;padding:9px 6px}
+.nd-line .nd-inline .nd-num{width:62px}
+.nd-line-total{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.nd-line-total.is-disc{color:var(--vert)}
+.nd-del{border:0;background:none;cursor:pointer;color:var(--gris-l);font-size:20px;line-height:1;padding:0;width:28px;height:28px;border-radius:6px}
+.nd-del:hover:not(:disabled){color:var(--late);background:var(--late-bg)}
+.nd-del:disabled{opacity:.25;cursor:default}
+.nd-add{align-self:flex-start;border:1px dashed #B8B4A6;background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer;color:var(--noir)}
+.nd-add:hover{border-color:var(--vert)}
+.nd-side-label{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris-l)}
+.nd-preview{position:relative;width:100%;aspect-ratio:210/297;background:#fff;box-shadow:0 2px 16px rgba(31,31,26,.12);overflow:hidden}
+.nd-preview iframe{position:absolute;top:0;left:0;width:794px;height:1123px;border:0;transform-origin:0 0;background:#fff;pointer-events:none}
+.nd-preview-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:13px;color:var(--gris-l);background:#fff;z-index:1}
+.nd-totals{display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:#fff;border:1px solid var(--border);border-radius:10px;font-size:14px}
+.nd-tl{display:flex;justify-content:space-between;gap:12px;color:var(--gris-f);font-variant-numeric:tabular-nums}
+.nd-tl span:first-child{color:var(--gris-l)}
+.nd-tt{font-weight:700;font-size:16px;color:var(--noir);padding-top:8px;margin-top:2px;border-top:1px solid var(--ligne)}
+.nd-tt span:first-child{color:var(--noir)}
+.nd-acompte{color:var(--warn);font-weight:700}
+.nd-fx{color:var(--vert);font-weight:700;border-top:1px dashed var(--border);padding-top:6px}
+.nd [disabled]{opacity:.6}
+#dg-company-search input{width:100%}
+
+
+::placeholder{color:#B3B0A3;opacity:1}
+/* Clients : 7 colonnes utiles au lieu de 11 (profil, quantité, budget et score jamais remplis) */
+#s-prospects table th:nth-child(2),#s-prospects table td:nth-child(2),
+#s-prospects table th:nth-child(5),#s-prospects table td:nth-child(5),
+#s-prospects table th:nth-child(6),#s-prospects table td:nth-child(6),
+#s-prospects table th:nth-child(7),#s-prospects table td:nth-child(7){display:none}
+#filter-profil{display:none}
+.nd-pages{font-size:12px;color:var(--gris-l);margin-top:-6px}
+/* Aujourd'hui */
+.td-chips{display:flex;gap:8px;flex-wrap:wrap}
+.td-chip{padding:6px 12px;border-radius:999px;background:#fff;border:1px solid var(--border);font-size:13px}
+.td-wrap{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.td-main{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:26px}
+.td-side{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:16px}
+.td-sec{display:flex;flex-direction:column;gap:10px}
+.td-sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.td-sec-h h2{margin:0;font-family:var(--display);font-size:19px;font-weight:500}
+.td-sec-h span{font-size:13px;color:var(--gris-l)}
+.td-list{background:#fff;border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column}
+.td-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) 120px 270px;gap:16px;align-items:center;padding:13px 18px;border-bottom:1px solid var(--ligne)}
+.td-row:last-child{border-bottom:0}
+.td-who{display:flex;flex-direction:column;gap:2px;min-width:0;border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--noir);font-size:14px}
+.td-who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-who span{font-size:13px;color:var(--gris-l);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-who:hover b{text-decoration:underline}
+.td-what{font-size:13px;color:var(--gris-f);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.td-amount{font-weight:700;color:var(--noir);font-variant-numeric:tabular-nums}
+.td-when{font-size:13px;color:var(--gris-l)}
+.td-when.is-warn{color:var(--warn);font-weight:700}
+.td-when.is-late{color:var(--late);font-weight:700}
+.td-act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.td-act a.btn{text-decoration:none;display:inline-flex;align-items:center}
+.td-ok{border-color:var(--ok);color:var(--ok);font-weight:700}
+.td-ok:hover{background:var(--ok-bg);border-color:var(--ok)}
+.td-more{border:0;background:none;text-align:left;padding:12px 18px;font-size:13px;font-weight:700;color:var(--vert);cursor:pointer;border-top:1px solid var(--ligne)}
+.td-empty{padding:28px;background:#fff;border:1px solid var(--border);border-radius:10px;color:var(--gris-l)}
+.td-card{display:flex;flex-direction:column;gap:12px;padding:20px;background:#fff;border:1px solid var(--border);border-radius:10px}
+.td-soft{background:#F3F1EA;border-color:#F3F1EA;gap:8px;font-size:13px;color:var(--gris-f)}
+.td-cap{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris-l)}
+.td-big{font-family:var(--display);font-size:30px;font-weight:500;font-variant-numeric:tabular-nums}
+.td-mute{font-size:12px;color:var(--gris-l);display:block}
+.td-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-top:12px;border-top:1px solid var(--ligne)}
+.td-2 b{font-size:18px}
+.td-link{border:0;background:none;padding:0;text-align:left;font-size:13px;font-weight:700;color:var(--vert);cursor:pointer}
+@media(max-width:900px){
+  .td-row{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
+  .td-what{grid-column:1/2}
+  .td-when{grid-column:2/3;grid-row:1/2;text-align:right}
+  .td-act{grid-column:1/-1;justify-content:flex-start}
+}
+/* ════════════════ Mobile ════════════════ */
+@media(max-width:900px){
+  body.app-on #mbar{display:flex;position:sticky;top:0;z-index:150;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--border)}
+  #mbar-menu{border:1px solid var(--border);background:#fff;border-radius:8px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--noir)}
+  .mbar-logo{height:20px;width:auto}
+  #nav{width:min(280px,86vw);transform:translateX(-100%);transition:transform .2s;z-index:300;box-shadow:0 0 40px rgba(31,31,26,.15)}
+  body.nav-open #nav{transform:none}
+  body.nav-open #nav-scrim{display:block;position:fixed;inset:0;background:rgba(31,31,26,.35);z-index:250}
+  #main{margin-left:0}
+  .page-header{padding:20px 16px 4px}
+  .page-title{font-size:26px}
+  .page-content{padding:16px 16px 40px}
+  .grid-2,.grid-3{grid-template-columns:minmax(0,1fr)}
+  .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .nd-head{padding:10px 16px}
+  .nd-body{padding:16px 16px 48px;gap:20px}
+  .nd-side{position:static;max-width:none}
+  .nd-grid2,.nd-grid3{grid-template-columns:minmax(0,1fr)}
+  .nd-lines-head{display:none}
+  .nd-line{grid-template-columns:40px minmax(0,1fr) 64px 28px;row-gap:6px}
+  .nd-line .nd-inline{grid-column:2/3}
+  .nd-line-total{grid-column:3/5}
+  #conn-status{display:none!important}
+}
+@media(prefers-reduced-motion:reduce){#nav{transition:none}}
 </style>
 <!-- PDF.js loaded on demand -->
 </head>
@@ -218,46 +472,31 @@ textarea{resize:vertical;line-height:1.6}
 <!-- ════════════════════════════════════════════════════════
      APP
      ════════════════════════════════════════════════════════ -->
-<nav id="nav" style="display:none">
-  <div id="nav-logo">
-    <h1>MARTINGALE</h1>
-    <p>Paris — CRM v2.0</p>
+<header id="mbar">
+  <button type="button" id="mbar-menu" aria-label="Ouvrir le menu" aria-controls="nav" aria-expanded="false" onclick="toggleNav()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <img class="mbar-logo" data-logo alt="MARTINGALE">
+  <button type="button" class="btn btn-primary btn-sm" onclick="openDocGenerator(null)">+ Devis</button>
+</header>
+<div id="nav-scrim" onclick="toggleNav(false)"></div>
+<nav id="nav" style="display:none" aria-label="Menu principal">
+  <div id="nav-logo"><img data-logo alt="MARTINGALE"></div>
+  <button type="button" class="nav-new" onclick="toggleNav(false);openDocGenerator(null)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Nouveau devis</button>
+  <div class="nav-search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input type="search" id="global-search" placeholder="Rechercher" aria-label="Rechercher un client ou un document" autocomplete="off" oninput="globalSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';globalSearch('')}">
+    <div id="global-search-results" class="gs-results" role="listbox" hidden></div>
   </div>
   <div id="nav-menu">
-    <div class="nav-item active" onclick="go('morning')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
-      Dashboard <span class="nav-badge" id="badge-morning">0</span>
-    </div>
-    <div class="nav-item" onclick="go('prospects')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-      Prospects
-    </div>
-    <div class="nav-item" onclick="go('devis')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Devis <span class="nav-badge" id="badge-devis" style="display:none">0</span>
-    </div>
-    <div class="nav-item" onclick="go('commandes')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-      Commandes <span class="nav-badge" id="badge-commandes" style="display:none">0</span>
-    </div>
-    <div class="nav-item" onclick="go('stock')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>
-      Stock
-    </div>
-
-    <div class="nav-item" onclick="go('port')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-      Frais de port
-    </div>
-    <div class="nav-item" onclick="go('params')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-      Paramètres
-    </div>
+    <button type="button" class="nav-item active" data-screens="morning" onclick="go('morning')">Aujourd’hui <span class="nav-badge" id="badge-morning">0</span></button>
+    <button type="button" class="nav-item" data-screens="prospects fiche" onclick="go('prospects')">Clients</button>
+    <button type="button" class="nav-item" data-screens="devis commandes documents" onclick="go('devis')">Affaires <span class="nav-badge" id="badge-devis" style="display:none">0</span></button>
+    <button type="button" class="nav-item" data-screens="stock" onclick="go('stock')">Stock</button>
+    <button type="button" class="nav-item" data-screens="params port" onclick="go('params')">Réglages</button>
   </div>
   <div id="nav-footer">
-    <div style="font-weight:600;color:#fff;font-size:11px" id="nav-user-name">—</div>
-    <div style="margin-top:2px;font-size:10px" id="nav-user-email">—</div>
-    <button id="logout-btn" onclick="doLogout()">↩ Se déconnecter</button>
+    <div class="nav-user" id="nav-user-name">—</div>
+    <div class="nav-mail" id="nav-user-email">—</div>
+    <button id="logout-btn" onclick="doLogout()">Se déconnecter</button>
   </div>
 </nav>
 
@@ -312,6 +551,20 @@ textarea{resize:vertical;line-height:1.6}
 
 <main id="main" style="display:none">
 <div id="s-morning" class="screen active">
+  <div class="page-header">
+    <div>
+      <div class="page-kicker" id="td-date"></div>
+      <div class="page-title" id="td-title">Aujourd’hui</div>
+    </div>
+    <div class="td-chips" id="td-chips"></div>
+  </div>
+  <div class="page-content">
+    <div class="td-wrap">
+      <div class="td-main" id="td-main"></div>
+      <aside class="td-side" id="td-side"></aside>
+    </div>
+    <!-- Ancien tableau de bord, conservé masqué le temps de la transition (fonctions existantes) -->
+    <div id="legacy-dashboard" hidden>
   <div class="page-header">
     <div>
       <div style="display:flex;align-items:center;gap:14px">
@@ -396,12 +649,15 @@ textarea{resize:vertical;line-height:1.6}
     </div>
 
   </div>
+
+    </div>
+  </div>
 </div>
 
 <div id="s-prospects" class="screen">
   <div class="page-header">
     <div>
-      <div class="page-title">Prospects</div>
+      <div class="page-title">Clients</div>
       <div class="page-subtitle" id="prospects-count">0 prospect</div>
     </div>
     <button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button>
@@ -538,8 +794,9 @@ textarea{resize:vertical;line-height:1.6}
 <div id="s-devis" class="screen">
   <div class="page-header">
     <div>
-      <div class="page-title">Devis</div>
-      <div class="page-subtitle" id="devis-count">0 devis</div>
+      <div class="page-kicker">Du devis à la livraison</div>
+      <div class="page-title">Affaires</div>
+      <div class="subtabs" role="tablist"><button type="button" class="on" role="tab" aria-selected="true">Devis et factures <span class="subtab-n" id="devis-count">0 devis</span></button><button type="button" role="tab" aria-selected="false" onclick="go('commandes')">Commandes <span class="nav-badge" id="badge-commandes" style="display:none">0</span></button></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="syncPennylanePayments()" title="Relire dans Pennylane les factures payées">Paiements Pennylane</button>
@@ -577,8 +834,9 @@ textarea{resize:vertical;line-height:1.6}
 <div id="s-commandes" class="screen">
   <div class="page-header">
     <div>
-      <div class="page-title">Commandes</div>
-      <div class="page-subtitle" id="commandes-count">0 commande</div>
+      <div class="page-kicker">Du devis à la livraison</div>
+      <div class="page-title">Affaires</div>
+      <div class="subtabs" role="tablist"><button type="button" role="tab" aria-selected="false" onclick="go('devis')">Devis et factures</button><button type="button" class="on" role="tab" aria-selected="true">Commandes <span class="subtab-n" id="commandes-count">0 commande</span></button></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <input type="text" id="cmd-search" placeholder="Rechercher..." style="width:180px" oninput="renderCommandes()">
@@ -631,8 +889,11 @@ textarea{resize:vertical;line-height:1.6}
 
 <div id="s-port" class="screen">
   <div class="page-header">
-    <div class="page-title">Calculateur de frais de port</div>
-    <div class="page-subtitle">Grille Coquelle-Lotrex 2026 · Départ 77 (Servon) · Palettes de 12 chaises</div>
+    <div>
+    <div class="page-title">Réglages</div>
+    <div class="subtabs" role="tablist"><button type="button" role="tab" aria-selected="false" onclick="go('params')">Catalogue et prix</button><button type="button" class="on" role="tab" aria-selected="true">Transport</button></div>
+    <div class="page-subtitle">Grille Coquelle-Lotrex 2026 · départ Servon (77) · palettes de 12 chaises</div>
+    </div>
   </div>
   <div class="page-content">
     <div class="grid-2">
@@ -711,8 +972,10 @@ textarea{resize:vertical;line-height:1.6}
 <!-- ══════════════════════════════════════════════════════ STOCK -->
 <div id="s-stock" class="screen">
   <div class="page-header">
-    <div class="page-title">Gestion du stock</div>
-    <div class="page-subtitle">Entrepôt Waresito/Coquelle — Servon (77) · 600 chaises/conteneur</div>
+    <div>
+    <div class="page-title">Stock</div>
+    <div class="page-subtitle">Entrepôt Waresito / Coquelle, Servon (77) · 600 chaises par conteneur</div>
+    </div>
   </div>
   <div class="page-content">
     <div class="tabs">
@@ -761,7 +1024,10 @@ textarea{resize:vertical;line-height:1.6}
 <!-- ══════════════════════════════════════════════════════ PARAMÈTRES -->
 <div id="s-params" class="screen">
   <div class="page-header">
-    <div class="page-title">Paramètres</div>
+    <div>
+    <div class="page-title">Réglages</div>
+    <div class="subtabs" role="tablist"><button type="button" class="on" role="tab" aria-selected="true">Catalogue et prix</button><button type="button" role="tab" aria-selected="false" onclick="go('port')">Transport</button></div>
+    </div>
   </div>
   <div class="page-content">
     <div class="tabs">
@@ -1094,10 +1360,7 @@ function selectDocLocale(code){
   if(hidden) hidden.value = locale.code;
   document.querySelectorAll('.doc-locale-btn').forEach(b=>{
     const on = b.dataset.locale === locale.code;
-    b.style.border = on ? '2px solid #403F21' : '2px solid #E0DFD5';
-    b.style.background = on ? '#F5F5EE' : '#fff';
-    b.style.color = on ? '#403F21' : '#555';
-    b.style.fontWeight = on ? '600' : '500';
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   const fxBox = document.getElementById('dg-fx-box');
   if(fxBox) fxBox.style.display = locale.currency === 'EUR' ? 'none' : 'flex';
@@ -1235,6 +1498,7 @@ async function initAuth(){
 
 function showLogin(){
   currentUser=null;
+  document.body.classList.remove('app-on');
   window.CrmDocuments?.reset();
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('nav').style.display='none';
@@ -1243,6 +1507,7 @@ function showLogin(){
 }
 
 function showApp(user){
+  document.body.classList.add('app-on');
   window.CrmDocuments?.resumePending();
   setTimeout(()=>syncPennylanePayments({silent:true}).catch(()=>{}),4000);
   document.getElementById('login-screen').classList.add('hidden');
@@ -1530,23 +1795,71 @@ function calcProspectHT(p){
   return p.produits.reduce((sum,i)=>{const pr=resolveProspectProduct(i);return sum+(pr?pr.price*i.qty:0);},0);
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// NAVIGATION 2026 : menu mobile, recherche globale, logo
+// ══════════════════════════════════════════════════════════════
+function toggleNav(force){
+  const open = typeof force==='boolean' ? force : !document.body.classList.contains('nav-open');
+  document.body.classList.toggle('nav-open', open);
+  document.getElementById('mbar-menu')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function globalSearch(q){
+  const box=document.getElementById('global-search-results');
+  if(!box) return;
+  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const t=norm(q).trim();
+  if(t.length<2){ box.hidden=true; box.innerHTML=''; return; }
+  const pr=(typeof prospects!=='undefined'?prospects:[]).filter(p=>norm([p.name,p.contact,p.email,p.tel,p.ville].join(' ')).includes(t)).slice(0,6);
+  const seen=new Set();
+  const docs=[...(typeof devisList!=='undefined'?devisList:[]),...(typeof docHistory!=='undefined'?docHistory:[])]
+    .filter(d=>d.num&&!seen.has(d.num)&&seen.add(d.num))
+    .filter(d=>norm([d.num,d.company,d.clientName,d.contact].join(' ')).includes(t)).slice(0,6);
+  if(!pr.length&&!docs.length){ box.innerHTML='<div class="gs-empty">Aucun résultat</div>'; box.hidden=false; return; }
+  box.innerHTML=(pr.length?'<div class="gs-group">Clients</div>'+pr.map(p=>`<button type="button" class="gs-item" onclick="pickSearchResult('p','${escapeHTML(p.id)}')"><b>${escapeHTML(p.name||p.contact||'Sans nom')}</b><span>${escapeHTML([p.contact,p.ville||p.dept,p.statut].filter(Boolean).join(' · '))}</span></button>`).join(''):'')
+    +(docs.length?'<div class="gs-group">Documents</div>'+docs.map(d=>`<button type="button" class="gs-item" onclick="pickSearchResult('d','${escapeHTML(d.id||d.num)}')"><b>${escapeHTML(d.num)}</b><span>${escapeHTML(getDocClientLabel(d)||'')} · ${formatDocMoney(d.ttc)} · ${escapeHTML(d.statut||'')}</span></button>`).join(''):'');
+  box.hidden=false;
+}
+
+function pickSearchResult(kind,id){
+  const input=document.getElementById('global-search'); if(input) input.value='';
+  globalSearch('');
+  if(kind==='p'){ openFiche(id); return; }
+  const d=findQuoteRecord(id);
+  if(d?.prospectId && prospects.some(p=>p.id===d.prospectId)){ openFiche(d.prospectId); return; }
+  go('devis');
+}
+
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.nav-search')){ const b=document.getElementById('global-search-results'); if(b) b.hidden=true; }
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && document.body.classList.contains('nav-open')) toggleNav(false);
+});
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('img[data-logo]').forEach(i=>{ i.src=DOC_LOGO_B64; });
+});
+
 // ══════════════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function go(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   const screen=document.getElementById('s-'+id);
   if(screen)screen.classList.add('active');
-  const navMap={morning:0,prospects:1,devis:2,commandes:3,stock:4,port:5,params:6,documents:7};
-  const ni=navMap[id];
-  if(ni!==undefined)document.querySelectorAll('.nav-item')[ni].classList.add('active');
-  if(id==='fiche'||id==='prospects')document.querySelectorAll('.nav-item')[1].classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    const on=(n.dataset.screens||'').split(' ').includes(id);
+    n.classList.toggle('active',on);
+    if(on) n.setAttribute('aria-current','page'); else n.removeAttribute('aria-current');
+  });
+  toggleNav(false);
+  window.scrollTo(0,0);
   if(id==='prospects')renderProspects();
   if(id==='morning')renderDashboard();
   if(id==='port'){renderGrilleExamples();}
   if(id==='stock')renderStock();
-  if(id==='params')renderCatalogue();
+  if(id==='params'){ renderCatalogue(); try{ paramTab('produits'); }catch(e){} }
   if(id==='devis'){renderDevisList();}
   if(id==='commandes'){renderCommandes();}
   if(id==='documents')window.CrmDocuments?.refresh();
@@ -3418,7 +3731,49 @@ function mapSupabaseDocument(row){
   });
 }
 
+function closeDocGenerator(){
+  document.getElementById('doc-generator-overlay')?.remove();
+  document.body.classList.remove('nd-open');
+  dgEditingDraft = null;
+}
+
+// ── Aperçu en direct du PDF dans le générateur
+let dgPreviewTimer = null;
+function scheduleGeneratorPreview(){
+  clearTimeout(dgPreviewTimer);
+  dgPreviewTimer = setTimeout(renderGeneratorPreview, 280);
+}
+function renderGeneratorPreview(){
+  const frame = document.getElementById('dg-preview-frame');
+  const msg = document.getElementById('dg-preview-msg');
+  if(!frame || !msg) return;
+  let G;
+  const ymd = new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Paris'}).slice(2).replace(/-/g,'');
+  try { G = computeGeneratorDoc({numOverride:'DEV-'+ymd+'-…'}); } catch(e){ G = {error: e.message}; }
+  if(G.error){
+    msg.textContent = G.error; msg.style.display = 'flex'; frame.style.visibility = 'hidden';
+    return;
+  }
+  msg.style.display = 'none'; frame.style.visibility = 'visible';
+  let html = G.docHTML.replace(/<script>\s*window\.print\(\)[\s\S]*?<\/script>/g,'');
+  if(G.isInvoice) html = draftPreviewHtml(html);
+  const box = document.getElementById('dg-preview');
+  frame.onload = () => {
+    try{
+      const d = frame.contentDocument;
+      const scale = box.clientWidth / 794;
+      frame.style.transform = 'scale('+scale+')';
+      frame.style.height = d.documentElement.scrollHeight+'px';
+      const n = d.querySelectorAll('.page').length;
+      const info = document.getElementById('dg-preview-pages');
+      if(info) info.textContent = n>1 ? 'Page 1 sur '+n+'. Les conditions générales suivent.' : '';
+    }catch(e){}
+  };
+  frame.srcdoc = html;
+}
+
 function closeDocGeneratorAndReturnToDevis(){
+  document.body.classList.remove('nd-open');
   const genOverlay = document.getElementById('doc-generator-overlay');
   if(genOverlay) genOverlay.remove();
   else document.querySelectorAll('[style*="z-index"]').forEach(node=>{
@@ -3478,7 +3833,8 @@ function openDocGenerator(prospectId){
   
   const overlay = document.createElement('div');
   overlay.id = 'doc-generator-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px';
+  overlay.className = 'nd';
+  overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-labelledby','dg-title');
   
   const prodOpts = PRODUCTS.map(pr=>`<option value="${pr.id}">${pr.name} — ${pr.price}€</option>`).join('');
   
@@ -3488,231 +3844,164 @@ function openDocGenerator(prospectId){
   const defaultQty = firstProd?.qty || p?.qty || 1;
   
   overlay.innerHTML = `
-    <div style="background:#fff;border-radius:14px;width:680px;max-width:98vw;max-height:95vh;overflow-y:auto;display:flex;flex-direction:column">
-      <div style="padding:22px 28px 18px;border-bottom:1px solid #E0DFD5;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+    <header class="nd-head">
+      <div class="nd-head-l">
+        <button type="button" class="nd-back" onclick="closeDocGenerator()">← Annuler</button>
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1A1A1A">Créer un document</div>
-	          <div id="dg-subtitle" style="font-size:11px;color:#999;margin-top:2px">Devis</div>
+          <h1 class="nd-title" id="dg-title">Nouveau devis</h1>
+          <div id="dg-subtitle" class="nd-subtitle">Devis</div>
         </div>
-        <button onclick="this.closest('[style*=fixed]').remove()" style="border:none;background:none;cursor:pointer;font-size:22px;color:#999;padding:0 4px;line-height:1">×</button>
       </div>
-      
-      <div style="padding:22px 28px;flex:1;overflow-y:auto">
+      <div class="nd-head-r">
+        <button id="dg-resume-invoice" onclick="resumeInvoiceIssuance()" style="display:${readPendingInvoice()?'block':'none'}" class="btn">Reprendre la facture en attente</button>
+        <button id="dg-generate" class="btn btn-primary nd-cta" onclick="generateAndPrint()">Générer le PDF</button>
+      </div>
+    </header>
+
+    <div class="nd-body">
+      <div class="nd-form">
         <!-- TYPE DE DOCUMENT -->
-	        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px">
-	          <button class="doc-type-btn active" data-type="DEV" onclick="selectDocType(this,'DEV')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #403F21;border-radius:9px;background:#F5F5EE;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;color:#403F21">
-	            Devis
-	          </button>
-	          <button class="doc-type-btn" data-type="FAC" onclick="selectDocType(this,'FAC')" style="display:none;flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture d'acompte<br><span style="font-size:10px;font-weight:400">% de la commande</span>
-	          </button>
-	          <button class="doc-type-btn" data-type="FDF" onclick="selectDocType(this,'FDF')" style="display:none;flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture<br><span style="font-size:10px;font-weight:400">Vente conclue, acomptes déduits</span>
-	          </button>
-	          <button class="doc-type-btn" data-type="FDF" data-direct="1" onclick="selectDocType(this,'FDF')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture directe<br><span style="font-size:10px;font-weight:400">Vente site ou comptoir, sans devis</span>
-	          </button>
-	          <div id="dg-invoice-hint" style="flex:1 1 100%;font-size:11px;color:#888">Vente issue d'un devis : passe plutôt par l'onglet Devis, bouton « Facturer », pour que tout soit repris et le devis scellé.</div>
-	        </div>
+        <div class="nd-types" role="group" aria-label="Type de document">
+          <button type="button" class="doc-type-btn on" data-type="DEV" onclick="selectDocType(this,'DEV')">Devis</button>
+          <button type="button" class="doc-type-btn" data-type="FAC" onclick="selectDocType(this,'FAC')" style="display:none">Facture d’acompte<small>% de la commande</small></button>
+          <button type="button" class="doc-type-btn" data-type="FDF" onclick="selectDocType(this,'FDF')" style="display:none">Facture<small>acomptes déduits</small></button>
+          <button type="button" class="doc-type-btn" data-type="FDF" data-direct="1" onclick="selectDocType(this,'FDF')">Facture directe<small>vente sans devis</small></button>
+        </div>
+        <div id="dg-invoice-hint" class="nd-hint">Vente issue d’un devis : passe plutôt par Affaires, bouton « Facturer », pour que tout soit repris et le devis scellé.</div>
         <input type="hidden" id="dg-type" value="DEV">
         <input type="hidden" id="dg-prospect-id" value="${p?.id||''}">
 
-        <!-- LANGUE & DEVISE (devis uniquement) -->
-        <div id="dg-locale-box" style="margin-bottom:20px">
-          <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Langue & devise du devis</label>
-          <input type="hidden" id="dg-locale" value="FR">
-          <div style="display:flex;gap:8px">
-            ${Object.values(DOC_LOCALES).map(l=>`<button type="button" class="doc-locale-btn" data-locale="${l.code}" onclick="selectDocLocale('${l.code}')" style="flex:1;padding:10px 8px;border:2px solid ${l.code==='FR'?'#403F21':'#E0DFD5'};border-radius:9px;background:${l.code==='FR'?'#F5F5EE':'#fff'};cursor:pointer;font-size:13px;font-weight:${l.code==='FR'?'600':'500'};font-family:inherit;color:${l.code==='FR'?'#403F21':'#555'}">${l.flag} ${l.label}<br><span style="font-size:10px;font-weight:400">${l.code==='FR'?'Français':l.code==='US'?'English (US)':'English (UK)'}</span></button>`).join('')}
+        <!-- CLIENT -->
+        <fieldset class="nd-card">
+          <legend>Client</legend>
+          <label class="nd-lab" for="dg-prospect-sel">Client existant</label>
+          <select id="dg-prospect-sel" onchange="prefillFromProspect(this.value)">
+            <option value="">Choisir un client du CRM</option>
+          </select>
+          <span class="nd-lab">Ou chercher dans l’annuaire des entreprises (remplit adresse, SIREN, TVA)</span>
+          <div id="dg-company-search"></div>
+          <div class="nd-grid2">
+            <label class="nd-f"><span>Société</span><input type="text" id="dg-company" value="${escapeHTML(p?.name||'')}" placeholder="SAS Le Comptoir"></label>
+            <label class="nd-f"><span>Contact</span><input type="text" id="dg-contact" value="${escapeHTML(p?.contact||'')}" placeholder="Prénom Nom"></label>
+            <label class="nd-f"><span>Téléphone</span><input type="tel" id="dg-tel" value="${escapeHTML(p?.tel||'')}" placeholder="06 12 34 56 78"></label>
+            <label class="nd-f"><span>Email</span><input type="email" id="dg-email" value="${escapeHTML(p?.email||'')}" placeholder="contact@restaurant.fr"></label>
+            <label class="nd-f nd-span2"><span>Adresse de facturation</span><input type="text" id="dg-addr" value="" placeholder="55 avenue Ledru-Rollin, 75012 Paris"></label>
+            <label class="nd-f nd-span2"><span>Adresse de livraison, si différente</span><input type="text" id="dg-livraison" placeholder="27 rue du Faubourg du Temple, 75010 Paris"></label>
           </div>
-          <div id="dg-fx-box" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <span style="font-size:12px;color:#555">1 € =</span>
-            <input type="text" id="dg-fx-rate" inputmode="decimal" oninput="this.dataset.manual='1';updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;width:100px">
-            <span id="dg-fx-unit" style="font-size:12px;color:#555">USD</span>
-            <button type="button" onclick="refreshDocFxField(true)" style="padding:5px 10px;border:1px solid #403F21;border-radius:5px;background:transparent;color:#403F21;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Taux du jour</button>
-            <span id="dg-fx-info" style="font-size:11px;color:#2980B9"></span>
-          </div>
-          <div id="dg-us-box" style="display:none;margin-top:12px;background:#F7F6EF;border:1px solid #E0DFD5;border-radius:9px;padding:12px 14px">
-            <div style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Droits &amp; taxes US</div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Droits de douane (%)
-                <input type="text" id="dg-us-duty" value="10" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-              </label>
-              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Dédouanement (€)
-                <input type="text" id="dg-us-clearance" value="" placeholder="0" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-              </label>
-              <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Sales tax État (%)
-                <input type="text" id="dg-us-salestax" value="0" inputmode="decimal" oninput="updateDocCalc()" style="padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-              </label>
+          <div class="nd-sub">
+            <label class="nd-check"><input type="checkbox" id="dg-international" onchange="onDocVatChange()">Livraison hors France</label>
+            <div id="dg-vat-regime-box" style="display:none" class="nd-grid2">
+              <label class="nd-f"><span>Type de vente</span>
+                <select id="dg-vat-regime" onchange="onDocVatChange()">
+                  <option value="france">Autre / TVA française</option>
+                  <option value="eu-b2b">Union européenne, professionnel</option>
+                  <option value="export">Hors Union européenne</option>
+                </select></label>
+              <label id="dg-vat-number-box" style="display:none" class="nd-f"><span>N° TVA intracommunautaire</span>
+                <input type="text" id="dg-vat-number" placeholder="BE0123456789" oninput="onDocVatChange()" onchange="checkVatNumber(this.value)" style="text-transform:uppercase"></label>
             </div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#555;margin-top:10px">
-              <input type="checkbox" id="dg-us-included" checked onchange="updateDocCalc()" style="width:16px;height:16px;cursor:pointer">
-              Droits et dédouanement inclus dans le total (DDP)
-            </label>
-            <div style="font-size:11px;color:#888;margin-top:6px">Droits calculés sur la valeur des chaises (hors livraison). Sales tax : laisser à 0 tant que tu ne dépasses pas le seuil de l'État.</div>
+            <div id="dg-vies-result" style="display:none" class="nd-note"></div>
+            <div id="dg-vat-mention" style="display:none" class="nd-ok"></div>
           </div>
+        </fieldset>
+
+        <!-- CHAISES -->
+        <fieldset class="nd-card">
+          <legend>Chaises</legend>
+          <div class="nd-lines-head"><span></span><span>Modèle</span><span>Qté</span><span>Remise</span><span>Total HT</span><span></span></div>
+          <div id="dg-lignes"></div>
+          <button type="button" class="nd-add" onclick="ajouterLigneProduit()">+ Ajouter un modèle</button>
+        </fieldset>
+
+        <div class="nd-grid2 nd-gap">
+          <!-- LIVRAISON -->
+          <fieldset class="nd-card">
+            <legend>Livraison</legend>
+            <label class="nd-f"><span>Département de livraison</span><input type="text" id="dg-dept" value="${p?.dept||''}" placeholder="75" maxlength="3" oninput="updateDocCalc()" style="max-width:120px"></label>
+            <div id="dg-ship-calc" class="nd-note"></div>
+            <label class="nd-f"><span>Montant HT (vide = calcul auto)</span>
+              <span class="nd-inline"><input type="text" id="dg-ship-manual" inputmode="decimal" placeholder="Auto" oninput="updateDocCalc()" style="max-width:120px"> € HT</span></label>
+            <label class="nd-check"><input type="checkbox" id="dg-livofferte" onchange="updateDocCalc()">Livraison offerte</label>
+            <label class="nd-check"><input type="checkbox" id="dg-rdv" onchange="updateDocCalc()">Prise de rendez-vous</label>
+          </fieldset>
+
+          <!-- CONDITIONS -->
+          <fieldset class="nd-card">
+            <legend>Conditions</legend>
+            <div id="dg-quote-options" class="nd-stack">
+              <div class="nd-seg" role="group" aria-label="Disponibilité">
+                <label><input type="radio" name="dg-availability" value="stock" checked><span>En stock</span></label>
+                <label><input type="radio" name="dg-availability" value="commande"><span>Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</span></label>
+              </div>
+              <label class="nd-f"><span>Validité du devis</span><input type="text" id="dg-validite" value="30 jours"></label>
+            </div>
+            <label class="nd-f"><span>Geste commercial (% sur le total)</span>
+              <span class="nd-inline"><input type="number" id="dg-remise" value="0" min="0" max="100" oninput="updateDocCalc()" style="max-width:90px"> % <span id="dg-remise-montant" class="nd-minus"></span></span></label>
+          </fieldset>
         </div>
 
-        <!-- PROSPECT SELECTOR -->
-        <div style="margin-bottom:18px">
-          <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Rechercher une entreprise (remplit société, adresse, SIREN, TVA)</label>
-          <div id="dg-company-search" style="margin-bottom:12px"></div>
-          <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Sélectionner un prospect existant</label>
-          <select id="dg-prospect-sel" onchange="prefillFromProspect(this.value)"
-            style="width:100%;padding:10px 12px;border:2px solid #403F21;border-radius:8px;font-size:13px;font-family:inherit;background:#F5F5EE;color:#403F21;cursor:pointer">
-            <option value="">— Sélectionner un prospect —</option>
-          </select>
-        </div>
-        
-        <!-- DESTINATAIRE -->
-        <div style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Destinataire</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Prénom Nom</label>
-            <input type="text" id="dg-contact" value="${escapeHTML(p?.contact||'')}" placeholder="Prénom Nom" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+        <!-- LANGUE & DEVISE (devis uniquement) -->
+        <fieldset class="nd-card" id="dg-locale-box">
+          <legend>Langue et devise</legend>
+          <input type="hidden" id="dg-locale" value="FR">
+          <div class="nd-seg nd-seg-btn" role="group" aria-label="Langue et devise">
+            ${Object.values(DOC_LOCALES).map(l=>`<button type="button" class="doc-locale-btn${l.code==='FR'?' on':''}" data-locale="${l.code}" onclick="selectDocLocale('${l.code}')">${l.code} · ${l.label}</button>`).join('')}
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Société</label>
-            <input type="text" id="dg-company" value="${escapeHTML(p?.name||'')}" placeholder="SAS Comptoir" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+          <div id="dg-fx-box" style="display:none" class="nd-inline">
+            <span>1 € =</span>
+            <input type="text" id="dg-fx-rate" inputmode="decimal" oninput="this.dataset.manual='1';updateDocCalc()" style="max-width:110px">
+            <span id="dg-fx-unit">USD</span>
+            <button type="button" class="btn btn-sm" onclick="refreshDocFxField(true)">Taux du jour</button>
+            <span id="dg-fx-info" class="nd-note"></span>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Téléphone <span style="color:#C0C0B0;font-weight:400">(fiche prospect)</span></label>
-              <input type="tel" id="dg-tel" value="${escapeHTML(p?.tel||'')}" placeholder="06 XX XX XX XX" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+          <div id="dg-us-box" style="display:none" class="nd-sub">
+            <div class="nd-lab">Droits et taxes US</div>
+            <div class="nd-grid3">
+              <label class="nd-f"><span>Droits de douane (%)</span><input type="text" id="dg-us-duty" value="10" inputmode="decimal" oninput="updateDocCalc()"></label>
+              <label class="nd-f"><span>Dédouanement (€)</span><input type="text" id="dg-us-clearance" value="" placeholder="0" inputmode="decimal" oninput="updateDocCalc()"></label>
+              <label class="nd-f"><span>Sales tax État (%)</span><input type="text" id="dg-us-salestax" value="0" inputmode="decimal" oninput="updateDocCalc()"></label>
             </div>
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Email <span style="color:#C0C0B0;font-weight:400">(fiche prospect)</span></label>
-              <input type="email" id="dg-email" value="${escapeHTML(p?.email||'')}" placeholder="contact@restaurant.fr" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-            </div>
+            <label class="nd-check"><input type="checkbox" id="dg-us-included" checked onchange="updateDocCalc()">Droits et dédouanement inclus dans le total (DDP)</label>
+            <div class="nd-note">Droits calculés sur la valeur des chaises, hors livraison. Sales tax : laisser à 0 tant que tu ne dépasses pas le seuil de l’État.</div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Adresse</label>
-            <input type="text" id="dg-addr" value="" placeholder="55 avenue Ledru Rollin 75012 Paris" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+        </fieldset>
+
+        <!-- FACTURE -->
+        <fieldset class="nd-card" id="dg-invoice-options" style="display:none">
+          <legend>Facture</legend>
+          <div class="nd-grid2">
+            <label id="dg-deposit-box" class="nd-f" style="display:none"><span>Acompte (% de la commande)</span><input id="dg-deposit-pct" type="number" min="1" max="99" step="1" value="50" oninput="updateDocCalc()"></label>
+            <label id="dg-operation-date-box" class="nd-f"><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date"></label>
+            <label class="nd-f"><span>Échéance</span><select id="dg-due-mode" onchange="syncDueModeField()"><option value="reception">À réception</option><option value="expedition">Avant expédition</option><option value="date">Date précise</option></select></label>
+            <label id="dg-due-date-box" class="nd-f" style="display:none"><span>Date d’échéance</span><input id="dg-due-date" type="date"></label>
+            <label class="nd-f"><span>SIREN client</span><input id="dg-client-siren" inputmode="numeric" maxlength="9"></label>
+            <label class="nd-f"><span>TVA client</span><input id="dg-client-vat"></label>
+            <label class="nd-f"><span>Bon de commande client</span><input id="dg-purchase-order"></label>
+            <label class="nd-f"><span>Capital social vendeur (€)</span><input id="dg-seller-capital" type="number" min="0.01" step="0.01" value="${INVOICE_SELLER.capital}"></label>
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Adresse de livraison (si diff.)</label>
-            <input type="text" id="dg-livraison" placeholder="Ex: 27 rue Faubourg du Temple 75010" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-          </div>
-          <div style="grid-column:1/-1;background:#F7F6EF;border:1px solid #E0DFD5;border-radius:9px;padding:12px 14px">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#403F21;font-weight:600">
-              <input type="checkbox" id="dg-international" onchange="onDocVatChange()" style="width:16px;height:16px;cursor:pointer">
-              Livraison hors France
-            </label>
-            <div id="dg-vat-regime-box" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-              <div style="display:flex;flex-direction:column;gap:4px">
-                <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Type de vente</label>
-                <select id="dg-vat-regime" onchange="onDocVatChange()" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-                  <option value="france">Autre / TVA française</option>
-                  <option value="eu-b2b">Union européenne - Professionnel</option>
-                  <option value="export">Hors Union européenne</option>
-                </select>
-              </div>
-              <div id="dg-vat-number-box" style="display:none;flex-direction:column;gap:4px">
-                <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">N° TVA intracommunautaire client</label>
-                <input type="text" id="dg-vat-number" placeholder="Ex: BE0123456789" oninput="onDocVatChange()" onchange="checkVatNumber(this.value)" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;text-transform:uppercase">
-              </div>
-            </div>
-            <div id="dg-vies-result" style="display:none;margin-top:8px;font-size:11px;font-weight:600"></div>
-            <div id="dg-vat-mention" style="display:none;margin-top:10px;padding:8px 10px;background:#EAFAF1;border:1px solid #A9DFBF;border-radius:7px;font-size:11px;color:#1E8449;font-weight:600"></div>
-          </div>
-        </div>
-        
-        <!-- PRODUITS — multi-lignes -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Produits</div>
-          <button onclick="ajouterLigneProduit()" type="button" style="padding:4px 12px;border:1px solid #403F21;border-radius:5px;background:transparent;color:#403F21;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">+ Ajouter un modèle</button>
-        </div>
-        <!-- En-têtes -->
-        <div style="display:grid;grid-template-columns:2fr 80px 80px 80px 32px;gap:6px;margin-bottom:4px">
-          <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.4px">Modèle</div>
-          <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.4px;text-align:center">Qté</div>
-          <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.4px;text-align:center">Remise %</div>
-          <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.4px;text-align:right">Total HT</div>
-          <div></div>
-        </div>
-        <div id="dg-lignes"></div>
-        <div style="margin-bottom:12px">
-          <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Dept. livraison</label>
-          <input type="text" id="dg-dept" value="${p?.dept||''}" placeholder="75" maxlength="3" oninput="updateDocCalc()" style="margin-top:4px;padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;width:120px">
-        </div>
-        
-        <!-- TOTAUX CALCULÉS -->
-        <div id="dg-totaux" style="background:#F5F5EE;border:1px solid #D4D3B8;border-radius:9px;padding:14px 18px;margin-bottom:20px;font-size:13px">
-          <div style="display:flex;justify-content:space-between;padding:4px 0;color:#555"><span>Sous-total HT</span><span id="dg-ht">—</span></div>
-          <div style="display:flex;justify-content:space-between;padding:4px 0;color:#555"><span>Livraison HT</span><span id="dg-ship">—</span></div>
-          <div style="display:flex;justify-content:space-between;padding:4px 0;color:#555"><span id="dg-tva-label">TVA 20%</span><span id="dg-tva">—</span></div>
-          <div style="display:flex;justify-content:space-between;padding:8px 0 4px;border-top:1px solid #D4D3B8;margin-top:4px;font-weight:700;font-size:15px;color:#403F21"><span id="dg-net-label">NET À PAYER TTC</span><span id="dg-ttc">—</span></div>
-          <div id="dg-acompte-line" style="display:none;justify-content:space-between;padding:4px 0;color:#C0392B;font-weight:600"><span id="dg-acompte-label">Acompte 50%</span><span id="dg-acompte-val">—</span></div>
-          <div id="dg-fx-line" style="display:none;justify-content:space-between;padding:6px 0 0;margin-top:4px;border-top:1px dashed #D4D3B8;color:#2980B9;font-weight:600"><span id="dg-fx-label">Montant du devis</span><span id="dg-fx-val">—</span></div>
-        </div>
-        
-        <!-- REMISE -->
-        <div style="background:#F5F5EE;border:1px solid #D4D3B8;border-radius:9px;padding:14px 18px;margin-bottom:20px">
-          <div style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Remise & Livraison</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Remise globale (%)</label>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="number" id="dg-remise" value="0" min="0" max="100" oninput="updateDocCalc()" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;width:100px">
-                <span style="font-size:12px;color:#555">% (sur total)</span>
-                <span id="dg-remise-montant" style="font-size:11px;color:#C0392B;font-weight:600"></span>
-              </div>
-            </div>
-	            <div style="display:flex;flex-direction:column;gap:4px">
-	              <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Livraison</label>
-	              <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
-	                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#555">
-	                  <input type="checkbox" id="dg-livofferte" onchange="updateDocCalc()" style="width:16px;height:16px;cursor:pointer">
-	                  Livraison offerte
-	                </label>
-	              </div>
-		              <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-		                <input type="text" id="dg-ship-manual" inputmode="decimal" placeholder="Auto" oninput="updateDocCalc()" style="padding:8px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;width:100px">
-		                <span style="font-size:12px;color:#555">€ HT</span>
-		              </div>
-		              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#555;margin-top:8px">
-		                <input type="checkbox" id="dg-rdv" onchange="updateDocCalc()" style="width:16px;height:16px;cursor:pointer">
-		                Prise de rendez-vous
-		              </label>
-		              <div id="dg-ship-calc" style="font-size:11px;color:#2980B9;margin-top:4px"></div>
-		            </div>
-          </div>
-        </div>
-        
-        <!-- OPTIONS -->
-        <div id="dg-quote-options" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Validité / Échéance</label>
-            <input type="text" id="dg-validite" value="30 jours" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Disponibilité</label>
-            <div style="display:flex;gap:14px;align-items:center;padding:8px 0">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#555"><input type="radio" name="dg-availability" value="stock" checked style="width:16px;height:16px;cursor:pointer">En stock</label>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#555"><input type="radio" name="dg-availability" value="commande" style="width:16px;height:16px;cursor:pointer">Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</label>
-            </div>
-          </div>
-        </div>
-        <div id="dg-invoice-options" style="display:none;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:8px">
-          <label id="dg-deposit-box" style="display:none">Acompte (% de la commande)<input id="dg-deposit-pct" type="number" min="1" max="99" step="1" value="50" oninput="updateDocCalc()" style="width:100%;margin-top:4px"></label>
-          <label>Capital social vendeur (€)<input id="dg-seller-capital" type="number" min="0.01" step="0.01" value="${INVOICE_SELLER.capital}" style="width:100%;margin-top:4px"></label>
-          <label id="dg-operation-date-box"><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date" style="width:100%;margin-top:4px"></label>
-          <label>Échéance<select id="dg-due-mode" onchange="syncDueModeField()" style="width:100%;margin-top:4px"><option value="reception">À réception</option><option value="expedition">Avant expédition</option><option value="date">Date précise</option></select></label>
-          <label id="dg-due-date-box" style="display:none">Date d’échéance<input id="dg-due-date" type="date" style="width:100%;margin-top:4px"></label>
-          <label>SIREN client (si applicable)<input id="dg-client-siren" inputmode="numeric" maxlength="9" style="width:100%;margin-top:4px"></label>
-          <label>TVA client (si applicable)<input id="dg-client-vat" style="width:100%;margin-top:4px"></label>
-          <label>Bon de commande client (si établi)<input id="dg-purchase-order" style="width:100%;margin-top:4px"></label>
-        </div>
+        </fieldset>
       </div>
-      
-      <div style="padding:16px 28px;border-top:1px solid #E0DFD5;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end;flex-shrink:0">
-        <button onclick="this.closest('[style*=fixed]').remove()" style="padding:8px 18px;border:1px solid #E0DFD5;border-radius:7px;background:#fff;cursor:pointer;font-size:13px;font-family:inherit">Annuler</button>
-        <button id="dg-resume-invoice" onclick="resumeInvoiceIssuance()" style="display:${readPendingInvoice()?'block':'none'}" class="btn">Reprendre la facture en attente</button>
-        <button id="dg-generate" onclick="generateAndPrint()" style="padding:8px 22px;border:none;border-radius:7px;background:#403F21;color:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit">Générer le PDF</button>
-      </div>
-    </div>`;
+
+      <aside class="nd-side">
+        <div class="nd-side-label">Aperçu du PDF</div>
+        <div class="nd-preview" id="dg-preview"><div class="nd-preview-msg" id="dg-preview-msg">Ajoute une chaise pour voir l’aperçu.</div><iframe id="dg-preview-frame" title="Aperçu du document" tabindex="-1"></iframe></div>
+        <div class="nd-pages" id="dg-preview-pages"></div>
+        <div id="dg-totaux" class="nd-totals">
+          <div class="nd-tl"><span>Sous-total HT</span><span id="dg-ht">—</span></div>
+          <div class="nd-tl"><span>Livraison HT</span><span id="dg-ship">—</span></div>
+          <div class="nd-tl"><span id="dg-tva-label">TVA 20 %</span><span id="dg-tva">—</span></div>
+          <div class="nd-tl nd-tt"><span id="dg-net-label">Net à payer TTC</span><span id="dg-ttc">—</span></div>
+          <div id="dg-acompte-line" class="nd-tl nd-acompte" style="display:none"><span id="dg-acompte-label">Acompte 50 %</span><span id="dg-acompte-val">—</span></div>
+          <div id="dg-fx-line" class="nd-tl nd-fx" style="display:none"><span id="dg-fx-label">Montant du devis</span><span id="dg-fx-val">—</span></div>
+        </div>
+      </aside>
+    </div>
+`;
   
   document.body.appendChild(overlay);
-  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.addEventListener('input', scheduleGeneratorPreview);
+  overlay.addEventListener('change', scheduleGeneratorPreview);
+  document.body.classList.add('nd-open');
   
   // Populate prospect selector NOW that overlay is in DOM
   populateDocProspectSelect(p?.id||null);
@@ -3738,18 +4027,18 @@ function openDocGenerator(prospectId){
 }
 
 function selectDocType(btn, type){
-  document.querySelectorAll('.doc-type-btn').forEach(b=>{
-    b.style.border='2px solid #E0DFD5';b.style.background='#fff';b.style.color='#555';b.style.fontWeight='500';
-  });
-  btn.style.border='2px solid #403F21';btn.style.background='#F5F5EE';btn.style.color='#403F21';btn.style.fontWeight='600';
+  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.classList.remove('on'); b.setAttribute('aria-pressed','false'); });
+  btn.classList.add('on'); btn.setAttribute('aria-pressed','true');
   document.getElementById('dg-type').value=type;
+  const title=document.getElementById('dg-title');
+  if(title) title.textContent = type==='DEV' ? 'Nouveau devis' : (type==='FAC' ? 'Facture d’acompte' : 'Facture');
   const invoiceOptions=document.getElementById('dg-invoice-options');
   const quoteOptions=document.getElementById('dg-quote-options');
-  if(invoiceOptions)invoiceOptions.style.display=type==='DEV'?'none':'grid';
-  if(quoteOptions)quoteOptions.style.display=type==='DEV'?'grid':'none';
+  if(invoiceOptions)invoiceOptions.style.display=type==='DEV'?'none':'';
+  if(quoteOptions)quoteOptions.style.display=type==='DEV'?'':'none';
   // Langue & devise : devis uniquement (les factures restent en français et en euros)
   const localeBox=document.getElementById('dg-locale-box');
-  if(localeBox)localeBox.style.display=type==='DEV'?'block':'none';
+  if(localeBox)localeBox.style.display=type==='DEV'?'':'none';
   if(type!=='DEV'&&document.getElementById('dg-locale')?.value!=='FR')selectDocLocale('FR');
   // Acompte : pas de date de livraison à saisir (date d'émission retenue)
   const operationBox=document.getElementById('dg-operation-date-box');
@@ -3937,11 +4226,15 @@ function renderLignesProduits(){
     const lid = l.id;
 
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:2fr 70px 70px 80px 28px;gap:6px;margin-bottom:6px;align-items:center';
+    row.className = 'nd-line';
+    const thumb = document.createElement('div');
+    thumb.className = 'nd-thumb';
+    if(prod?.img){ const im=document.createElement('img'); im.src=prod.img; im.alt=''; im.loading='lazy'; thumb.appendChild(im); }
+    row.appendChild(thumb);
 
     // Sélecteur modèle
     const sel = document.createElement('select');
-    sel.style.cssText = 'padding:7px 10px;border:1px solid #E0DFD5;border-radius:7px;font-size:12px;font-family:inherit';
+    sel.setAttribute('aria-label','Modèle');
     const defOpt = document.createElement('option');
     defOpt.value = ''; defOpt.textContent = '— Modèle —';
     sel.appendChild(defOpt);
@@ -3957,15 +4250,15 @@ function renderLignesProduits(){
     // Quantité
     const qtyI = document.createElement('input');
     qtyI.type = 'number'; qtyI.value = l.qty; qtyI.min = 1; qtyI.max = 500;
-    qtyI.style.cssText = 'padding:7px 8px;border:1px solid #E0DFD5;border-radius:7px;font-size:12px;text-align:center;font-family:inherit;width:100%';
+    qtyI.setAttribute('aria-label','Quantité'); qtyI.className='nd-num';
     qtyI.addEventListener('change', function(){ updateLigne(lid, 'qty', this.value); });
 
     // Remise
     const remW = document.createElement('div');
-    remW.style.cssText = 'display:flex;align-items:center;gap:2px';
+    remW.className = 'nd-inline';
     const remI = document.createElement('input');
     remI.type = 'number'; remI.value = l.remise; remI.min = 0; remI.max = 100;
-    remI.style.cssText = 'padding:7px 6px;border:1px solid #E0DFD5;border-radius:7px;font-size:12px;text-align:center;font-family:inherit;width:52px';
+    remI.setAttribute('aria-label','Remise en %'); remI.className='nd-num';
     remI.addEventListener('change', function(){ updateLigne(lid, 'remise', this.value); });
     const pct = document.createElement('span');
     pct.style.cssText = 'font-size:10px;color:#aaa'; pct.textContent = '%';
@@ -3973,13 +4266,13 @@ function renderLignesProduits(){
 
     // Total
     const totD = document.createElement('div');
-    totD.style.cssText = 'font-size:11px;font-weight:600;text-align:right;color:' + totalColor;
+    totD.className = 'nd-line-total'; if(l.remise > 0) totD.classList.add('is-disc');
     totD.textContent = totalStr;
 
     // Supprimer
     const del = document.createElement('button');
     del.type = 'button'; del.textContent = '×';
-    del.style.cssText = 'border:none;background:none;cursor:pointer;color:#C0392B;font-size:18px;padding:0;line-height:1' + (dgLignes.length <= 1 ? ';opacity:.3' : '');
+    del.className = 'nd-del'; del.setAttribute('aria-label','Retirer ce modèle'); if(dgLignes.length <= 1) del.disabled = true;
     del.addEventListener('click', function(){ supprimerLigne(lid); });
 
     row.appendChild(sel);
@@ -4004,6 +4297,7 @@ function getDgLignesData(){
 }
 
 function updateDocCalc(){
+  scheduleGeneratorPreview();
   const el = id => document.getElementById(id);
   const lines = getDgLignesData();
   const vatSettings = syncVatControlVisibility('dg');
@@ -4163,8 +4457,8 @@ async function openInvoiceFromQuote(quoteId, type, {fromDraft=false}={}){
     .forEach(e=>{ e.disabled = true; e.style.opacity = '.6'; });
   modal.querySelectorAll('button[onclick^="ajouterLigneProduit"]').forEach(b=>b.style.display='none');
   const lb = document.getElementById('dg-locale-box'); if(lb) lb.style.display='none';
-  const cs = document.getElementById('dg-company-search'); if(cs) cs.parentElement.querySelectorAll('#dg-company-search').forEach(x=>x.style.display='none');
-  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.style.display = (b.dataset.type==='DEV' || b.dataset.direct) ? 'none' : 'block'; });
+  const cs = document.getElementById('dg-company-search'); if(cs) cs.parentElement.querySelectorAll('#dg-company-search').forEach(x=>{ x.style.display='none'; if(x.previousElementSibling?.classList.contains('nd-lab')) x.previousElementSibling.style.display='none'; });
+  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.style.display = (b.dataset.type==='DEV' || b.dataset.direct) ? 'none' : ''; });
   const hint = document.getElementById('dg-invoice-hint');
   if(hint) hint.innerHTML = 'Facture du devis <strong>'+escapeHTML(q.num)+'</strong>, accepté. Lignes, prix et remises sont repris du devis et verrouillés.'
     + (dgDeductions.length ? '<br>Acompte(s) déduit(s) : '+dgDeductions.map(d=>escapeHTML(d.num)+' ('+formatDocMoney(d.ttc)+' TTC)').join(', ') : '');
@@ -4591,6 +4885,7 @@ function renderInvoiceDrafts(){
   if(!box) return;
   const pending=readPendingInvoice();
   const pendingHtml=pending?`<div class="draft-pending">Une émission n’a pas été confirmée (coupure réseau ?). <button class="btn btn-sm btn-primary" onclick="resumeInvoiceIssuance().then(renderInvoiceDrafts)">Reprendre l’émission en attente</button></div>`:'';
+  try{ renderToday(); }catch(e){}
   if(!invoiceDrafts.length && !pending){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='block';
   if(!invoiceDrafts.length){ box.innerHTML=pendingHtml; return; }
@@ -5034,18 +5329,14 @@ ${DOC_FIT_SCRIPT}
 </html>`;
 }
 
-async function generateAndPrint(){
-  if(documentGenerationBusy)return;
-  documentGenerationBusy=true;
-  const generateButton=document.getElementById('dg-generate');
-  if(generateButton)generateButton.disabled=true;
-  let printWin = null;
-  try {
+// Calcule le document à partir du formulaire, sans rien enregistrer.
+// Synchrone (la fenêtre d'impression doit s'ouvrir dans le clic). numOverride : numéro du devis réservé.
+function computeGeneratorDoc({numOverride=''}={}){
   // ── Lire toutes les valeurs du formulaire (overlay encore ouvert)
   const type      = document.getElementById('dg-type')?.value || 'DEV';
   const isInvoice = type!=='DEV';
-  if(type==='FAC' && !dgSourceQuote){ toast('Une facture d’acompte s’édite depuis un devis accepté (onglet Devis).','error'); return; }
-  if(!['DEV','FAC','FDF'].includes(type)){ toast('Type de document invalide','error'); return; }
+  if(type==='FAC' && !dgSourceQuote){ return {error:'Une facture d’acompte s’édite depuis un devis accepté (onglet Devis).'}; }
+  if(!['DEV','FAC','FDF'].includes(type)){ return {error:'Type de document invalide'}; }
   const contact   = document.getElementById('dg-contact')?.value || '';
   const company   = document.getElementById('dg-company')?.value || '';
   const addr      = document.getElementById('dg-addr')?.value || '';
@@ -5057,35 +5348,35 @@ async function generateAndPrint(){
   const validite  = isInvoice ? invoiceDetails.dueDate : (document.getElementById('dg-validite')?.value || '30 jours');
   if(isInvoice){
     const invalid=validateInvoiceDetails(invoiceDetails,company||contact,addr);
-    if(invalid){toast(invalid,'error');return;}
-    if(!sb||!currentUser){toast('Connexion Supabase requise pour enregistrer le brouillon de facture.','error');return;}
+    if(invalid){return {error:invalid};}
+    if(!sb||!currentUser){return {error:'Connexion Supabase requise pour enregistrer le brouillon de facture.'};}
   }
   const remisePct = parseFloat(document.getElementById('dg-remise')?.value) || 0;
   const vatSettings = getVatSettingsFromControls('dg');
   const vatError = validateVatSettings(vatSettings);
-  if(vatError){ toast(vatError,'error'); return; }
+  if(vatError){ return {error:vatError}; }
 
   // Langue & devise du devis (les factures restent en FR / EUR)
   const docLocale = getSelectedDocLocale();
   const docFx = getSelectedDocFxRate(docLocale);
-  if(!(docFx > 0)){ toast('Renseigner le taux de change EUR → '+docLocale.currency,'error'); return; }
+  if(!(docFx > 0)){ return {error:'Renseigner le taux de change EUR → '+docLocale.currency}; }
   const isEnglishQuote = docLocale.lang === 'en';     // document en anglais et en devise (US / UK)
 
   if(isInvoice&&vatSettings.vatRegime===VAT_REGIME_EU_B2B&&invoiceDetails.clientVat.replace(/\s/g,'').toUpperCase()!==vatSettings.customerVatNumber.replace(/\s/g,'').toUpperCase()){
-    toast('Les deux champs de TVA client doivent contenir le même numéro.','error');return;
+    return {error:'Les deux champs de TVA client doivent contenir le même numéro.'};
   }
 
   // ── Lignes produits (multi-modèles)
   if(dgLignes.some(line=>!PRODUCTS.some(product=>product.id===line.prodId))){
-    toast('Sélectionner un modèle du catalogue pour chaque ligne','error');return;
+    return {error:'Sélectionner un modèle du catalogue pour chaque ligne'};
   }
   const lines = getDgLignesData();
-  if(!lines.length){ toast('Ajouter au moins un produit','error'); return; }
+  if(!lines.length){ return {error:'Ajouter au moins un produit'}; }
   const firstLine = lines[0];
   const prodId    = firstLine.prodId;
   const qty       = lines.reduce((s,l) => s+l.qty, 0);
   const prod      = firstLine.prod;
-  if(!prod){ toast('Sélectionner un produit','error'); return; }
+  if(!prod){ return {error:'Sélectionner un produit'}; }
   
   const prixUnitaireBrut = firstLine.unitPrice;
   const prixUnitaireNet = prixUnitaireBrut * (1 - remisePct/100);
@@ -5094,7 +5385,7 @@ async function generateAndPrint(){
   const remiseMontant = sousTotal * (remisePct/100);
   const sousTotalNet = sousTotal - remiseMontant;
   const shipping = getDocShippingSettings(qty);
-  if(shipping.error){ toast(shipping.error,'error'); return; }
+  if(shipping.error){ return {error:shipping.error}; }
   const shipHT = shipping.shipHT;
   // Montants dans la devise du document (US / UK), au taux saisi ou au taux du devis pour une facture
   const curAmounts = isEnglishQuote ? convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx) : null;
@@ -5105,17 +5396,14 @@ async function generateAndPrint(){
   const ttc = baseHT + tva;
   const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
   const dueCur = isInvoice && curAmounts ? getForeignInvoiceAmounts(type, curAmounts, docFx, due.pct, due.deductions) : null;
-  if(isInvoice && (due.ttc <= 0 || (dueCur && dueCur.ttc <= 0))){ toast('Rien à facturer : les acomptes couvrent déjà la commande.','error'); return; }
+  if(isInvoice && (due.ttc <= 0 || (dueCur && dueCur.ttc <= 0))){ return {error:'Rien à facturer : les acomptes couvrent déjà la commande.'}; }
   const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',FDF:'FACTURE'};
   const typeLabel = typeLabels[type];
   const availability = isInvoice
     ? (dgSourceQuote?.availability || 'stock')
     : (document.querySelector('input[name="dg-availability"]:checked')?.value || 'stock');
 
-  printWin = openPrintWindowPlaceholder();
-  if(!printWin){ toast('Autoriser les popups pour générer le PDF','error'); return; }
-
-  const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : await getNextDocNum(type);
+  const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : (numOverride || '…');
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
 
   // Montants affichés : euros tels que calculés (et contrôlés par le serveur), ou convertis pour US / UK
@@ -5133,6 +5421,27 @@ async function generateAndPrint(){
     fx: docFx, quoteFx: isInvoice && dgSourceQuote ? dgSourceQuote.num : '',
     fxDate: docFxRates?.date ? new Date(docFxRates.date).toLocaleDateString(docLocale.intl,{day:'numeric',month:'long',year:'numeric'}) : ''
   });
+  return {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
+    lines,firstLine,prodId,qty,prod,sousTotalBrut,sousTotal,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
+    typeLabel,availability,docNum,today,docHTML};
+}
+
+async function generateAndPrint(){
+  if(documentGenerationBusy)return;
+  documentGenerationBusy=true;
+  const generateButton=document.getElementById('dg-generate');
+  if(generateButton)generateButton.disabled=true;
+  let printWin = null;
+  try {
+  const pre = computeGeneratorDoc();
+  if(pre.error){ toast(pre.error,'error'); return; }
+  printWin = openPrintWindowPlaceholder();
+  if(!printWin){ toast('Autoriser les popups pour générer le PDF','error'); return; }
+  const G = pre.isInvoice ? pre : computeGeneratorDoc({numOverride: await getNextDocNum(pre.type)});
+  if(G.error){ toast(G.error,'error'); try{printWin.close();}catch(e){} return; }
+  const {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
+    lines,firstLine,prodId,qty,prod,sousTotalBrut,sousTotal,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
+    typeLabel,availability,docNum,today,docHTML} = G;
 
   // Save to history BEFORE closing
   let prospectId = document.getElementById('dg-prospect-id')?.value||currentProspectId||null;
@@ -5685,7 +5994,147 @@ async function syncStockDatesToSupabase(){
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD — DYNAMIC RENDER
 // ══════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// AUJOURD'HUI : une seule liste, ce qu'il faut faire maintenant
+// ══════════════════════════════════════════════════════════════
+function daysSince(v){
+  const t = parseDocDateValue(v);
+  if(!t) return null;
+  const a = new Date(t); a.setHours(0,0,0,0);
+  const b = new Date(); b.setHours(0,0,0,0);
+  return Math.round((b-a)/86400000);
+}
+function ageLabel(d){
+  if(d===null) return '';
+  if(d<=0) return 'aujourd’hui';
+  if(d===1) return 'hier';
+  return 'depuis '+d+' j';
+}
+function ageClass(d, warn, late){ return d===null ? '' : (d>=late ? 'is-late' : (d>=warn ? 'is-warn' : '')); }
+function uniqueDocs(){
+  const seen=new Set();
+  return [...devisList, ...docHistory].filter(d=>d.num && !seen.has(d.num) && seen.add(d.num));
+}
+
+async function markInvoicePaid(num, btn){
+  if(!confirm('Marquer la facture '+num+' comme payée ?')) return;
+  if(btn){ btn.disabled=true; }
+  try{
+    if(sb&&currentUser){
+      const {error}=await sb.from('documents').update({statut:'Payée'}).eq('num',num);
+      if(error) throw error;
+    }
+    [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(d.num===num) d.statut='Payée'; }));
+    saveDevisLocal();
+    try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+    toast('Facture '+num+' payée ✓');
+    renderToday(); renderDevisList();
+  }catch(e){ toast('Paiement non enregistré : '+(e.message||e),'error'); if(btn) btn.disabled=false; }
+}
+
+function docLinesLabel(d){
+  const items=normalizeDocLineItems(d.lineItems);
+  const parts=items.map(l=>{const pr=PRODUCTS.find(p=>p.id===l.prodId);return pr?pr.name+' × '+l.qty:'';}).filter(Boolean);
+  if(parts.length) return parts.slice(0,2).join(', ')+(parts.length>2?'…':'');
+  const q=getDocTotalQty(d); return q?q+' chaises':'';
+}
+
+function renderToday(){
+  const main=document.getElementById('td-main'), side=document.getElementById('td-side');
+  if(!main||!side) return;
+  const esc=escapeHTML;
+  const now=new Date();
+  const dateLabel=now.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('td-date').textContent=dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
+
+  // 1. Nouvelles demandes
+  const nouveaux=prospects.filter(p=>(p.statut||'Nouveau')==='Nouveau')
+    .map(p=>({p, d:daysSince(p.date_created)}))
+    .sort((a,b)=>(a.d??999)-(b.d??999));
+  // 2. Rappels du jour ou dépassés
+  const today0=new Date(); today0.setHours(0,0,0,0);
+  const rappels=prospects.filter(p=>p.rappel_date && new Date(p.rappel_date)<=new Date(today0.getTime()+86399999) && !['Gagné','Perdu'].includes(p.statut));
+  // 3. Devis à relancer
+  const docs=uniqueDocs();
+  const relances=docs.filter(d=>d.type==='DEV' && d.statut==='Envoyé')
+    .map(d=>({d, j:daysSince(d.createdAt||d.date)})).filter(x=>x.j!==null && x.j>=7)
+    .sort((a,b)=>b.j-a.j);
+  // 4. Factures à émettre
+  const drafts=invoiceDrafts||[];
+  // 5. Paiements attendus
+  const unpaid=docs.filter(d=>d.type!=='DEV' && d.invoiceIssuedAt && !['Payée','Annulée'].includes(d.statut) && !d.pennylane?.paid)
+    .map(d=>({d, j:daysSince(d.invoiceIssuedAt)})).sort((a,b)=>(b.j||0)-(a.j||0));
+
+  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length;
+  document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
+  const badge=document.getElementById('badge-morning');
+  if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
+  const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(rappels.length+relances.length,'relance'+(rappels.length+relances.length>1?'s':''))+chip(drafts.length,'à émettre')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+
+  const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
+  const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
+  const telLink=t=>t?`<a class="btn btn-sm" href="tel:${esc(String(t).replace(/\s/g,''))}">Appeler</a>`:'';
+
+  let html='';
+  html+=section('Nouvelles demandes','à rappeler sous 24 h', nouveaux.slice(0,6).map(({p,d})=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}</span></button>
+      <span class="td-what">${esc(prodSummary(p))}</span>
+      <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
+      <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
+    </div>`).join(''), nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:'');
+  html+=section('Rappels','prévus aujourd’hui ou en retard', rappels.map(p=>{const d=daysSince(p.rappel_date);return `
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'')}</b><span>${esc(p.rappel_note||p.statut||'')}</span></button>
+      <span class="td-what">${esc(p.contact||'')}</span>
+      <span class="td-when ${d>0?'is-late':'is-warn'}">${d>0?'en retard de '+d+' j':'aujourd’hui'}</span>
+      <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(p.id)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="goRelanceGmail('${esc(p.id)}')">Email</button></div>
+    </div>`;}).join(''));
+  html+=section('Devis à relancer','envoyés depuis plus de 7 jours', relances.slice(0,8).map(({d,j})=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
+      <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
+      <span class="td-when ${ageClass(j,7,14)}">J+${j}</span>
+      <div class="td-act">${d.prospectId?`<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(d.prospectId)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="openSendDocument('${esc(d.id||d.num)}')">Renvoyer</button>`:''}<button type="button" class="btn btn-sm td-ok" onclick="accepterDevis('${esc(d.id||d.num)}')">Signé</button></div>
+    </div>`).join(''), relances.length>8?`<button type="button" class="td-more" onclick="go('devis')">Voir les ${relances.length} devis</button>`:'');
+  html+=section('Factures à émettre','brouillons sans numéro', drafts.map(d=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="go('devis')"><b>${esc(d.client||'Client')}</b><span>${d.type==='FAC'?'Facture d’acompte':'Facture'}${d.source_quote_num?' · devis '+esc(d.source_quote_num):''}</span></button>
+      <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
+      <span class="td-when is-warn">brouillon</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="previewInvoiceDraft('${d.id}')">Aperçu</button><button type="button" class="btn btn-sm btn-primary" onclick="emitInvoiceDraft('${d.id}',this)">Émettre</button></div>
+    </div>`).join(''));
+  html+=section('Paiements attendus','factures émises, pas encore payées', unpaid.slice(0,10).map(({d,j})=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>${d.type==='FAC'?'Acompte':'Facture'} ${esc(d.num)}${d.sourceQuoteNum?' · devis '+esc(d.sourceQuoteNum):''}</span></button>
+      <span class="td-what td-amount">${d.ttcCurrency&&d.docCurrency&&d.docCurrency!=='EUR'?formatMoneyIn(d.ttcCurrency,d.docCurrency,d.docCurrency==='GBP'?'en-GB':'en-US'):formatDocMoney(d.ttc)}</span>
+      <span class="td-when ${ageClass(j,15,30)}">${j===0?'émise aujourd’hui':'émise il y a '+j+' j'}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm td-ok" onclick="markInvoicePaid('${esc(d.num)}',this)">Marquer payé</button></div>
+    </div>`).join(''), unpaid.length>10?`<button type="button" class="td-more" onclick="go('devis')">Voir les ${unpaid.length} factures</button>`:'');
+  if(!total) html='<div class="td-empty">Tout est à jour. Les nouvelles demandes Shopify et Google Ads apparaîtront ici.</div>';
+  main.innerHTML=html;
+
+  // Colonne de droite : le mois en cours, stock bas
+  const m=now.getMonth(), y=now.getFullYear();
+  const inMonth=v=>{const t=parseDocDateValue(v); if(!t) return false; const d=new Date(t); return d.getMonth()===m&&d.getFullYear()===y;};
+  const billed=docs.filter(d=>d.type!=='DEV'&&d.invoiceIssuedAt&&inMonth(d.invoiceIssuedAt)).reduce((s,d)=>s+(+d.ht||0),0);
+  const sent=docs.filter(d=>d.type==='DEV'&&inMonth(d.createdAt||d.date)).length;
+  const signed=docs.filter(d=>d.type==='DEV'&&['Accepté','Facturé'].includes(d.statut)&&inMonth(d.createdAt||d.date)).length;
+  const monthName=now.toLocaleDateString('fr-FR',{month:'long'});
+  let low=[];
+  try{ low=PRODUCTS.map(p=>({p,n:Math.max(0,Math.round(getStockComplet(p.id).disponible||0))})).filter(x=>x.n<12).sort((a,b)=>a.n-b.n); }catch(e){}
+  side.innerHTML=`
+    <div class="td-card"><span class="td-cap">${monthName}</span>
+      <div><div class="td-big">${formatDocMoney(billed).replace(',00','')}</div><span class="td-mute">facturé HT</span></div>
+      <div class="td-2"><div><b>${sent}</b><span class="td-mute">devis envoyés</span></div><div><b>${signed}</b><span class="td-mute">devis signés</span></div></div>
+    </div>
+    ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}`;
+}
+
 function renderDashboard(){
+  try{ renderToday(); }catch(e){ console.error('Aujourd’hui',e); }
   if(!prospects.length) return;
   
   const today = new Date(); today.setHours(0,0,0,0);
@@ -6217,6 +6666,7 @@ function renderDevisList(){
   }).join('');
   
   updateDevisBadge();
+  try{ renderToday(); }catch(e){}
 }
 
 function getProspectName(id){
