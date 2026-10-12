@@ -3626,12 +3626,20 @@ function openDocGenerator(prospectId){
             <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Validité / Échéance</label>
             <input type="text" id="dg-validite" value="30 jours" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
           </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Disponibilité</label>
+            <div style="display:flex;gap:14px;align-items:center;padding:8px 0">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#555"><input type="radio" name="dg-availability" value="stock" checked style="width:16px;height:16px;cursor:pointer">En stock</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#555"><input type="radio" name="dg-availability" value="commande" style="width:16px;height:16px;cursor:pointer">Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</label>
+            </div>
+          </div>
         </div>
         <div id="dg-invoice-options" style="display:none;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:8px">
           <label id="dg-deposit-box" style="display:none">Acompte (% de la commande)<input id="dg-deposit-pct" type="number" min="1" max="99" step="1" value="50" oninput="updateDocCalc()" style="width:100%;margin-top:4px"></label>
           <label>Capital social vendeur (€)<input id="dg-seller-capital" type="number" min="0.01" step="0.01" value="${INVOICE_SELLER.capital}" style="width:100%;margin-top:4px"></label>
-          <label><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date" style="width:100%;margin-top:4px"></label>
-          <label>Date limite de paiement<input id="dg-due-date" type="date" style="width:100%;margin-top:4px"></label>
+          <label id="dg-operation-date-box"><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date" style="width:100%;margin-top:4px"></label>
+          <label>Échéance<select id="dg-due-mode" onchange="syncDueModeField()" style="width:100%;margin-top:4px"><option value="reception">À réception</option><option value="expedition">Avant expédition</option><option value="date">Date précise</option></select></label>
+          <label id="dg-due-date-box" style="display:none">Date d’échéance<input id="dg-due-date" type="date" style="width:100%;margin-top:4px"></label>
           <label>SIREN client (si applicable)<input id="dg-client-siren" inputmode="numeric" maxlength="9" style="width:100%;margin-top:4px"></label>
           <label>TVA client (si applicable)<input id="dg-client-vat" style="width:100%;margin-top:4px"></label>
           <label>Bon de commande client (si établi)<input id="dg-purchase-order" style="width:100%;margin-top:4px"></label>
@@ -3685,8 +3693,11 @@ function selectDocType(btn, type){
   const localeBox=document.getElementById('dg-locale-box');
   if(localeBox)localeBox.style.display=type==='DEV'?'block':'none';
   if(type!=='DEV'&&document.getElementById('dg-locale')?.value!=='FR')selectDocLocale('FR');
-  const operationLabel=document.getElementById('dg-operation-date-label');
-  if(operationLabel)operationLabel.textContent=type==='FAC'?'Date de versement de l’acompte':'Date de livraison';
+  // Acompte : pas de date de livraison à saisir (date d'émission retenue)
+  const operationBox=document.getElementById('dg-operation-date-box');
+  if(operationBox)operationBox.style.display=type==='FAC'?'none':'';
+  const dueMode=document.getElementById('dg-due-mode');
+  if(dueMode&&type!=='DEV'){dueMode.value=(type==='FDF'&&dgDeductions.length)?'expedition':'reception';syncDueModeField();}
   const generateButton=document.getElementById('dg-generate');
   if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':(type==='FAC'?'Émettre la facture d’acompte':'Émettre la facture');
   const depositBox=document.getElementById('dg-deposit-box');
@@ -4040,6 +4051,7 @@ async function loadQuoteDeposits(quoteNum){
   const seen = new Set();
   return [...devisList, ...docHistory]
     .filter(d=>d.type==='FAC' && d.sourceQuoteNum===quoteNum && !seen.has(d.num) && seen.add(d.num))
+    .sort((a,b)=>String(a.num).localeCompare(String(b.num)))
     .map(pick);
 }
 
@@ -4090,17 +4102,33 @@ async function openInvoiceFromQuote(quoteId, type){
   updateDocCalc();
 }
 
+function syncDueModeField(){
+  const box=document.getElementById('dg-due-date-box');
+  if(box)box.style.display=document.getElementById('dg-due-mode')?.value==='date'?'':'none';
+}
+
+// Date du jour à Paris (celle retenue par le serveur pour l'émission)
+function todayParisISO(){
+  return new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Paris'});
+}
+
 function readInvoiceDetails(){
   const value=id=>(document.getElementById(id)?.value||'').trim();
-  return {seller:{...INVOICE_SELLER,capital:Number(value('dg-seller-capital'))},operationDate:value('dg-operation-date'),dueDate:value('dg-due-date'),clientSiren:value('dg-client-siren').replace(/\s/g,''),clientVat:value('dg-client-vat')||value('dg-vat-number'),purchaseOrder:value('dg-purchase-order'),operation:'Livraison de biens'};
+  const type=document.getElementById('dg-type')?.value;
+  const dueMode=value('dg-due-mode')||'reception';
+  // « À réception » et « Avant expédition » : la date technique d'échéance est la date d'émission
+  const dueDate=dueMode==='date'?value('dg-due-date'):todayParisISO();
+  const operationDate=value('dg-operation-date')||(type==='FAC'?todayParisISO():'');
+  return {seller:{...INVOICE_SELLER,capital:Number(value('dg-seller-capital'))},operationDate,dueDate,dueMode,clientSiren:value('dg-client-siren').replace(/\s/g,''),clientVat:value('dg-client-vat')||value('dg-vat-number'),purchaseOrder:value('dg-purchase-order'),operation:'Livraison de biens'};
 }
 
 function validateInvoiceDetails(details,client,address){
   const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
   if(!client.trim()||!address.trim())return 'Nom du client et adresse de facturation requis.';
   if(!Number.isFinite(details.seller.capital)||details.seller.capital<=0)return 'Renseigner le capital social du vendeur.';
-  if(!validDate(details.operationDate))return 'Renseigner la date de livraison ou de versement de l’acompte.';
-  if(!validDate(details.dueDate))return 'Renseigner la date limite de paiement.';
+  if(!validDate(details.operationDate))return 'Renseigner la date de livraison.';
+  if(!validDate(details.dueDate))return 'Renseigner la date d’échéance.';
+  if(details.dueDate<todayParisISO())return 'L’échéance ne peut pas précéder la date d’émission.';
   if(details.clientSiren&&!/^\d{9}$/.test(details.clientSiren))return 'Le SIREN client comporte 9 chiffres.';
   return '';
 }
@@ -4162,197 +4190,398 @@ async function reprintInvoice(id){
   }catch(e){win.close();toast(e.message,'error');}
 }
 
-// ── Devis en anglais (US / UK), montants dans la devise du devis
-function buildEnglishQuoteHtml(ctx){
-  const {locale, fx, docNum, today, validite, contact, company, addr, livraison, vatSettings, shipping, amounts:A} = ctx;
+// ══════════════════════════════════════════════════════════════
+// MODÈLE DES DOCUMENTS IMPRIMÉS : devis, CGV, factures (FR et EN)
+// Helvetica pour le texte et les montants, Bricolage Grotesque pour les titres.
+// ══════════════════════════════════════════════════════════════
+const DOC_ACCENT = '#4D5038';
+const DOC_COLOURS = {
+  'vert-orangerie':['Vert et blanc','Green and white'],
+  'rose-dragee':['Rose et blanc','Pink and white'],
+  'jaune-miel':['Jaune et blanc','Yellow and white'],
+  'rouge-grenat':['Rouge et framboise','Red and raspberry'],
+  'rouge-cerise':['Rouge et fraise','Red and strawberry'],
+  'cafe-noir':['Noir et blanc','Black and white'],
+  'vert-printemps':['Vert et crème','Green and cream'],
+  'orange-sienne':['Orange et noir','Orange and black'],
+  'kaki-botanique':['Noir et vert kaki','Black and khaki green'],
+  'bleu-atelier':['Bleu nuit et bleu roi','Midnight blue and royal blue']
+};
+const DOC_LEAD_TIME_WEEKS = 16;
+// Logo recadré pour les documents (hauteur affichée 38 px)
+const DOC_LOGO_B64 = 'data:image/png;base64,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';
+
+const DOC_TEMPLATE_CSS = `@page{size:A4;margin:0}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1F1F1A;font-size:12px;line-height:1.35}
+.page{width:210mm;min-height:296.5mm;padding:44px 54px 28px;display:flex;flex-direction:column;break-after:page;page-break-after:always}
+.page:last-child{break-after:auto;page-break-after:auto}
+@media screen{body{background:#E9E7E0}.page{margin:16px auto;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.12)}}
+.serif{font-family:'Bricolage Grotesque','Helvetica Neue',Helvetica,Arial,sans-serif}
+.hd{display:flex;justify-content:space-between;align-items:center}
+.logo{height:38px;width:auto;display:block}
+.tag{text-align:right;font-size:10.5px;line-height:1.65;color:#6B6B5E}
+.rule{height:1px;background:${DOC_ACCENT};margin:14px 0 20px}
+.meta{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
+.meta-l{display:flex;flex-direction:column;gap:9px;min-width:0;flex:1 1 auto}
+.title{font-size:22px;font-weight:500;line-height:1.15}
+.title span{color:#6B6B5E}
+.facts{display:flex;flex-wrap:wrap;gap:6px 20px;color:#4A4A40}
+.fact{display:flex;flex-direction:column;gap:2px}
+.k{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:#8A8A7C}
+.to{text-align:right;display:flex;flex-direction:column;gap:3px;line-height:1.5;flex:0 1 auto;max-width:42%;overflow-wrap:anywhere}
+.to-name{font-size:15px;font-weight:700}
+.to-a{color:#4A4A40}
+.to-b{color:#6B6B5E}
+.grid{display:grid;column-gap:18px;align-items:center}
+.thead{margin-top:20px;padding:7px 0;border-top:1px solid ${DOC_ACCENT};border-bottom:1px solid ${DOC_ACCENT};font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:#5E5E52}
+.row{border-bottom:1px solid #ECE9E0;break-inside:avoid;page-break-inside:avoid}
+.ph{object-fit:cover;display:block;background:#EDEAE1}
+.desc{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pname{font-size:16px;font-weight:500;line-height:1.2}
+.muted{color:#6B6B5E}
+.c{text-align:center}.r{text-align:right}
+.qty{font-size:14px}
+.strike{text-decoration:line-through;color:#9A9A8C;font-size:11px}
+.net{font-weight:700;color:${DOC_ACCENT}}
+.ltot{font-size:14px;font-weight:700;white-space:nowrap}
+.pu{display:flex;flex-direction:column;gap:1px;text-align:right;white-space:nowrap}
+.d1 .pname{font-size:15px}.d1 .desc{gap:4px}
+.d2 .pname{font-size:13px}.d2 .desc{gap:2px}.d2 .qty,.d2 .ltot{font-size:12.5px}
+.tot{margin-top:16px;align-self:flex-end;width:330px;display:flex;flex-direction:column;gap:4px;break-inside:avoid}
+.tr{display:flex;justify-content:space-between;gap:12px;color:#6B6B5E}
+.tr span:last-child{white-space:nowrap}
+.tr.b{font-weight:700;color:#1F1F1A}
+.tr.g{font-weight:700;color:${DOC_ACCENT}}
+.tr.sep{padding-top:5px;margin-top:3px;border-top:1px solid #ECE9E0}
+.band{margin-top:12px;display:flex;justify-content:flex-end;align-items:baseline;gap:22px;padding:12px 16px;background:${DOC_ACCENT};color:#F7F5F0;break-inside:avoid}
+.band span:first-child{font-size:13px}
+.band span:last-child{font-size:22px;font-weight:700;line-height:1;white-space:nowrap}
+.cond{margin-top:14px;padding:11px 16px;background:#F7F5F0;font-size:10.5px;line-height:1.6;color:#5E5E52}
+.note{margin-top:12px;font-size:10px;line-height:1.6;color:#6B6B5E}
+.vat{font-weight:700;color:#4A4A40}
+.grow{flex:1;min-height:14px}
+.settle{break-inside:avoid;page-break-inside:avoid}
+.sec{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.sec span{font-size:11px;font-weight:700;color:${DOC_ACCENT}}
+.sec div{flex:1;height:1px;background:${DOC_ACCENT}}
+.pay2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.rib{background:#F3F1EA;padding:13px 16px;display:flex;flex-direction:column;gap:5px}
+.rib-t{font-size:11px;font-weight:700;color:${DOC_ACCENT}}
+.kv{display:grid;grid-template-columns:82px minmax(0,1fr);row-gap:4px}
+.kv span:nth-child(odd){color:#8A8A7C}
+.kv span:nth-child(even){font-weight:700;overflow-wrap:anywhere}
+.sign{border:1px solid #E3E0D6;border-left:0;padding:13px 16px;display:flex;flex-direction:column;justify-content:space-between;min-height:104px}
+.sign-l{border-bottom:1px solid #B8B4A6;height:34px}
+.payi{display:grid;grid-template-columns:1.3fr 1fr}
+.payi .kv{background:#F3F1EA;padding:14px 18px;grid-template-columns:84px minmax(0,1fr);row-gap:6px;align-content:start}
+.seller{padding:14px 0 14px 24px;margin-left:24px;border-left:1px solid #E3E0D6;display:flex;flex-direction:column;justify-content:center;gap:2px;font-size:10px;line-height:1.6;color:#8A8A7C}
+.seller b{font-size:11px;color:${DOC_ACCENT};margin-bottom:2px}
+.foot{margin-top:14px;padding-top:9px;border-top:1px solid #ECE9E0;display:grid;grid-template-columns:48px 1fr 48px;align-items:center;font-size:8.5px;line-height:1.6;color:#8A8A7C}
+.foot div{text-align:center}
+.foot span:last-child{text-align:right;font-size:9px;color:#6B6B5E;white-space:nowrap}
+.cgv{color:#2A2A24;font-size:9.6px;line-height:1.5}
+.cgv-t{font-size:22px;font-weight:500;line-height:1.15;color:#1F1F1A}
+.cgv-s{margin-top:6px;font-size:10.5px;color:#8A8A7C}
+.cgv-g{margin-top:18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;align-items:start}
+.cgv-c{display:flex;flex-direction:column;gap:9px}
+.cgv-i{display:flex;flex-direction:column;gap:3px}
+.cgv-i b{font-size:11px;color:${DOC_ACCENT}}
+.cmp .rule{margin:10px 0 14px}.cmp .meta-l{gap:7px}.cmp .thead{margin-top:14px}
+.cmp .tot{margin-top:10px;gap:3px}.cmp .band{margin-top:8px;padding:10px 16px}
+.cmp .cond{margin-top:10px;padding:9px 14px;font-size:10px;line-height:1.5}.cmp .note{margin-top:8px}
+.cmp .grow{min-height:8px}.cmp .sign{min-height:90px}.cmp .foot{margin-top:10px;padding-top:7px}`;
+
+// Ajustement automatique : si la page 1 déborde, on resserre puis on réduit les photos (2:3), en dernier recours sans photo
+const DOC_FIT_SCRIPT = `<script>(function(){
+function fit(){
+  var p=document.querySelector('[data-doc-page="1"]'); if(!p) return;
+  var probe=document.createElement('div'); probe.style.cssText='position:absolute;visibility:hidden;height:296.5mm;width:1px';
+  document.body.appendChild(probe); var max=probe.getBoundingClientRect().height; probe.remove();
+  var imgs=[].slice.call(p.querySelectorAll('img.ph')), grids=[].slice.call(p.querySelectorAll('.grid')), h0=+p.dataset.phh;
+  var hs=[h0].concat([150,130,112,96,80,66,54].filter(function(h){return h<h0;}));
+  var steps=[[0,h0]]; hs.forEach(function(h){steps.push([1,h]);}); steps.push([1,0]);
+  for(var i=0;i<steps.length;i++){
+    var h=steps[i][1], w=Math.round(h*2/3);
+    p.classList.toggle('cmp',!!steps[i][0]);
+    imgs.forEach(function(im){im.style.display=h?'':'none';im.style.width=w+'px';im.style.height=h+'px';});
+    grids.forEach(function(g){g.style.gridTemplateColumns=(h?w+'px ':'')+'minmax(0,1fr) 40px 96px 104px';if(g.classList.contains('thead'))g.firstElementChild.style.display=h?'':'none';else g.style.padding=h?'':'3px 0';});
+    if(p.getBoundingClientRect().height<=max+1) break;
+  }
+}
+fit(); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(fit); window.addEventListener('load',fit);
+})();<\/script>`;
+
+// Textes des CGV (version condensée validée), en français et en anglais
+function getDocCgvSections(o){
+  const {lang, isQuote, capital, currency} = o;
+  const rcs = INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase();
+  const s = INVOICE_SELLER;
+  if(lang === 'en'){
+    const Q = o.isUS ? 'quote' : 'quotation';
+    const curName = {USD:'US dollars ($)', GBP:'pounds sterling (£)', EUR:'euros (€)'}[currency] || currency;
+    return [
+      ['Preamble', `These General Terms and Conditions of Sale (the “Terms”) apply to all sales made by ${escapeHTML(s.name)}, a French ${s.legalForm} (limited liability company) with a share capital of €${Number(capital).toLocaleString('en-GB')}, registered with the ${rcs} Trade and Companies Register under number ${s.siren}, registered office ${escapeHTML(s.address)}, France, trading as Martingale Paris (the “Seller”), with business customers only. They prevail over any purchase conditions of the customer unless agreed in writing by the Seller. ${isQuote?'Signing the '+Q:'Any order or payment'} implies full acceptance of these Terms. These Terms translate the Seller’s French terms; the French version prevails.`],
+      ['1. Products', `1.1 In-stock products: shipped after approval and payment of the order.<br>1.2 Made-to-order products: manufactured or sourced for the customer; the order is firm and final once approved.<br>1.3 The chairs are handmade and hand-woven from natural rattan. Variations in ${o.isUS?'color':'colour'}, grain, knots or weave between pieces, or compared with images, are inherent to the material and the craftsmanship: they are neither a defect nor a non-conformity. Photographs are not contractual.`],
+      ['2. Prices', `Prices in ${curName}, excluding taxes and delivery unless otherwise stated. The applicable price is the one in the ${isQuote?'accepted '+Q+', fixed for its validity period':'invoice'}.`],
+      ['3. Order and payment', `3.1 In-stock products: full payment upon order, unless otherwise agreed.<br>3.2 Made-to-order products: 50% deposit upon order, balance due before shipment. Sums paid are a deposit (acompte), not a forfeitable option fee: the customer is committed to the full price.<br>3.3 Bank transfer, no discount for early payment, bank charges borne by the customer. Any late payment automatically incurs, without notice, interest at the ECB refinancing rate plus 10 points and a fixed recovery fee of €40 (French Commercial Code, Art. L. 441-10 and D. 441-5), without prejudice to further damages. The Seller may suspend any order or delivery until full payment.`],
+      ['4. Lead times', `In-stock: indicative processing within 48 business hours, excluding transport. Made-to-order: indicative lead times. A delay may justify cancellation only after formal notice has remained without effect for 30 days; it gives rise to no penalty or compensation unless agreed in writing.`],
+      ['5. Delivery and risk', `Delivery to the address given by the customer, ${o.isUS?'curbside':'kerbside'} unless otherwise agreed. Risk passes to the customer when the goods are handed over to the carrier. Import formalities, duties and local taxes are borne by the customer unless the ${isQuote?Q:'invoice'} states that they are included.`],
+      ['6. Receipt and claims', `The customer inspects the goods in the presence of the carrier. Any damage or shortage is recorded with precise reservations on the delivery note and confirmed in writing to the carrier within 3 days, copy to the Seller. Any apparent non-conformity is notified in writing to the Seller within 48 hours. Failing this, the products are deemed accepted.`],
+      ['7. Cancellation and returns', `Any approved order is firm and final. No cancellation or return, except for defective products under warranty (Art. 8) or with the Seller’s prior written approval. If the customer cancels, the deposit is retained and the balance remains due.`],
+      ['8. Warranty', `2-year commercial warranty from delivery covering manufacturing defects: repair or replacement at the Seller’s option. Excluded: normal wear, misuse, lack of maintenance, natural variations of rattan (Art. 1.3). Without prejudice to the statutory warranty against hidden defects (French Civil Code, Art. 1641 et seq.).`],
+      ['9. Liability', `Except for gross negligence or wilful misconduct, the Seller’s liability is limited to the amount, excluding taxes, of the order. The Seller is not liable for indirect losses (loss of business, revenue or goodwill).`],
+      ['10. Retention of title', `The goods remain the Seller’s property until full payment of the price. In case of non-payment, the Seller may reclaim them. Risk nevertheless remains with the customer (Art. 5).`],
+      ['11. Force majeure', `The Seller is not liable for any delay or failure due to force majeure (French Civil Code, Art. 1218).`],
+      ['12. Personal data', `Contact data of the customer’s staff is processed to manage the business relationship, in accordance with the GDPR. Access, rectification, erasure: romeo@martingaleparis.fr.`],
+      ['13. Governing law and jurisdiction', `French law. Exclusive jurisdiction of the Commercial Court of Bayonne (France), including for interim proceedings, third-party claims or multiple defendants.`]
+    ];
+  }
+  return [
+    ['Préambule', `Les présentes CGV s’appliquent à toutes les ventes conclues par ${escapeHTML(s.name)}, ${s.legalForm} au capital de ${formatDocMoney(capital).replace(',00','')}, RCS ${rcs} ${s.siren.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3')}, siège ${escapeHTML(s.address)}, marque Martingale Paris (le « Vendeur »), avec des clients professionnels exclusivement. Elles constituent le socle de la négociation commerciale (art. L. 441-1 C. com.) et prévalent sur toutes conditions d’achat du client, sauf accord écrit du Vendeur. ${isQuote?'La signature du devis':'Toute commande ou tout règlement'} emporte leur acceptation pleine et entière.`],
+    ['1. Produits', `1.1 Produits en stock : expédiés après validation et règlement de la commande.<br>1.2 Produits sur commande : fabriqués ou approvisionnés pour le client ; commande ferme et définitive dès sa validation.<br>1.3 Les chaises sont fabriquées et tressées à la main en rotin naturel. Les variations de teinte, de grain, de nœuds ou de tressage entre deux pièces, ou par rapport aux visuels, sont inhérentes au matériau et au travail artisanal : elles ne constituent ni un défaut ni une non-conformité. Photographies non contractuelles.`],
+    ['2. Prix', `Prix en euros, hors taxes et hors frais de livraison sauf mention contraire. Le prix applicable est celui ${isQuote?'du devis accepté, ferme pendant sa durée de validité':'de la facture'}.`],
+    ['3. Commande et paiement', `3.1 Produits en stock : paiement intégral à la commande, sauf stipulation contraire.<br>3.2 Produits sur commande : acompte de 50 % à la commande, solde exigible avant expédition. Les sommes versées constituent un acompte et non des arrhes : le client est engagé pour la totalité du prix.<br>3.3 Virement bancaire, sans escompte. Tout retard entraîne de plein droit, sans rappel, des pénalités au taux de refinancement BCE majoré de 10 points et une indemnité forfaitaire de 40 € (art. L. 441-10 et D. 441-5 C. com.), sans préjudice d’une indemnisation complémentaire. Le Vendeur peut suspendre toute commande ou livraison jusqu’au paiement complet.`],
+    ['4. Délais', `Stock : traitement indicatif sous 48 heures ouvrées, hors transport. Sur commande : délais indicatifs. Un retard ne peut justifier l’annulation qu’après mise en demeure restée sans effet pendant 30 jours ; il n’ouvre droit à aucune pénalité ni indemnité, sauf accord écrit.`],
+    ['5. Livraison et transfert des risques', `Livraison à l’adresse indiquée par le client, au pied du camion sauf stipulation contraire. Le client garantit l’accessibilité du lieu. Les risques sont transférés dès la remise des marchandises au transporteur (art. 1196 C. civ.).`],
+    ['6. Réception et réclamations', `Le client vérifie les marchandises en présence du transporteur. Toute avarie ou manquant fait l’objet de réserves précises sur le bon de livraison, confirmées au transporteur par lettre recommandée sous 3 jours (art. L. 133-3 C. com.), copie au Vendeur. Tout défaut de conformité apparent est notifié par écrit au Vendeur sous 48 heures. À défaut, les produits sont réputés acceptés.`],
+    ['7. Annulation et retours', `Toute commande validée est ferme et définitive. Aucune annulation ni aucun retour, sauf produit défectueux relevant de la garantie (art. 8) ou accord écrit préalable du Vendeur. En cas d’annulation par le client, l’acompte reste acquis et le solde demeure exigible.`],
+    ['8. Garantie', `Garantie commerciale de 2 ans à compter de la livraison, couvrant les défauts de fabrication : réparation ou remplacement au choix du Vendeur. Exclus : usure normale, mauvaise utilisation, défaut d’entretien, variations naturelles du rotin (art. 1.3). Sans préjudice de la garantie légale des vices cachés (art. 1641 et s. C. civ.).`],
+    ['9. Responsabilité', `Sauf faute lourde ou dolosive, la responsabilité du Vendeur est limitée au montant HT de la commande. Il ne répond pas des dommages indirects (perte d’exploitation, de chiffre d’affaires ou de clientèle).`],
+    ['10. Réserve de propriété', `Les marchandises restent la propriété du Vendeur jusqu’au paiement intégral du prix (art. 2367 C. civ. et L. 624-16 C. com.). À défaut de paiement, le Vendeur peut les revendiquer. Les risques restent à la charge du client (art. 5).`],
+    ['11. Force majeure', `Le Vendeur n’est pas responsable d’un retard ou d’une inexécution dû à un cas de force majeure (art. 1218 C. civ.).`],
+    ['12. Données personnelles', `Les données des interlocuteurs du client sont traitées pour la gestion de la relation commerciale, conformément au RGPD. Accès, rectification, effacement : romeo@martingaleparis.fr.`],
+    ['13. Droit applicable et tribunal compétent', `Droit français. Compétence exclusive du Tribunal de commerce de Bayonne, y compris en référé, appel en garantie ou pluralité de défendeurs.`]
+  ];
+}
+
+// Échéance affichée sur une facture : à réception, avant expédition ou date précise
+function getInvoiceDueLabel(mode, dueDate, lang){
+  if(mode === 'expedition') return lang==='en' ? 'Before shipment' : 'Avant expédition';
+  if(mode === 'date' && dueDate) return fmtDateFR(dueDate);
+  return lang==='en' ? 'Upon receipt' : 'À réception';
+}
+
+/*
+ ctx = {
+   type:'DEV'|'FAC'|'FDF', locale (DOC_LOCALES.x), docNum, issueDate, validite,
+   recipient:{contact, company, addr, livraison, siren, vat, purchaseOrder, euVat},
+   lines:[{prod, qty, remise, unitBrut, prixNet, total}],
+   A:{sousTotal, remisePct, remiseMontant, shipHT, baseHT, tva, ttc, duties, clearance, salesTax, us},
+   shipping:{isFree, shipHT}, vat: vatSettings, availability:'stock'|'commande',
+   due (getInvoiceDueAmounts), invoice:{dueMode, dueDate, operationDate, quoteNum, capital},
+   fx, fxDate
+ }
+*/
+function buildDocHtml(ctx){
+  const {type, locale, docNum, issueDate, recipient:rc, lines, A, shipping, vat, due} = ctx;
+  const en = locale.lang === 'en';
   const isUS = locale.code === 'US';
-  const sp = (us, uk) => isUS ? us : uk;
+  const isQuote = type === 'DEV';
+  const isDeposit = type === 'FAC';
+  const isBalance = type === 'FDF' && !!(due?.deductions?.length);
+  const inv = ctx.invoice || {};
+  const capital = inv.capital || INVOICE_SELLER.capital;
+  const L = (fr, eng) => en ? eng : fr;
   const money = v => formatMoneyIn(v, locale.currency, locale.intl);
-  const eur = v => formatMoneyIn(v, 'EUR', locale.intl);
-  const currencyName = {USD:'US dollars ($)', GBP:'pounds sterling (£)', EUR:'euros (€)'}[locale.currency];
-  const docTitle = sp('QUOTE','QUOTATION');
-  const tax = sp('excl. tax','excl. VAT');
-  const fxDate = docFxRates?.date ? new Date(docFxRates.date).toLocaleDateString(locale.intl,{day:'numeric',month:'long',year:'numeric'}) : '';
-  const validityEN = String(validite||'').replace(/(\d+)\s*jours?/i,'$1 days').replace(/(\d+)\s*mois/i,'$1 months');
-  const sellerLine = `${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} · share capital €${INVOICE_SELLER.capital.toLocaleString('en-US')} · RCS ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} ${INVOICE_SELLER.siren} · VAT ${INVOICE_SELLER.vat} · ${escapeHTML(INVOICE_SELLER.address)}, France · www.martingaleparis.fr`;
-  const colours = {
-    'rose-dragee':'Pink & White','rouge-cerise':'Red & Strawberry','kaki-botanique':'Black & Khaki Green','cafe-noir':'Black & White',
-    'rouge-grenat':'Red & Raspberry','orange-sienne':'Orange & Black','bleu-atelier':'Midnight Blue & Royal Blue',
-    'vert-printemps':'Green & Cream','vert-orangerie':'Green & White','jaune-miel':'Yellow & White'
-  };
-  const descFor = id => (colours[id] ? `Malacca rattan frame - ${sp('Colors','Colours')}: ${colours[id]}\n` : 'Malacca rattan frame\n')
-    + `Seat woven with Martingale glossy ${sp('fiber','fibre')}\nMarine varnish - Reinforcement glides`;
+  const esc = escapeHTML;
+  const n = lines.length;
+  const dens = n <= 2 ? 0 : n <= 4 ? 1 : 2;
+  // Photos 2:3 aussi grandes que possible ; le script d'ajustement les réduit si la page déborde
+  const ph = dens === 0 ? (isQuote ? [120,180] : [100,150]) : [72,108];
+  const cols = `${ph[0]}px minmax(0,1fr) 40px 96px 104px`;
 
-  const anyLineDiscount = A.lines.some(l=>l.remise>0);
-  const shipCell = shipping.isFree ? '<span style="color:#C0392B;font-weight:700">FREE</span>'
-    : (A.shipHT > 0 ? money(A.shipHT) : 'To be confirmed');
-  const vatRowLabel = vatSettings.isVatExempt ? sp('Tax exempt (French VAT)','VAT exempt') : 'VAT (20%)';
-  const netLabel = vatSettings.isVatExempt ? 'TOTAL DUE' : 'TOTAL DUE (incl. VAT)';
-  const US = A.us;
-  const pctTxt = r => (r*100).toLocaleString('en-US',{maximumFractionDigits:3})+'%';
-  const usLine = (label, value) => '<tr><td class="lbl">'+label+'</td><td>'+value+'</td></tr>';
-  let usIncludedRows = '';
-  if(US){
-    const dutyRows = (US.dutyRate>0 ? usLine('US IMPORT DUTIES ('+pctTxt(US.dutyRate)+')', money(A.duties)) : '')
-      + (A.clearance>0 ? usLine('CUSTOMS CLEARANCE', money(A.clearance)) : '');
-    if(US.included) usIncludedRows = dutyRows;
-    if(US.salesTaxRate>0) usIncludedRows += usLine('STATE SALES TAX ('+pctTxt(US.salesTaxRate)+')', money(A.salesTax));
+  // En-tête et pied de page
+  const header = `<div class="hd"><img src="${DOC_LOGO_B64}" class="logo" alt="MARTINGALE"><div class="tag">${L('Créateur de mobilier en rotin professionnel<br>pour restaurants et terrasses d’exception','Designer of professional rattan furniture<br>for outstanding restaurants and terraces')}<br>romeo@martingaleparis.fr</div></div><div class="rule"></div>`;
+  const rcs = INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase();
+  const siren = INVOICE_SELLER.siren.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
+  const siret = INVOICE_SELLER.siret.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/,'$1 $2 $3 $4');
+  const capTxt = en ? '€'+Number(capital).toLocaleString('en-GB') : formatDocMoney(capital).replace(',00','');
+  const footer = page => `<div class="foot"><span></span><div>${esc(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} ${L('au capital de','with a share capital of')} ${capTxt} · ${esc(INVOICE_SELLER.address)}${L('',', France')} · martingaleparis.fr<br>RCS ${rcs} ${siren} · SIRET ${siret} · ${L('TVA intracommunautaire','EU VAT')} ${INVOICE_SELLER.vat}</div><span>${page} / 2</span></div>`;
+
+  // Titre et repères
+  const docTitle = isQuote ? L('Devis', isUS?'Quote':'Quotation') : isDeposit ? 'Facture d’acompte' : 'Facture';
+  const fact = (k, v) => `<div class="fact"><span class="k">${k}</span><span>${esc(v)}</span></div>`;
+  const facts = [];
+  if(isQuote){
+    facts.push(fact(L('Émis le','Issued on'), issueDate));
+    const m = String(ctx.validite||'').match(/^\s*(\d+)\s*(jours?|days?)\s*$/i);
+    if(m){
+      const d = new Date(); d.setDate(d.getDate()+(+m[1]));
+      facts.push(fact(L('Valable jusqu’au','Valid until'), d.toLocaleDateString(locale.intl,{day:'numeric',month:'long',year:'numeric'})));
+    } else if(ctx.validite){
+      facts.push(fact(L('Validité','Validity'), ctx.validite));
+    }
+  } else {
+    facts.push(fact('Émise le', issueDate));
+    facts.push(fact('Échéance', getInvoiceDueLabel(inv.dueMode, inv.dueDate, 'fr')));
+    if(type === 'FDF' && inv.operationDate) facts.push(fact('Livraison', fmtDateFR(inv.operationDate)));
+    if(!inv.quoteNum || !isBalance) facts.push(fact('Nature', 'Livraison de biens'));
+    if(inv.quoteNum) facts.push(fact('Réf. devis', inv.quoteNum));
   }
 
-  let vatNote = '';
-  if(vatSettings.vatRegime === VAT_REGIME_EXPORT && vatSettings.isVatExempt){
-    vatNote = 'VAT exempt: export outside the European Union, Article 262-I-1° of the French General Tax Code (CGI)';
-  } else if(vatSettings.vatRegime === VAT_REGIME_EU_B2B && vatSettings.isVatExempt){
-    vatNote = 'VAT exempt: intra-EU supply of goods, Article 262 ter-I of the French General Tax Code (CGI)'
-      + '<br>Seller EU VAT number: '+SELLER_VAT_NUMBER+'<br>Customer EU VAT number: '+escapeHTML(vatSettings.customerVatNumber);
-  }
+  // Destinataire
+  const who = getDocRecipient(rc.contact, rc.company);
+  const toLines = [`<span class="k">${L('Destinataire', isUS?'Bill to':'Bill to')}</span>`, `<span class="to-name">${esc(who.name)}</span>`];
+  if(who.company) toLines.push(`<span class="to-a">${esc(who.company)}</span>`);
+  if(rc.addr) toLines.push(`<span class="to-a">${esc(rc.addr)}</span>`);
+  const ids = [];
+  if(rc.siren) ids.push('SIREN '+esc(rc.siren.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3')));
+  const clientVat = rc.vat || (vat.vatRegime === VAT_REGIME_EU_B2B ? vat.customerVatNumber : '');
+  if(clientVat) ids.push(L('TVA ','VAT ')+esc(clientVat));
+  if(ids.length) toLines.push(`<span class="to-b">${ids.join(' · ')}</span>`);
+  if(rc.purchaseOrder) toLines.push(`<span class="to-b">${L('Bon de commande','Purchase order')} ${esc(rc.purchaseOrder)}</span>`);
+  if(rc.livraison && !sameDocText(rc.livraison, rc.addr)) toLines.push(`<span class="to-b">${L('Livraison : ','Ship to: ')}${esc(rc.livraison)}</span>`);
 
-  const conditions = [
-    `Payment upon receipt of invoice by international bank transfer (SWIFT). Prices in ${locale.currency}, converted at 1 EUR = ${fx.toFixed(4)} ${locale.currency}${fxDate?' (rate of '+fxDate+')':''}.`,
-    US && US.included
-      ? `Delivered Duty Paid: US import duties${US.dutyRate>0?' ('+pctTxt(US.dutyRate)+' on the value of the goods)':''}${A.clearance>0?' and customs clearance':''} are included. ${US.salesTaxRate>0?'State sales tax is included.':'State sales tax, if applicable, is not included.'}`
-      : US
-        ? `Not included, payable by the buyer at import: US import duties${US.dutyRate>0?' estimated at '+money(A.duties)+' ('+pctTxt(US.dutyRate)+' on the value of the goods)':''}${A.clearance>0?', customs clearance estimated at '+money(A.clearance):''}.${US.salesTaxRate>0?'':' State sales tax, if applicable, is not included.'}`
-        : `Prices exclude import duties, customs fees and local taxes (${sp('sales tax','import VAT')}), payable by the buyer.`,
-    'Late payment: ECB rate + 10 points, plus a €40 recovery fee (French Commercial Code). Signing implies acceptance of the Terms on page 2.'
-  ].join('\n');
-
-  const Q = sp('quote','quotation');
-  const cgv = [
-    ['PREAMBLE', `These General Terms and Conditions of Sale (the “Terms”) apply to all sales made by ${escapeHTML(INVOICE_SELLER.name)}, a French ${INVOICE_SELLER.legalForm} (limited liability company) with a share capital of ${eur(INVOICE_SELLER.capital)}, registered with the ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} Trade and Companies Register under number ${INVOICE_SELLER.siren}, registered office ${escapeHTML(INVOICE_SELLER.address)}, France, trading as Martingale Paris (the “Seller”), exclusively to business customers. They prevail over any purchase conditions of the customer unless agreed in writing by the Seller. Signing the ${Q} implies full acceptance of these Terms. These Terms are a translation of the Seller's French General Terms and Conditions of Sale; in case of discrepancy, the French version shall prevail.`],
-    ['1. PRODUCTS', `1.1 In-stock products: available products, shipped after approval and payment of the order.\n1.2 Made-to-order products: products manufactured or sourced specifically for the customer; the order is firm and final once approved.\n1.3 The chairs are handmade and hand-woven from natural rattan. Variations in ${sp('color','colour')}, grain, knots or weave between pieces, or compared with images, are inherent to the material and to the craftsmanship: they are neither a defect nor a non-conformity. Photographs are not contractual.`],
-    ['2. PRICES', `Prices are quoted in ${currencyName}, converted from the Seller's euro prices, excluding taxes and delivery unless otherwise stated. The applicable price is the one in the accepted ${Q}, fixed for its validity period.`],
-    ['3. ORDER AND PAYMENT', `3.1 In-stock products: full payment upon order, unless otherwise agreed.\n3.2 Made-to-order products: 50% deposit upon order, balance due before shipment. Sums paid are a deposit (acompte), not a refundable or forfeitable option fee: the customer is committed to the full price.\n3.3 Payment by bank transfer, with no discount for early payment. Bank charges are borne by the customer. Any late payment automatically incurs, without notice, interest at the ECB refinancing rate plus 10 percentage points and a fixed recovery fee of €40 (French Commercial Code, Articles L. 441-10 and D. 441-5), without prejudice to further damages. The Seller may suspend any order or delivery until full payment.`],
-    ['4. LEAD TIMES', `In-stock products: indicative processing within 48 business hours, excluding transport. Made-to-order products: lead times are indicative. A delay may justify cancellation of the order only after formal notice has remained without effect for thirty (30) days; it gives rise to no penalty or compensation unless agreed in writing.`],
-    ['5. DELIVERY AND RISK', `Delivery to the address specified by the customer, ${sp('curbside','kerbside')} unless otherwise agreed. Risk passes to the customer when the goods are handed over to the carrier. Import formalities, duties and local taxes are borne by the customer unless the ${Q} expressly states that they are included.`],
-    ['6. RECEIPT AND CLAIMS', `The customer must inspect the goods in the presence of the carrier. Any damage or shortage must be recorded with precise reservations on the delivery note and confirmed in writing to the carrier within three (3) days of receipt, with a copy to the Seller. Any apparent non-conformity must be notified in writing to the Seller within 48 hours. Failing this, the products are deemed accepted.`],
-    ['7. CANCELLATION AND RETURNS', `Any approved order is firm and final. No cancellation or return is accepted, except for defective products covered by the warranty (Article 8) or with the Seller's prior written approval. If the customer cancels, the deposit is retained by the Seller and the balance remains due.`],
-    ['8. WARRANTY', `Two (2) year commercial warranty from delivery covering manufacturing defects: repair or replacement at the Seller's option. Excluded: normal wear and tear, misuse, lack of maintenance and natural variations of rattan (Article 1.3). This warranty applies without prejudice to the statutory warranty against hidden defects (French Civil Code, Articles 1641 et seq.).`],
-    ['9. LIABILITY', `Except in case of gross negligence or wilful misconduct, the Seller's liability is limited to the amount, excluding taxes, of the order concerned. The Seller is not liable for indirect losses (loss of business, revenue or goodwill).`],
-    ['10. RETENTION OF TITLE', `The goods remain the property of the Seller until full payment of the price, including any accessory amounts. In case of non-payment, the Seller may reclaim them. Risk nevertheless remains with the customer as set out in Article 5.`],
-    ['11. FORCE MAJEURE', `The Seller cannot be held liable for any delay or failure resulting from force majeure within the meaning of Article 1218 of the French Civil Code.`],
-    ['12. PERSONAL DATA', `Contact data of the customer's staff is processed by the Seller to manage the business relationship, in accordance with the GDPR. Rights of access, rectification and erasure: romeo@martingaleparis.fr.`],
-    ['13. GOVERNING LAW AND JURISDICTION', `These Terms are governed by French law. Any dispute falls under the exclusive jurisdiction of the Commercial Court of Bayonne (France), including for interim proceedings, third-party claims or multiple defendants.`]
-  ].map(([t,b])=>'<div class="cgv-section"><div class="cgv-section-title">'+t+'</div><div class="cgv-section-body">'+b+'</div></div>').join('\n  ');
-
-  const header = `<div class="header">
-    <img src="${LOGO_B64}" class="logo" alt="MARTINGALE">
-    <div class="header-right">
-      Designer of professional rattan furniture<br>
-      for outstanding restaurants &amp; terraces<br>
-      romeo@martingaleparis.fr
-    </div>
-  </div>
-  <div class="divider"></div>`;
-
-  const rows = A.lines.map(l=>{
+  // Lignes produits
+  const rows = lines.map(l=>{
     const p = l.prod;
-    const unitBrut = l.unitBrut ?? p.price;
-    const priceCell = l.remise>0
-      ? '<span style="text-decoration:line-through;color:#aaa;font-size:10px">'+money(unitBrut)+'</span><br><strong>'+money(l.prixNet)+'</strong><br><small style="color:#C0392B">−'+l.remise+'%</small>'
-      : money(unitBrut);
-    return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+p.img+'" style="width:90px;height:115px;object-fit:cover;display:block" alt="'+escapeHTML(p.name)+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Martingale Chair '+escapeHTML(p.name)+'</div><div class="product-desc">'+descFor(p.id)+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+priceCell+'</td><td class="total-cell">'+money(l.total)+'</td></tr>';
+    const col = (DOC_COLOURS[p.id]||[])[en?1:0] || '';
+    const name = L('Chaise Martingale ','Martingale Chair ')+p.name;
+    const matA = L('Rotin Malacca · fibre brillante','Malacca rattan · glossy '+(isUS?'fiber':'fibre'));
+    const matB = L('Vernis marin · patins de renfort','Marine varnish · reinforcement glides');
+    const descHtml = dens === 2
+      ? `<span class="muted">${esc([col, L('rotin Malacca, vernis marin','Malacca rattan, marine varnish')].filter(Boolean).join(' · '))}</span>`
+      : `${col?`<span class="muted">${esc(col)}</span>`:''}<span class="muted" style="line-height:1.55">${dens===0 && isQuote ? matA+'<br>'+matB : matA+' · '+L('vernis marin','marine varnish')}</span>`;
+    const price = l.remise > 0
+      ? `<div class="pu"><span class="strike">${money(l.unitBrut)}</span><span class="net">${money(l.prixNet)}</span></div>`
+      : `<span class="r" style="white-space:nowrap">${money(l.unitBrut)}</span>`;
+    return `<div class="grid row" style="grid-template-columns:${cols}"><img class="ph" src="${p.img}" alt="${esc(p.name)}" style="width:${ph[0]}px;height:${ph[1]}px"><div class="desc"><span class="pname serif">${esc(name)}</span>${descHtml}</div><span class="c qty">${l.qty}</span>${price}<span class="r ltot">${money(l.total)}</span></div>`;
   }).join('');
 
+  // Totaux (une seule colonne)
+  const tr = (label, value, cls='') => `<div class="tr ${cls}"><span>${label}</span><span>${value}</span></div>`;
+  const ht = L(' HT',' (excl. tax)');
+  const vatLabel = vat.isVatExempt ? L('TVA exonérée','VAT exempt') : L('TVA 20 %','VAT 20%');
+  const totals = [];
+  totals.push(tr(L('Sous-total HT','Subtotal (excl. tax)'), money(A.sousTotal)));
+  if(A.remiseMontant > 0) totals.push(tr(L('Geste commercial','Special discount'), '− '+money(A.remiseMontant), 'g'));
+  if(shipping.isFree) totals.push(tr(L('Livraison','Delivery'), L('Offerte','Free'), 'g'));
+  else if(A.shipHT > 0) totals.push(tr(L('Livraison HT','Delivery'), money(A.shipHT)));
+  else if(isQuote) totals.push(tr(L('Livraison','Delivery'), L('À confirmer','To be confirmed')));
+  const orderWord = (isDeposit || isBalance) ? L('Total commande','Order total') : 'Total';
+  totals.push(tr(orderWord+ht, money(A.baseHT), 'b sep'));
+  totals.push(tr(vatLabel, money(vat.isVatExempt ? 0 : A.tva)));
+  const US = A.us;
+  const pctTxt = r => (r*100).toLocaleString(locale.intl,{maximumFractionDigits:3})+'%';
+  if(US){
+    if(US.included){
+      if(US.dutyRate > 0) totals.push(tr('US import duties ('+pctTxt(US.dutyRate)+')', money(A.duties)));
+      if(A.clearance > 0) totals.push(tr('Customs clearance', money(A.clearance)));
+    }
+    if(US.salesTaxRate > 0) totals.push(tr('State sales tax ('+pctTxt(US.salesTaxRate)+')', money(A.salesTax)));
+  }
+  if(isDeposit || isBalance) totals.push(tr(orderWord+(vat.isVatExempt?'':' TTC'), money(due.orderTTC)));
+  if(isDeposit){
+    totals.push(tr('Acompte '+String(due.pct).replace('.',',')+' % HT', money(due.ht), 'b sep'));
+    totals.push(tr(vatLabel, money(due.tva)));
+  }
+  if(isBalance){
+    due.deductions.forEach((d,i)=>totals.push(tr('Acompte '+esc(d.num)+(d.date?' du '+esc(d.date):''), '− '+money(d.ht), i===0?'sep':'')));
+    totals.push(tr('Reste dû HT', money(due.ht), 'b'));
+    totals.push(tr(vatLabel, money(due.tva)));
+  }
+  const ttcWord = vat.isVatExempt ? '' : L(' TTC',' (incl. VAT)');
+  const bandLabel = isDeposit ? 'Acompte à régler'+ttcWord : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
+  const bandValue = isQuote ? A.ttc : due.ttc;
+
+  // Mentions de TVA
+  let vatNote = '';
+  if(vat.isVatExempt && vat.vatRegime === VAT_REGIME_EXPORT){
+    vatNote = L('Exonération de TVA, export hors Union européenne (art. 262-I-1° du CGI).','VAT exempt: export outside the European Union, Article 262-I-1° of the French General Tax Code (CGI).');
+  } else if(vat.isVatExempt && vat.vatRegime === VAT_REGIME_EU_B2B){
+    vatNote = L('Exonération de TVA, livraison intracommunautaire (art. 262 ter-I du CGI). TVA vendeur ','VAT exempt: intra-EU supply of goods, Article 262 ter-I of the French General Tax Code (CGI). Seller VAT ')+INVOICE_SELLER.vat+L(' · TVA client ',' · Customer VAT ')+esc(vat.customerVatNumber)+'.';
+  } else if(vat.isVatExempt && vat.vatLegalMention){
+    vatNote = esc(vat.vatLegalMention)+'.';
+  }
+  const late = L('Retard : taux BCE + 10 points, exigible dès le lendemain de l’échéance, et indemnité forfaitaire de 40 € (art. L. 441-10 et D. 441-5 C. com.).','Late payment: ECB rate + 10 points from the day after the due date, plus a €40 fixed recovery fee (French Commercial Code, Art. L. 441-10 and D. 441-5).');
+
+  // Conditions du devis / mentions des factures
+  let condHtml = '';
+  if(isQuote){
+    const intl = !!vat.isInternational || locale.currency !== 'EUR';
+    const avail = ctx.availability === 'commande'
+      ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines. Règlement par virement, sans escompte.`,
+          `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks. Payment by international bank transfer (SWIFT), no early-payment discount.`)
+      : L(`Produits en stock : expédition sous 24 h${intl?'':', livraison sous 5 jours ouvrés'}. Règlement intégral à la commande, par virement, sans escompte.`,
+          'In-stock products: shipped within 24 hours. Full payment upon order by international bank transfer (SWIFT), no early-payment discount.');
+    const parts = [avail];
+    if(en){
+      parts.push(`Prices in ${locale.currency}, converted at 1 EUR = ${Number(ctx.fx).toFixed(4)} ${locale.currency}${ctx.fxDate?' (rate of '+ctx.fxDate+')':''}.`);
+      if(US && US.included){
+        parts.push(`Delivered duty paid: US import duties${US.dutyRate>0?' ('+pctTxt(US.dutyRate)+' of the value of the goods)':''}${A.clearance>0?' and customs clearance':''} are included. ${US.salesTaxRate>0?'State sales tax is included.':'State sales tax, if any, is not included.'}`);
+      } else if(US){
+        parts.push(`Not included, payable by the buyer at import: US import duties${US.dutyRate>0?', estimated at '+money(A.duties)+' ('+pctTxt(US.dutyRate)+' of the value of the goods)':''}${A.clearance>0?', customs clearance estimated at '+money(A.clearance):''}.${US.salesTaxRate>0?'':' State sales tax, if any, is not included.'}`);
+      } else {
+        parts.push('Prices exclude import duties, customs fees and import VAT, payable by the buyer.');
+      }
+    } else if(vat.vatRegime === VAT_REGIME_EXPORT){
+      parts.push('Prix hors droits de douane et taxes d’importation, à la charge de l’acheteur.');
+    }
+    condHtml = `<div class="cond">${parts.join(' ')}${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}<br>${late} ${L('La signature vaut acceptation des CGV en page 2.','Signing implies acceptance of the Terms on page 2.')}</div>`;
+  } else {
+    const mode = inv.dueMode;
+    const first = isDeposit
+      ? (mode==='date' ? 'Acompte payable par virement le '+fmtDateFR(inv.dueDate)+'.' : 'Acompte payable à réception par virement.')+' La fabrication démarre à réception du règlement.'
+      : isBalance
+        ? (mode==='date' ? 'Solde payable par virement le '+fmtDateFR(inv.dueDate)+'.' : mode==='reception' ? 'Solde payable à réception par virement.' : 'Solde payable par virement avant expédition.')
+        : (mode==='date' ? 'Facture payable par virement le '+fmtDateFR(inv.dueDate)+'.' : mode==='expedition' ? 'Facture payable par virement avant expédition.' : 'Facture payable à réception par virement.');
+    condHtml = `<div class="note">${first} Escompte pour paiement anticipé : néant. ${late.replace('exigible dès le lendemain de l’échéance','exigible sans rappel')} CGV en page 2.${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}</div>`;
+  }
+
+  // Bloc règlement
+  const iban = 'FR76 1333 5000 4008 0027 7957 981', bic = 'CEPAFRPP333';
+  const settle = isQuote
+    ? `<div class="settle"><div class="sec"><span>${L('Validation et règlement','Approval and payment')}</span><div></div></div>
+  <div class="pay2"><div class="rib"><span class="rib-t">${L('Informations de règlement','Payment details')}</span><div class="kv"><span>${L('Mode','Method')}</span><span>${L('Virement bancaire (SEPA)','International transfer (SWIFT)')}</span><span>IBAN</span><span>${iban}</span><span>${L('BIC','BIC / SWIFT')}</span><span>${bic}</span><span>${L('Bénéficiaire','Payee')}</span><span>${esc(INVOICE_SELLER.name)}</span></div></div>
+  <div class="sign"><span class="rib-t">${L('Bon pour accord','Approved and accepted')}</span><span style="font-size:10.5px;color:#8A8A7C">${L('Date, cachet et signature','Date, company stamp and signature')}</span><div class="sign-l"></div></div></div></div>`
+    : `<div class="settle"><div class="sec"><span>Règlement</span><div></div></div>
+  <div class="payi"><div class="kv"><span>Mode</span><span>Virement bancaire</span><span>IBAN</span><span>${iban}</span><span>BIC</span><span>${bic}</span><span>Bénéficiaire</span><span>${esc(INVOICE_SELLER.name)}</span><span>Référence</span><span>${esc(docNum)}</span></div>
+  <div class="seller"><b>${esc(INVOICE_SELLER.name)}</b><span>${esc(INVOICE_SELLER.address)}</span><span>SIRET ${siret} · RCS ${rcs}</span><span>TVA ${INVOICE_SELLER.vat}</span></div></div></div>`;
+
+  // Page 2 : CGV en deux colonnes
+  const sections = getDocCgvSections({lang:locale.lang, isQuote, capital, currency:locale.currency, isUS});
+  const cgvItem = ([t,b]) => `<div class="cgv-i"><b>${t}</b><span>${b}</span></div>`;
+  const half = 6;
+  const annexe = isQuote ? L('Annexe au devis N° ', 'Appendix to '+(isUS?'quote':'quotation')+' No. ') : (isDeposit ? 'Annexe à la facture d’acompte N° ' : 'Annexe à la facture N° ');
+  const pageTitle = isQuote ? docTitle+' '+docNum : docTitle+' '+docNum;
+
   return `<!DOCTYPE html>
-<html lang="${locale.intl}">
+<html lang="${en ? locale.intl : 'fr'}">
 <head>
 <meta charset="UTF-8">
-<title>${docTitle} ${docNum}</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<title>${esc(pageTitle)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600&display=swap" rel="stylesheet">
 <style>
-${DOC_PRINT_CSS}
-/* Devis EN : espacement resserré (lignes droits / taxes US) */
-.totaux td{padding:3px 14px}
-.conditions-box{margin:10px 0}
-.validation-sub{padding:5px 0 10px}
+${DOC_TEMPLATE_CSS}
 </style>
 </head>
 <body>
-<!-- PAGE 1 -->
-<div class="page">
+<div class="page d${dens}" data-doc-page="1" data-phh="${ph[1]}">
   ${header}
-
-  <div class="meta-row">
-    <div>
-      <div class="doc-num">${docTitle} No. ${docNum}</div>
-      <div class="doc-sub">Issued on ${today}<br>Valid for: ${escapeHTML(validityEN)}</div>
-    </div>
-    <div>
-      <div class="dest-label">Bill to</div>
-      <div class="dest-name">${escapeHTML(getDocRecipient(contact, company).name)}</div>
-      ${getDocRecipient(contact, company).company ? '<div class="dest-company">'+escapeHTML(getDocRecipient(contact, company).company)+'</div>' : ''}
-      ${addr ? '<div class="dest-addr">'+escapeHTML(addr)+'</div>' : ''}
-      ${livraison && !sameDocText(livraison, addr) ? '<div class="dest-addr" style="font-style:italic">Ship to: '+escapeHTML(livraison)+'</div>' : ''}
-      ${vatSettings.vatRegime === VAT_REGIME_EU_B2B ? '<div class="dest-addr">EU VAT number: '+escapeHTML(vatSettings.customerVatNumber)+'</div>' : ''}
-    </div>
+  <div class="meta">
+    <div class="meta-l"><div class="title serif">${docTitle} <span>${L('N°','No.')} ${esc(docNum)}</span></div><div class="facts">${facts.join('')}</div></div>
+    <div class="to">${toLines.join('')}</div>
   </div>
-
-  <table>
-    <tr class="tbl-head">
-      <td style="width:140px">Image</td>
-      <td>Description</td>
-      <td style="width:55px;text-align:center">Qty</td>
-      <td style="width:115px;text-align:right">Unit price</td>
-      <td style="width:110px;text-align:right">Total</td>
-    </tr>
-    ${rows}
-    ${A.remisePct>0?'<tr><td colspan="4" style="text-align:right;padding:6px 14px;font-size:11px;color:#888">Overall discount −'+A.remisePct+'%</td><td class="total-cell" style="color:#C0392B">− '+money(A.remiseMontant)+'</td></tr>':''}
-  </table>
-
-  <table class="totaux">
-    ${(A.remiseMontant>0||anyLineDiscount) ? '<tr><td class="lbl">GROSS SUBTOTAL '+tax.toUpperCase()+'</td><td>'+money(A.sousTotalBrut)+'</td></tr>' : ''}
-    <tr><td class="lbl">SUBTOTAL ${tax.toUpperCase()}</td><td style="color:#403F21;font-weight:600">${money(A.sousTotalNet)}</td></tr>
-    <tr><td class="lbl">SHIPPING</td><td>${shipCell}</td></tr>
-    <tr><td class="lbl">${vatRowLabel}</td><td>${vatSettings.isVatExempt ? money(0) : money(A.tva)}</td></tr>
-    ${usIncludedRows}
-    <tr style="height:6px"><td colspan="2"></td></tr>
-    <tr class="net-row"><td colspan="2">${netLabel} &nbsp;&nbsp;&nbsp; ${money(A.ttc)}</td></tr>
-  </table>
-
-  <div class="conditions-box">
-    ${vatNote ? '<div class="conditions-text" style="color:#1E8449;font-weight:700">'+vatNote+'</div>' : ''}
-    <div class="conditions-text">${conditions}</div>
-  </div>
-
-  <div class="validation-header">APPROVAL &amp; PAYMENT</div>
-  <div class="validation-sub">Appendix to ${docTitle} No. ${docNum} - ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>
-
-  <div class="payment-grid">
-    <div class="rib-block">
-      <div class="rib-title">&#9658; Payment details</div>
-      <div class="rib-row"><span class="rib-label">Method:</span><span class="rib-val">International bank transfer (SWIFT)</span></div>
-      <div class="rib-row"><span class="rib-label">BIC / SWIFT:</span><span class="rib-val">CEPAFRPP333</span></div>
-      <div class="rib-row"><span class="rib-label">IBAN:</span><span class="rib-val">FR76 1333 5000 4008 0027 7957 981</span></div>
-      <div class="rib-row"><span class="rib-label">Payee:</span><span class="rib-val">${escapeHTML(INVOICE_SELLER.name)}</span></div>
-    </div>
-    <div class="sign-block">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px;text-align:center">Approved and accepted</div>
-      <div style="font-size:8.5px;color:#888;text-align:center;margin-bottom:16px">Date, company stamp &amp; signature</div>
-      <div style="width:100%;border-bottom:1px solid #C0C0B0;margin-bottom:6px"></div>
-      <div style="font-size:7.5px;color:#bbb;text-align:center">Signature</div>
-    </div>
-  </div>
-
-  <div class="footer-wrap">
-    <div class="footer-line"></div>
-    <div class="footer-text"><span>${sellerLine}</span><span>Page 1 of 2</span></div>
-  </div>
+  <div class="grid thead" style="grid-template-columns:${cols}"><span></span><span>${L('Désignation','Description')}</span><span class="c">${L('Qté','Qty')}</span><span class="r">${L('Prix U. HT','Unit price')}</span><span class="r">${L('Total HT','Total')}</span></div>
+  ${rows}
+  <div class="tot">${totals.join('')}</div>
+  <div class="band"><span>${bandLabel}</span><span>${money(bandValue)}</span></div>
+  ${condHtml}
+  <div class="grow"></div>
+  ${settle}
+  ${footer(1)}
 </div>
-
-<!-- PAGE 2 : TERMS -->
-<div class="page page-break">
+<div class="page cgv" data-doc-page="2">
   ${header}
-  <div class="cgv-title">General Terms and Conditions of Sale</div>
-  <div class="cgv-sub">Appendix to ${docTitle} No. ${docNum} - ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>
-
-  ${cgv}
-
-  <div class="footer-wrap">
-    <div class="footer-line"></div>
-    <div class="footer-text"><span>${sellerLine}</span><span>Page 2 of 2</span></div>
-  </div>
+  <div class="cgv-t serif">${L('Conditions générales de vente','General Terms and Conditions of Sale')}</div>
+  <div class="cgv-s">${annexe}${esc(docNum)} · ${esc(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm}</div>
+  <div class="cgv-g"><div class="cgv-c">${sections.slice(0,half).map(cgvItem).join('')}</div><div class="cgv-c">${sections.slice(half).map(cgvItem).join('')}</div></div>
+  <div class="grow"></div>
+  ${footer(2)}
 </div>
+${DOC_FIT_SCRIPT}
 </body>
 </html>`;
 }
@@ -4425,250 +4654,33 @@ async function generateAndPrint(){
   const ttc = baseHT + tva;
   const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
   if(isInvoice && due.ttc <= 0){ toast('Rien à facturer : les acomptes couvrent déjà la commande.','error'); return; }
-  const fmt = v => v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
-  const vatRowLabel = vatSettings.isVatExempt ? 'TVA exonérée' : 'TVA (20 %)';
-  const vatRowValue = vatSettings.isVatExempt ? '0,00 €' : fmt(tva);
-  const netPayLabel = vatSettings.isVatExempt ? 'NET À PAYER' : 'NET À PAYER TTC';
-  const vatLegalBlock = vatSettings.vatLegalMention ? `
-  <div class="vat-note">
-    <strong>${escapeHTML(vatSettings.vatLegalMention)}</strong>
-    ${vatSettings.vatRegime === VAT_REGIME_EU_B2B ? '<br>N° TVA intracommunautaire vendeur : '+SELLER_VAT_NUMBER+'<br>N° TVA intracommunautaire client : '+escapeHTML(vatSettings.customerVatNumber) : ''}
-  </div>` : '';
+  const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',FDF:'FACTURE'};
+  const typeLabel = typeLabels[type];
+  const availability = isInvoice
+    ? (dgSourceQuote?.availability || 'stock')
+    : (document.querySelector('input[name="dg-availability"]:checked')?.value || 'stock');
 
   printWin = openPrintWindowPlaceholder();
   if(!printWin){ toast('Autoriser les popups pour générer le PDF','error'); return; }
-  
+
   const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : await getNextDocNum(type);
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
-  
-  const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',FDF:'FACTURE'};
-  const typeLabel = typeLabels[type];
-  const quoteRef = dgSourceQuote ? 'Devis N° '+dgSourceQuote.num+(dgSourceQuote.date?' du '+dgSourceQuote.date:'') : '';
-  const validityText = (()=>{ const m=String(validite).match(/^\s*(\d+)\s*jours?\s*$/i); if(type!=='DEV'||!m) return validite; const d=new Date(); d.setDate(d.getDate()+(+m[1])); return validite+' (jusqu’au '+d.toLocaleDateString('fr-FR')+')'; })();
-  const sellerLegalLine = escapeHTML(INVOICE_SELLER.name)+' · '+INVOICE_SELLER.legalForm+' au capital de '+INVOICE_SELLER.capital.toLocaleString('fr-FR')+' € · RCS '+INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()+' '+INVOICE_SELLER.siren+' · SIRET '+INVOICE_SELLER.siret+' · TVA '+INVOICE_SELLER.vat+' · '+escapeHTML(INVOICE_SELLER.address)+' · www.martingaleparis.fr';
-  
-  const latePenaltyText = 'Pénalités de retard : taux de refinancement de la BCE majoré de 10 points, exigibles dès le lendemain de l\'échéance sans rappel. Indemnité forfaitaire pour frais de recouvrement : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).';
-  const conditions = {
-    DEV: 'Règlement par virement bancaire, sans escompte : intégral à la commande pour les produits en stock ; acompte de 50 % à la commande et solde avant expédition pour les produits sur commande.\n'+latePenaltyText+'\nEn signant ce devis, vous acceptez sans réserve les Conditions Générales de Vente figurant en page 2.',
-    FAC: '',
-    FDF: ''
-  };
-  const dateMetaLabel = type === 'DEV' ? 'Validité' : 'Échéance';
-  const sellerCapital = isInvoice ? invoiceDetails.seller.capital : INVOICE_SELLER.capital;
-  const docWord = type === 'DEV' ? 'du devis' : 'de la facture';
-  const cgvSections = [
-    ['PRÉAMBULE', `Les présentes Conditions Générales de Vente (les « CGV ») s'appliquent à toutes les ventes conclues par ${escapeHTML(INVOICE_SELLER.name)}, ${INVOICE_SELLER.legalForm} au capital de ${fmt(sellerCapital)}, RCS ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} ${INVOICE_SELLER.siren}, siège social ${escapeHTML(INVOICE_SELLER.address)}, marque commerciale Martingale Paris (le « Vendeur »), avec des clients professionnels exclusivement. Elles constituent le socle de la négociation commerciale (article L. 441-1 du Code de commerce) et prévalent sur toutes conditions d'achat du client, sauf accord écrit du Vendeur. ${type==='DEV'?'La signature du devis':'Toute commande ou tout règlement'} emporte leur acceptation pleine et entière.`],
-    ['1. PRODUITS', `1.1 Produits en stock : produits disponibles, expédiés après validation et règlement de la commande.\n1.2 Produits sur commande : produits fabriqués ou approvisionnés spécifiquement pour le client ; la commande est ferme et définitive dès sa validation.\n1.3 Les chaises sont fabriquées et tressées à la main en rotin naturel. Les variations de teinte, de grain, de nœuds ou de tressage entre deux pièces, ou par rapport aux visuels, sont inhérentes au matériau et au travail artisanal : elles ne constituent ni un défaut ni une non-conformité. Les photographies sont non contractuelles.`],
-    ['2. PRIX', `Les prix sont exprimés en euros, hors taxes et hors frais de livraison sauf mention contraire. Le prix applicable est celui ${docWord}${type==='DEV'?' accepté, ferme pendant sa durée de validité':''}.`],
-    ['3. COMMANDE ET PAIEMENT', `3.1 Produits en stock : paiement intégral à la commande, sauf stipulation contraire.\n3.2 Produits sur commande : acompte de 50 % à la commande, solde exigible avant expédition. Les sommes versées constituent un acompte et non des arrhes : le client est engagé pour la totalité du prix.\n3.3 Paiement par virement bancaire, sans escompte pour paiement anticipé. Tout retard entraîne de plein droit, sans rappel, des pénalités au taux de refinancement de la BCE majoré de 10 points et une indemnité forfaitaire de 40 € pour frais de recouvrement (articles L. 441-10 et D. 441-5 du Code de commerce), sans préjudice d'une indemnisation complémentaire sur justificatifs. Le Vendeur peut suspendre toute commande ou livraison en cours jusqu'au paiement complet.`],
-    ['4. DÉLAIS', `Produits en stock : traitement indicatif sous 48 heures ouvrées, hors transport. Produits sur commande : délais communiqués à titre indicatif. Un retard ne peut justifier l'annulation de la commande qu'après mise en demeure restée sans effet pendant trente (30) jours ; il ne donne lieu à aucune pénalité ni indemnité, sauf accord écrit.`],
-    ['5. LIVRAISON ET TRANSFERT DES RISQUES', `Livraison à l'adresse indiquée par le client, au pied du camion sauf stipulation contraire. Le client garantit l'accessibilité du lieu de livraison. Les risques sont transférés au client dès la remise des marchandises au transporteur (article 1196 du Code civil).`],
-    ['6. RÉCEPTION ET RÉCLAMATIONS', `Le client vérifie les marchandises en présence du transporteur. Toute avarie ou manquant doit faire l'objet de réserves précises sur le bon de livraison, confirmées au transporteur par lettre recommandée dans les trois (3) jours suivant la réception (article L. 133-3 du Code de commerce), avec copie au Vendeur. Tout défaut de conformité apparent doit être notifié par écrit au Vendeur dans les 48 heures. À défaut, les produits sont réputés acceptés.`],
-    ['7. ANNULATION ET RETOURS', `Toute commande validée est ferme et définitive. Aucune annulation ni aucun retour n'est accepté, sauf produit défectueux relevant de la garantie (article 8) ou accord écrit préalable du Vendeur. En cas d'annulation par le client, l'acompte reste acquis au Vendeur et le solde demeure exigible.`],
-    ['8. GARANTIE', `Garantie commerciale de deux (2) ans à compter de la livraison, couvrant les défauts de fabrication : réparation ou remplacement au choix du Vendeur. Sont exclus l'usure normale, la mauvaise utilisation, le défaut d'entretien et les variations naturelles du rotin (article 1.3). Cette garantie s'applique sans préjudice de la garantie légale des vices cachés (articles 1641 et suivants du Code civil).`],
-    ['9. RESPONSABILITÉ', `Sauf faute lourde ou dolosive, la responsabilité du Vendeur est limitée au montant HT de la commande concernée. Le Vendeur ne répond pas des dommages indirects (perte d'exploitation, de chiffre d'affaires ou de clientèle).`],
-    ['10. RÉSERVE DE PROPRIÉTÉ', `Les marchandises restent la propriété du Vendeur jusqu'au paiement intégral du prix en principal et accessoires (articles 2367 du Code civil et L. 624-16 du Code de commerce). À défaut de paiement, le Vendeur peut les revendiquer. Les risques restent à la charge du client conformément à l'article 5.`],
-    ['11. FORCE MAJEURE', `Le Vendeur ne saurait être tenu responsable d'un retard ou d'une inexécution résultant d'un cas de force majeure au sens de l'article 1218 du Code civil.`],
-    ['12. DONNÉES PERSONNELLES', `Les données des interlocuteurs du client sont traitées par le Vendeur pour la gestion de la relation commerciale, conformément au RGPD. Droits d'accès, de rectification et d'effacement : romeo@martingaleparis.fr.`],
-    ['13. DROIT APPLICABLE ET TRIBUNAL COMPÉTENT', `Les présentes CGV sont soumises au droit français. Tout litige relève de la compétence exclusive du Tribunal de commerce de Bayonne, y compris en cas de référé, d'appel en garantie ou de pluralité de défendeurs.`]
-  ];
 
-  const prodDescs = {
-    'rose-dragee':'Structure Rotin Malacca - Couleurs : Rose & Blanc\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'rouge-cerise':'Structure Rotin Malacca - Couleurs : Rouge & Fraise\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'kaki-botanique':'Structure Rotin Malacca - Couleurs : Noir & Vert Kaki\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'cafe-noir':'Structure Rotin Malacca - Couleurs : Noir & Blanc\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'rouge-grenat':'Structure Rotin Malacca - Couleurs : Rouge & Framboise\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'orange-sienne':'Structure Rotin Malacca - Couleurs : Orange & Noir\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'bleu-atelier':'Structure Rotin Malacca - Couleurs : Bleu nuit & Bleu roi\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'vert-printemps':'Structure Rotin Malacca - Couleurs : Vert & Crème\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'vert-orangerie':'Structure Rotin Malacca - Couleurs : Vert & Blanc\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement',
-    'jaune-miel':'Structure Rotin Malacca - Couleurs : Jaune et Blanc\nAssise tressée avec fibre Martingale Brillante\nVernis Marin - Patins de Renforcement'
-  };
-  const desc = prodDescs[prodId]||'Chaise en rotin professionnel\nVernis Marin - Patins de Renforcement';
-  
-  const shipLabel = shipping.shipLabelHTML;
-  
-  // Unit price display — show net price if remise
-  const prixUnitaireDisplay = remisePct>0
-    ? `<span style="text-decoration:line-through;color:#aaa;font-size:10px">${fmt(prixUnitaireBrut)}</span><br><strong style="color:#27AE60">${fmt(prixUnitaireNet)}</strong>`
-    : fmt(prixUnitaireBrut);
-  
-  // CGV helper
-  function cgvBloc(titre, corps){
-    return '<div class="cgv-section"><div class="cgv-section-title">'+titre+'</div><div class="cgv-section-body">'+corps+'</div></div>';
-  }
-
-  const docHTML = isEnglishQuote ? buildEnglishQuoteHtml({
-    locale: docLocale, fx: docFx, docNum, today, validite, contact, company, addr, livraison,
-    vatSettings, shipping,
-    amounts: convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx)
-  }) : `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>${typeLabel} ${docNum}</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
-<style>
-${DOC_PRINT_CSS}
-${isInvoice?`.invoice-print-ref{display:none}
-@media print{
-  @page{size:A4;margin:14mm 13mm 15mm}
-  .page{width:auto;min-height:0;margin:0;padding:0}
-  .invoice-print-ref{display:block;position:fixed;top:-9mm;left:0;right:0;font-size:8px;color:#555;text-align:right}
-  .footer-wrap{position:static;margin-top:8mm}
-  .footer-text span:last-child{display:none}
-  .meta-row>div{min-width:0;max-width:50%;overflow-wrap:anywhere}
-  tr,.conditions-box,.payment-grid,.settle-block{break-inside:avoid}
-}`:''}
-</style>
-</head>
-<body>
-${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+escapeHTML(INVOICE_SELLER.name)+' · '+INVOICE_SELLER.legalForm+'</div>':''}
-<!-- PAGE 1 -->
-<div class="page">
-  <div class="header">
-    <img src="${LOGO_B64}" class="logo" alt="MARTINGALE">
-    <div class="header-right">
-      Créateur de mobilier en rotin professionnel<br>
-      pour restaurants &amp; terrasses d'exception<br>
-      romeo@martingaleparis.fr
-    </div>
-  </div>
-  <div class="divider"></div>
-
-  <div class="meta-row">
-    <div>
-      <div class="doc-num">${typeLabel} N° ${docNum}</div>
-      <div class="doc-sub">Émis le ${today}<br>${dateMetaLabel} : ${escapeHTML(isInvoice ? fmtDateFR(validite) : validityText)}${isInvoice?'<br>'+ (type==='FAC'?'Versement de l’acompte':'Livraison')+' : '+escapeHTML(fmtDateFR(invoiceDetails.operationDate))+'<br>Nature : Livraison de biens'+(quoteRef?'<br>Réf. : '+escapeHTML(quoteRef):''):''}</div>
-    </div>
-    <div>
-      <div class="dest-label">Destinataire</div>
-      <div class="dest-name">${escapeHTML(getDocRecipient(contact, company).name)}</div>
-      ${getDocRecipient(contact, company).company ? '<div class="dest-company">'+escapeHTML(getDocRecipient(contact, company).company)+'</div>' : ''}
-      ${addr ? '<div class="dest-addr">'+escapeHTML(addr)+'</div>' : ''}
-      ${livraison && !sameDocText(livraison, addr) ? '<div class="dest-addr" style="font-style:italic">Livraison : '+escapeHTML(livraison)+'</div>' : ''}
-      ${isInvoice&&invoiceDetails.clientSiren?'<div class="dest-addr">SIREN client : '+escapeHTML(invoiceDetails.clientSiren)+'</div>':''}
-      ${isInvoice&&invoiceDetails.clientVat?'<div class="dest-addr">TVA client : '+escapeHTML(invoiceDetails.clientVat)+'</div>':''}
-      ${isInvoice&&invoiceDetails.purchaseOrder?'<div class="dest-addr">Bon de commande : '+escapeHTML(invoiceDetails.purchaseOrder)+'</div>':''}
-      ${!isInvoice&&vatSettings.vatRegime === VAT_REGIME_EU_B2B ? '<div class="dest-addr">N° TVA intracommunautaire : '+escapeHTML(vatSettings.customerVatNumber)+'</div>' : ''}
-    </div>
-  </div>
-
-  <table>
-    <tr class="tbl-head">
-      <td style="width:140px">Visuel</td>
-      <td>Désignation</td>
-      <td style="width:55px;text-align:center">Qté</td>
-      <td style="width:115px;text-align:right">Prix U. HT</td>
-      <td style="width:110px;text-align:right">Total HT</td>
-    </tr>
-    ${lines.map((l,i)=>{
-      const lProd = l.prod;
-      const lDesc = (prodDescs[lProd.id]||'Structure Rotin Malacca\nVernis Marin - Patins de Renforcement')+(isInvoice?'\n'+(vatSettings.isVatExempt?'TVA exonérée':'TVA : 20 %'):'');
-      const lPrixNet = l.prixNet;
-      const lPrixDisplay = l.remise>0 
-        ? '<span style="text-decoration:line-through;color:#aaa;font-size:10px">'+formatDocMoney(l.unitPrice)+'</span><br><strong>'+formatDocMoney(lPrixNet)+'</strong><br><small style="color:#C0392B">−'+l.remise+'%</small>'
-        : formatDocMoney(l.unitPrice);
-      return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+lProd.img+'" style="width:90px;height:115px;object-fit:cover;display:block" alt="'+lProd.name+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Chaise Martingale '+lProd.name+'</div><div class="product-desc">'+lDesc+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+lPrixDisplay+'</td><td class="total-cell">'+fmt(l.total)+'</td></tr>';
-    }).join('')}
-  </table>
-
-  <table class="totaux">
-    ${(remiseMontant>0||lines.some(l=>l.remise>0)) ? '<tr><td class="lbl">SOUS-TOTAL HT BRUT</td><td>'+fmt(sousTotalBrut)+'</td></tr>' : ''}
-    ${lines.some(l=>l.remise>0) ? '<tr><td class="lbl">REMISES SUR LIGNES</td><td style="color:#C0392B">− '+fmt(sousTotalBrut-sousTotal)+'</td></tr>' : ''}
-    ${remisePct>0 ? '<tr><td class="lbl">REMISE GLOBALE −'+remisePct+' %</td><td style="color:#C0392B">− '+fmt(remiseMontant)+'</td></tr>' : ''}
-    <tr><td class="lbl">SOUS-TOTAL HT</td><td style="color:#403F21;font-weight:600">${fmt(sousTotalNet)}</td></tr>
-    <tr><td class="lbl">LIVRAISON HT${isInvoice?' ('+(vatSettings.isVatExempt?'TVA exonérée':'TVA 20 %')+')':''}</td><td>${shipLabel}</td></tr>
-    <tr><td class="lbl">${(type==='FAC'||due.deductions.length)?'TOTAL COMMANDE HT':'TOTAL HT'}</td><td style="font-weight:600">${fmt(due.orderHT)}</td></tr>
-    <tr><td class="lbl">${vatRowLabel}</td><td>${vatSettings.isVatExempt ? '0,00 €' : fmt(due.orderTVA)}</td></tr>
-    ${type==='DEV' ? `
-    <tr style="height:6px"><td colspan="2"></td></tr>
-    <tr class="net-row"><td colspan="2">${netPayLabel} &nbsp;&nbsp;&nbsp; ${fmt(due.orderTTC)}</td></tr>
-    <tr><td colspan="2" style="padding:8px 14px 0;font-size:10px;color:#666">Produits sur commande : acompte de 50 % à la commande, soit ${fmt(round2(due.orderTTC/2))} ${vatSettings.isVatExempt?'':'TTC'}</td></tr>` : `
-    ${(type==='FAC'||due.deductions.length) ? '<tr><td class="lbl">TOTAL COMMANDE'+(vatSettings.isVatExempt?'':' TTC')+'</td><td>'+fmt(due.orderTTC)+'</td></tr>' : ''}
-    ${type==='FAC' ? `
-    <tr><td colspan="2" style="padding:8px 0 0"><div style="border-top:1px solid #D4D3B8"></div></td></tr>
-    <tr><td class="lbl" style="color:#403F21;font-weight:600">ACOMPTE ${due.pct} % HT</td><td style="font-weight:600">${fmt(due.ht)}</td></tr>
-    <tr><td class="lbl">${vatSettings.isVatExempt?'TVA exonérée':'TVA SUR ACOMPTE (20 %)'}</td><td>${fmt(due.tva)}</td></tr>` : ''}
-    ${type==='FDF' && due.deductions.length ? `
-    <tr><td colspan="2" style="padding:8px 0 0"><div style="border-top:1px solid #D4D3B8"></div></td></tr>
-    ${due.deductions.map(d=>'<tr><td class="lbl">ACOMPTE FACTURÉ N° '+escapeHTML(d.num)+(d.date?' DU '+escapeHTML(d.date):'')+'</td><td style="color:#C0392B">− '+fmt(d.ht)+' HT · − '+fmt(d.ttc)+(vatSettings.isVatExempt?'':' TTC')+'</td></tr>').join('')}
-    <tr><td class="lbl" style="color:#403F21;font-weight:600">RESTE DÛ HT</td><td style="font-weight:600">${fmt(due.ht)}</td></tr>
-    <tr><td class="lbl">${vatSettings.isVatExempt?'TVA exonérée':'TVA (20 %)'}</td><td>${fmt(due.tva)}</td></tr>` : ''}
-    <tr style="height:6px"><td colspan="2"></td></tr>
-    <tr class="net-row"><td colspan="2">${type==='FAC' ? 'ACOMPTE À RÉGLER'+(vatSettings.isVatExempt?'':' TTC') : netPayLabel} &nbsp;&nbsp;&nbsp; ${fmt(due.ttc)}</td></tr>`}
-  </table>
-
-  ${vatLegalBlock}
-
-  <div class="conditions-box">
-    <div class="conditions-text">${isInvoice ? 'Règlement par virement bancaire au plus tard le '+escapeHTML(fmtDateFR(validite))+', en indiquant la référence '+docNum+'.'+(type==='FAC'?' Les sommes versées constituent un acompte et non des arrhes.':'')+'\nPénalités de retard entre professionnels : taux de refinancement de la BCE en vigueur au 1er janvier ou au 1er juillet du semestre concerné, majoré de 10 points, exigibles dès le lendemain de l’échéance sans rappel.\nIndemnité forfaitaire de recouvrement en cas de retard entre professionnels : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).\nConditions Générales de Vente jointes en annexe.' : conditions[type]}</div>
-  </div>
-
-  <div class="settle-block">
-  <div class="validation-header">${isInvoice ? 'RÈGLEMENT' : 'VALIDATION &amp; RÈGLEMENT'}</div>
-  ${isInvoice ? '' : `<div class="validation-sub">Annexe au devis N° ${docNum} · ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>`}
-
-  <div class="payment-grid${isInvoice ? ' invoice-payment-grid' : ''}">
-    <div class="rib-block">
-      <div class="rib-title">&#9658; Informations de règlement</div>
-      <div class="rib-row"><span class="rib-label">Mode :</span><span class="rib-val">Virement bancaire (SEPA)</span></div>
-      <div class="rib-row"><span class="rib-label">BIC :</span><span class="rib-val">CEPAFRPP333</span></div>
-      <div class="rib-row"><span class="rib-label">IBAN :</span><span class="rib-val">FR76 1333 5000 4008 0027 7957 981</span></div>
-      <div class="rib-row"><span class="rib-label">À l'ordre de :</span><span class="rib-val">${escapeHTML(INVOICE_SELLER.name)}</span></div>
-      ${isInvoice ? '<div class="rib-row"><span class="rib-label">Référence :</span><span class="rib-val">'+docNum+'</span></div><div class="rib-row"><span class="rib-label">Montant :</span><span class="rib-val">'+fmt(due.ttc)+'</span></div><div class="payment-note">Escompte pour paiement anticipé : néant.</div>' : ''}
-    </div>
-    ${isInvoice ? `<div class="seller-block">
-      <strong>${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} au capital de ${fmt(invoiceDetails.seller.capital)}</strong><br>
-      ${escapeHTML(INVOICE_SELLER.address)}<br>
-      SIREN ${INVOICE_SELLER.siren} · SIRET ${INVOICE_SELLER.siret} · RCS ${INVOICE_SELLER.rcs} ${INVOICE_SELLER.siren}<br>
-      TVA intracommunautaire : ${INVOICE_SELLER.vat}
-    </div>` : ''}
-    ${isInvoice ? '' : `<div class="sign-block">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px;text-align:center">Bon pour accord</div>
-      <div style="font-size:8.5px;color:#888;text-align:center;margin-bottom:16px">Date, Cachet &amp; Signature</div>
-      <div style="width:100%;border-bottom:1px solid #C0C0B0;margin-bottom:6px"></div>
-      <div style="font-size:7.5px;color:#bbb;text-align:center">Signature</div>
-    </div>`}
-  </div>
-  </div>
-
-  <div class="footer-wrap">
-    <div class="footer-line"></div>
-    <div class="footer-text">
-      <span>${sellerLegalLine}</span>
-      <span>Page 1 / 2</span>
-    </div>
-  </div>
-</div>
-
-<!-- PAGE 2 : CGV -->
-<div class="page page-break">
-  <div class="header">
-    <img src="${LOGO_B64}" class="logo" alt="MARTINGALE">
-    <div class="header-right">
-      Créateur de mobilier en rotin professionnel<br>
-      pour restaurants &amp; terrasses d'exception<br>
-      romeo@martingaleparis.fr
-    </div>
-  </div>
-  <div class="divider"></div>
-  <div class="cgv-title">Conditions Générales de Vente</div>
-  <div class="cgv-sub">Annexe au ${typeLabel} N° ${docNum} — ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>
-
-  ${cgvSections.map(([t,c])=>cgvBloc(t,c)).join('\n  ')}
-
-  <div class="footer-wrap">
-    <div class="footer-line"></div>
-    <div class="footer-text">
-      <span>${sellerLegalLine}</span>
-      <span>Page 2 / 2</span>
-    </div>
-  </div>
-</div>
-</body>
-</html>`;
+  // Montants affichés : euros tels que calculés (et contrôlés par le serveur), ou convertis pour US / UK
+  const docAmounts = isEnglishQuote
+    ? convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx)
+    : {lines: lines.map(l=>({...l, unitBrut: l.unitPrice})), sousTotal, remisePct, remiseMontant, shipHT,
+       baseHT: due.orderHT, tva: due.orderTVA, ttc: due.orderTTC, us: null};
+  const docHTML = buildDocHtml({
+    type, locale: docLocale, docNum, issueDate: today, validite,
+    recipient: {contact, company, addr, livraison,
+      siren: invoiceDetails?.clientSiren || '', vat: invoiceDetails?.clientVat || '', purchaseOrder: invoiceDetails?.purchaseOrder || ''},
+    lines: docAmounts.lines, A: docAmounts, shipping, vat: vatSettings, availability, due,
+    invoice: isInvoice ? {dueMode: invoiceDetails.dueMode, dueDate: invoiceDetails.dueDate, operationDate: invoiceDetails.operationDate,
+      quoteNum: dgSourceQuote?.num || '', capital: invoiceDetails.seller.capital} : null,
+    fx: docFx,
+    fxDate: docFxRates?.date ? new Date(docFxRates.date).toLocaleDateString(docLocale.intl,{day:'numeric',month:'long',year:'numeric'}) : ''
+  });
 
   // Save to history BEFORE closing
   let prospectId = document.getElementById('dg-prospect-id')?.value||currentProspectId||null;
@@ -4750,6 +4762,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     ...getShippingStorageFields(shipping),
     ...getVatStorageFields(vatSettings),
     prospectId: prospectId,
+    availability,
     ...(isInvoice?{invoiceDetails}:{}),
     ...(isEnglishQuote?(()=>{const conv=convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx);return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: conv.ttc, htCurrency: conv.baseHT, ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
     createdAt: generatedAt.toISOString(),
