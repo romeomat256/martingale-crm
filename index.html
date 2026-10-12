@@ -1010,15 +1010,40 @@ async function fetchDocFxRates(force){
   return docFxRates; // dernier taux connu (peut être null)
 }
 
+// Facture issue d'un devis US / UK : même devise et même taux que le devis
+function getInvoiceSourceLocale(){
+  const q = dgSourceQuote;
+  if(!q || !DOC_LOCALES[q.docLocale] || q.docLocale === 'FR' || !(+q.fxRate > 0)) return null;
+  return DOC_LOCALES[q.docLocale];
+}
+
 function getSelectedDocLocale(){
   const code = document.getElementById('dg-locale')?.value || 'FR';
   const type = document.getElementById('dg-type')?.value || 'DEV';
-  return type === 'DEV' ? (DOC_LOCALES[code] || DOC_LOCALES.FR) : DOC_LOCALES.FR;
+  if(type !== 'DEV') return getInvoiceSourceLocale() || DOC_LOCALES.FR;
+  return DOC_LOCALES[code] || DOC_LOCALES.FR;
 }
 
 function getSelectedDocFxRate(locale){
   if(locale.currency === 'EUR') return 1;
+  const type = document.getElementById('dg-type')?.value || 'DEV';
+  if(type !== 'DEV' && getInvoiceSourceLocale()) return +dgSourceQuote.fxRate;
   return parseMoneyAmount(document.getElementById('dg-fx-rate')?.value);
+}
+
+// Montants d'une facture en devise étrangère (export, sans TVA), droits et taxes US inclus comme sur le devis
+function getForeignInvoiceAmounts(type, A, fx, pct, deductions){
+  const order = round2(A.ttc);
+  if(type === 'FAC'){
+    const ttc = round2(order * pct / 100);
+    return {pct, orderHT: order, orderTVA: 0, orderTTC: order, ht: ttc, tva: 0, ttc, deductions: []};
+  }
+  const ded = (deductions || []).map(d => {
+    const v = d.ttcCurrency != null && Number.isFinite(+d.ttcCurrency) ? round2(+d.ttcCurrency) : round2((+d.ttc || 0) * fx);
+    return {...d, ht: v, tva: 0, ttc: v};
+  });
+  const ttc = round2(order - ded.reduce((s, d) => s + d.ttc, 0));
+  return {orderHT: order, orderTVA: 0, orderTTC: order, ht: ttc, tva: 0, ttc, deductions: ded};
 }
 
 function refreshDocFxField(force){
@@ -1086,6 +1111,12 @@ function selectDocLocale(code){
 // Paramètres droits & taxes US saisis dans le menu (null hors devis US)
 function getUsDutySettings(locale){
   if(!locale || locale.code !== 'US') return null;
+  const type = document.getElementById('dg-type')?.value || 'DEV';
+  if(type !== 'DEV' && getInvoiceSourceLocale()){
+    const q = dgSourceQuote;
+    if(q.usDutyRate == null) return null;
+    return {dutyRate: +q.usDutyRate || 0, clearanceEUR: (+q.usClearance || 0) / (+q.fxRate), salesTaxRate: +q.usSalesTaxRate || 0, included: q.usDutiesIncluded !== false};
+  }
   const num = id => { const v = parseMoneyAmount(document.getElementById(id)?.value); return Number.isFinite(v) ? v : 0; };
   return {
     dutyRate: num('dg-us-duty')/100,
@@ -3315,6 +3346,14 @@ function getDocDetailSupabaseFields(doc){
   };
 }
 
+// Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
+const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability'];
+function getDocMetaFields(record){
+  const meta = {};
+  DOC_META_KEYS.forEach(k=>{ if(record[k] !== undefined && record[k] !== null) meta[k] = record[k]; });
+  return Object.keys(meta).length ? meta : null;
+}
+
 function mapSupabaseDocument(row){
   if(row.invoice_snapshot) return normalizeDocumentRecord({...row.invoice_snapshot,id:row.id,statut:row.statut||row.invoice_snapshot.statut||'Envoyé'});
   const createdAt = row.created_at || row.createdAt || '';
@@ -3357,7 +3396,8 @@ function mapSupabaseDocument(row){
     prospectId: row.prospect_id,
     createdAt,
     date: row.date || (createdAt ? new Date(createdAt).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}) : ''),
-    statut: row.statut || 'Envoyé'
+    statut: row.statut || 'Envoyé',
+    ...(row.doc_meta || {})
   });
 }
 
@@ -3967,7 +4007,14 @@ function updateDocCalc(){
   const totalQty  = lines.reduce((s,l) => s + l.qty, 0);
   const shipping = getDocShippingSettings(totalQty);
 
-  const baseHT = sousTotalNet + shipping.shipHT;
+  const typeNow = el('dg-type')?.value;
+  const docLocale = getSelectedDocLocale();
+  const fxNow = getSelectedDocFxRate(docLocale);
+  const curA = docLocale.currency !== 'EUR' && fxNow > 0
+    ? convertDocAmounts({lines, remisePct, shipHT: shipping.shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, fxNow) : null;
+  // Facture en devise : droits et taxes US repris dans la base en euros
+  const landedEUR = typeNow !== 'DEV' && curA ? round2((curA.ttc - curA.baseHT - curA.tva) / fxNow) : 0;
+  const baseHT = sousTotalNet + shipping.shipHT + landedEUR;
   const tva = baseHT * vatSettings.vatRate;
   const ttc = baseHT + tva;
   const fmt = formatDocMoney;
@@ -3980,22 +4027,25 @@ function updateDocCalc(){
   if(el('dg-ttc'))  el('dg-ttc').textContent   = fmt(ttc);
   if(el('dg-remise-montant')) el('dg-remise-montant').textContent = remisePct > 0 ? '− ' + fmt(remiseMontant) : '';
 
-  // Aperçu dans la devise du devis (US / UK)
-  const docLocale = getSelectedDocLocale();
+  // Aperçu dans la devise du devis (US / UK), ou montant de la facture en devise
+  const type = typeNow;
   if(el('dg-fx-line')){
     if(docLocale.currency === 'EUR'){
       el('dg-fx-line').style.display = 'none';
     } else {
-      const fx = getSelectedDocFxRate(docLocale);
       el('dg-fx-line').style.display = 'flex';
-      el('dg-fx-label').textContent = 'Total du devis en '+docLocale.currency+(vatSettings.isVatExempt?'':' TTC');
-      el('dg-fx-val').textContent = fx > 0
-        ? formatMoneyIn(convertDocAmounts({lines, remisePct, shipHT: shipping.shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, fx).ttc, docLocale.currency, docLocale.intl)
-        : 'Taux à renseigner';
+      if(type !== 'DEV' && curA){
+        const pct = Math.min(99, Math.max(1, parseFloat(el('dg-deposit-pct')?.value) || 50));
+        const fa = getForeignInvoiceAmounts(type, curA, fxNow, pct, dgDeductions);
+        el('dg-fx-label').textContent = 'Montant de la facture en '+docLocale.currency+' (taux du devis '+fxNow.toFixed(4)+')';
+        el('dg-fx-val').textContent = formatMoneyIn(fa.ttc, docLocale.currency, docLocale.intl);
+      } else {
+        el('dg-fx-label').textContent = 'Total du devis en '+docLocale.currency+(vatSettings.isVatExempt?'':' TTC');
+        el('dg-fx-val').textContent = curA ? formatMoneyIn(curA.ttc, docLocale.currency, docLocale.intl) : 'Taux à renseigner';
+      }
     }
   }
 
-  const type = el('dg-type')?.value;
   const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
   if(type === 'FAC' || (type === 'FDF' && due.deductions.length)){
     if(el('dg-acompte-line')) el('dg-acompte-line').style.display = 'flex';
@@ -4042,9 +4092,9 @@ function findQuoteRecord(id){
 
 // Factures d'acompte déjà émises pour un devis (serveur d'abord, cache local sinon)
 async function loadQuoteDeposits(quoteNum){
-  const pick = d => ({num:d.num, date:d.date||'', ht:+d.ht||0, tva:+d.tva||0, ttc:+d.ttc||0});
+  const pick = d => ({num:d.num, date:d.date||'', ht:+d.ht||0, tva:+d.tva||0, ttc:+d.ttc||0, ttcCurrency: d.ttcCurrency != null && d.ttcCurrency !== '' ? +d.ttcCurrency : null});
   if(sb && currentUser){
-    const {data, error} = await sb.from('documents').select('num,ht,tva,ttc,invoice_snapshot->>date')
+    const {data, error} = await sb.from('documents').select('num,ht,tva,ttc,invoice_snapshot->>date,invoice_snapshot->>ttcCurrency')
       .eq('type','FAC').eq('invoice_snapshot->>sourceQuoteNum', quoteNum).order('num');
     if(!error && Array.isArray(data)) return data.map(pick);
   }
@@ -4401,7 +4451,7 @@ function buildDocHtml(ctx){
   const footer = page => `<div class="foot"><span></span><div>${esc(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} ${L('au capital de','with a share capital of')} ${capTxt} · ${esc(INVOICE_SELLER.address)}${L('',', France')} · martingaleparis.fr<br>RCS ${rcs} ${siren} · SIRET ${siret} · ${L('TVA intracommunautaire','EU VAT')} ${INVOICE_SELLER.vat}</div><span>${page} / 2</span></div>`;
 
   // Titre et repères
-  const docTitle = isQuote ? L('Devis', isUS?'Quote':'Quotation') : isDeposit ? 'Facture d’acompte' : 'Facture';
+  const docTitle = isQuote ? L('Devis', isUS?'Quote':'Quotation') : isDeposit ? L('Facture d’acompte','Deposit invoice') : L('Facture','Invoice');
   const fact = (k, v) => `<div class="fact"><span class="k">${k}</span><span>${esc(v)}</span></div>`;
   const facts = [];
   if(isQuote){
@@ -4414,11 +4464,11 @@ function buildDocHtml(ctx){
       facts.push(fact(L('Validité','Validity'), ctx.validite));
     }
   } else {
-    facts.push(fact('Émise le', issueDate));
-    facts.push(fact('Échéance', getInvoiceDueLabel(inv.dueMode, inv.dueDate, 'fr')));
-    if(type === 'FDF' && inv.operationDate) facts.push(fact('Livraison', fmtDateFR(inv.operationDate)));
-    if(!inv.quoteNum || !isBalance) facts.push(fact('Nature', 'Livraison de biens'));
-    if(inv.quoteNum) facts.push(fact('Réf. devis', inv.quoteNum));
+    facts.push(fact(L('Émise le','Issued on'), issueDate));
+    facts.push(fact(L('Échéance','Due'), getInvoiceDueLabel(inv.dueMode, inv.dueDate, en ? 'en' : 'fr')));
+    if(type === 'FDF' && inv.operationDate) facts.push(fact(L('Livraison','Delivery'), fmtDateFR(inv.operationDate)));
+    if(!inv.quoteNum || !isBalance) facts.push(fact(L('Nature','Supply'), L('Livraison de biens','Supply of goods')));
+    if(inv.quoteNum) facts.push(fact(L('Réf. devis','Quote ref.'), inv.quoteNum));
   }
 
   // Destinataire
@@ -4461,7 +4511,7 @@ function buildDocHtml(ctx){
   else if(A.shipHT > 0) totals.push(tr(L('Livraison HT','Delivery'), money(A.shipHT)));
   else if(isQuote) totals.push(tr(L('Livraison','Delivery'), L('À confirmer','To be confirmed')));
   const orderWord = (isDeposit || isBalance) ? L('Total commande','Order total') : 'Total';
-  totals.push(tr(orderWord+ht, money(A.baseHT), 'b sep'));
+  totals.push(tr((en ? 'Total' : orderWord)+ht, money(A.baseHT), 'b sep'));
   totals.push(tr(vatLabel, money(vat.isVatExempt ? 0 : A.tva)));
   const US = A.us;
   const pctTxt = r => (r*100).toLocaleString(locale.intl,{maximumFractionDigits:3})+'%';
@@ -4474,16 +4524,16 @@ function buildDocHtml(ctx){
   }
   if(isDeposit || isBalance) totals.push(tr(orderWord+(vat.isVatExempt?'':' TTC'), money(due.orderTTC)));
   if(isDeposit){
-    totals.push(tr('Acompte '+String(due.pct).replace('.',',')+' % HT', money(due.ht), 'b sep'));
-    totals.push(tr(vatLabel, money(due.tva)));
+    totals.push(tr(L('Acompte '+String(due.pct).replace('.',',')+' % HT','Deposit '+due.pct+'%'), money(due.ht), 'b sep'));
+    if(!en) totals.push(tr(vatLabel, money(due.tva)));
   }
   if(isBalance){
-    due.deductions.forEach((d,i)=>totals.push(tr('Acompte '+esc(d.num)+(d.date?' du '+esc(d.date):''), '− '+money(d.ht), i===0?'sep':'')));
-    totals.push(tr('Reste dû HT', money(due.ht), 'b'));
-    totals.push(tr(vatLabel, money(due.tva)));
+    due.deductions.forEach((d,i)=>totals.push(tr(L('Acompte ','Deposit ')+esc(d.num)+(d.date?L(' du ',' of ')+esc(d.date):''), '− '+money(d.ht), i===0?'sep':'')));
+    totals.push(tr(L('Reste dû HT','Balance due'), money(due.ht), 'b'));
+    if(!en) totals.push(tr(vatLabel, money(due.tva)));
   }
   const ttcWord = vat.isVatExempt ? '' : L(' TTC',' (incl. VAT)');
-  const bandLabel = isDeposit ? 'Acompte à régler'+ttcWord : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
+  const bandLabel = isDeposit ? L('Acompte à régler'+ttcWord,'Deposit due') : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
   const bandValue = isQuote ? A.ttc : due.ttc;
 
   // Mentions de TVA
@@ -4504,8 +4554,8 @@ function buildDocHtml(ctx){
     const avail = ctx.availability === 'commande'
       ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines. Règlement par virement, sans escompte.`,
           `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks. Payment by international bank transfer (SWIFT), no early-payment discount.`)
-      : L(`Produits en stock : expédition sous 24 h${intl?'':', livraison sous 5 jours ouvrés'}. Règlement intégral à la commande, par virement, sans escompte.`,
-          'In-stock products: shipped within 24 hours. Full payment upon order by international bank transfer (SWIFT), no early-payment discount.');
+      : L(`Produits en stock : expédition sous 48 h${intl?'':', livraison sous 5 jours ouvrés'}. Règlement intégral à la commande, par virement, sans escompte.`,
+          'In-stock products: shipped within 48 hours. Full payment upon order by international bank transfer (SWIFT), no early-payment discount.');
     const parts = [avail];
     if(en){
       parts.push(`Prices in ${locale.currency}, converted at 1 EUR = ${Number(ctx.fx).toFixed(4)} ${locale.currency}${ctx.fxDate?' (rate of '+ctx.fxDate+')':''}.`);
@@ -4522,12 +4572,20 @@ function buildDocHtml(ctx){
     condHtml = `<div class="cond">${parts.join(' ')}${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}<br>${late} ${L('La signature vaut acceptation des CGV en page 2.','Signing implies acceptance of the Terms on page 2.')}</div>`;
   } else {
     const mode = inv.dueMode;
-    const first = isDeposit
+    const due8 = fmtDateFR(inv.dueDate);
+    const firstEN = (isDeposit ? 'Deposit' : isBalance ? 'Balance' : 'Invoice')+' payable by international bank transfer (SWIFT) '
+      + (mode==='date' ? 'on '+due8 : mode==='expedition' ? 'before shipment' : 'upon receipt')+'.'+(isDeposit ? ' Manufacturing starts upon receipt of payment.' : '');
+    const fxLine = en && ctx.eurDue
+      ? ` Amounts in ${locale.currency} at the quote rate, 1 EUR = ${Number(ctx.fx).toFixed(4)} ${locale.currency}${inv.quoteNum?' ('+esc(inv.quoteNum)+')':''}. Equivalent in euros: ${formatDocMoney(ctx.eurDue.ttc)}.`
+      : '';
+    const first = en ? firstEN : isDeposit
       ? (mode==='date' ? 'Acompte payable par virement le '+fmtDateFR(inv.dueDate)+'.' : 'Acompte payable à réception par virement.')+' La fabrication démarre à réception du règlement.'
       : isBalance
         ? (mode==='date' ? 'Solde payable par virement le '+fmtDateFR(inv.dueDate)+'.' : mode==='reception' ? 'Solde payable à réception par virement.' : 'Solde payable par virement avant expédition.')
         : (mode==='date' ? 'Facture payable par virement le '+fmtDateFR(inv.dueDate)+'.' : mode==='expedition' ? 'Facture payable par virement avant expédition.' : 'Facture payable à réception par virement.');
-    condHtml = `<div class="note">${first} Escompte pour paiement anticipé : néant. ${late.replace('exigible dès le lendemain de l’échéance','exigible sans rappel')} CGV en page 2.${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}</div>`;
+    condHtml = en
+      ? `<div class="note">${first} No discount for early payment. Bank charges borne by the customer.${fxLine} ${late} Terms on page 2.${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}</div>`
+      : `<div class="note">${first} Escompte pour paiement anticipé : néant. ${late.replace('exigible dès le lendemain de l’échéance','exigible sans rappel')} CGV en page 2.${vatNote?'<br><span class="vat">'+vatNote+'</span>':''}</div>`;
   }
 
   // Bloc règlement
@@ -4536,15 +4594,15 @@ function buildDocHtml(ctx){
     ? `<div class="settle"><div class="sec"><span>${L('Validation et règlement','Approval and payment')}</span><div></div></div>
   <div class="pay2"><div class="rib"><span class="rib-t">${L('Informations de règlement','Payment details')}</span><div class="kv"><span>${L('Mode','Method')}</span><span>${L('Virement bancaire (SEPA)','International transfer (SWIFT)')}</span><span>IBAN</span><span>${iban}</span><span>${L('BIC','BIC / SWIFT')}</span><span>${bic}</span><span>${L('Bénéficiaire','Payee')}</span><span>${esc(INVOICE_SELLER.name)}</span></div></div>
   <div class="sign"><span class="rib-t">${L('Bon pour accord','Approved and accepted')}</span><span style="font-size:10.5px;color:#8A8A7C">${L('Date, cachet et signature','Date, company stamp and signature')}</span><div class="sign-l"></div></div></div></div>`
-    : `<div class="settle"><div class="sec"><span>Règlement</span><div></div></div>
-  <div class="payi"><div class="kv"><span>Mode</span><span>Virement bancaire</span><span>IBAN</span><span>${iban}</span><span>BIC</span><span>${bic}</span><span>Bénéficiaire</span><span>${esc(INVOICE_SELLER.name)}</span><span>Référence</span><span>${esc(docNum)}</span></div>
-  <div class="seller"><b>${esc(INVOICE_SELLER.name)}</b><span>${esc(INVOICE_SELLER.address)}</span><span>SIRET ${siret} · RCS ${rcs}</span><span>TVA ${INVOICE_SELLER.vat}</span></div></div></div>`;
+    : `<div class="settle"><div class="sec"><span>${L('Règlement','Payment')}</span><div></div></div>
+  <div class="payi"><div class="kv"><span>${L('Mode','Method')}</span><span>${L('Virement bancaire','International transfer (SWIFT)')}</span><span>IBAN</span><span>${iban}</span><span>${L('BIC','BIC / SWIFT')}</span><span>${bic}</span><span>${L('Bénéficiaire','Payee')}</span><span>${esc(INVOICE_SELLER.name)}</span><span>${L('Référence','Reference')}</span><span>${esc(docNum)}</span></div>
+  <div class="seller"><b>${esc(INVOICE_SELLER.name)}</b><span>${esc(INVOICE_SELLER.address)}${L('',', France')}</span><span>SIRET ${siret} · RCS ${rcs}</span><span>${L('TVA','EU VAT')} ${INVOICE_SELLER.vat}</span></div></div></div>`;
 
   // Page 2 : CGV en deux colonnes
   const sections = getDocCgvSections({lang:locale.lang, isQuote, capital, currency:locale.currency, isUS});
   const cgvItem = ([t,b]) => `<div class="cgv-i"><b>${t}</b><span>${b}</span></div>`;
   const half = 6;
-  const annexe = isQuote ? L('Annexe au devis N° ', 'Appendix to '+(isUS?'quote':'quotation')+' No. ') : (isDeposit ? 'Annexe à la facture d’acompte N° ' : 'Annexe à la facture N° ');
+  const annexe = isQuote ? L('Annexe au devis N° ', 'Appendix to '+(isUS?'quote':'quotation')+' No. ') : (isDeposit ? L('Annexe à la facture d’acompte N° ','Appendix to deposit invoice No. ') : L('Annexe à la facture N° ','Appendix to invoice No. '));
   const pageTitle = isQuote ? docTitle+' '+docNum : docTitle+' '+docNum;
 
   return `<!DOCTYPE html>
@@ -4619,10 +4677,10 @@ async function generateAndPrint(){
   if(vatError){ toast(vatError,'error'); return; }
 
   // Langue & devise du devis (les factures restent en FR / EUR)
-  const docLocale = isInvoice ? DOC_LOCALES.FR : getSelectedDocLocale();
+  const docLocale = getSelectedDocLocale();
   const docFx = getSelectedDocFxRate(docLocale);
   if(!(docFx > 0)){ toast('Renseigner le taux de change EUR → '+docLocale.currency,'error'); return; }
-  const isEnglishQuote = docLocale.lang === 'en';
+  const isEnglishQuote = docLocale.lang === 'en';     // document en anglais et en devise (US / UK)
 
   if(isInvoice&&vatSettings.vatRegime===VAT_REGIME_EU_B2B&&invoiceDetails.clientVat.replace(/\s/g,'').toUpperCase()!==vatSettings.customerVatNumber.replace(/\s/g,'').toUpperCase()){
     toast('Les deux champs de TVA client doivent contenir le même numéro.','error');return;
@@ -4649,11 +4707,16 @@ async function generateAndPrint(){
   const shipping = getDocShippingSettings(qty);
   if(shipping.error){ toast(shipping.error,'error'); return; }
   const shipHT = shipping.shipHT;
-  const baseHT = sousTotalNet + shipHT;
+  // Montants dans la devise du document (US / UK), au taux saisi ou au taux du devis pour une facture
+  const curAmounts = isEnglishQuote ? convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx) : null;
+  // Facture en devise : droits, dédouanement et sales tax US font partie du montant facturé (repris en euros pour la compta)
+  const landedEUR = isInvoice && curAmounts ? round2((curAmounts.ttc - curAmounts.baseHT - curAmounts.tva) / docFx) : 0;
+  const baseHT = sousTotalNet + shipHT + landedEUR;
   const tva = baseHT * vatSettings.vatRate;
   const ttc = baseHT + tva;
   const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
-  if(isInvoice && due.ttc <= 0){ toast('Rien à facturer : les acomptes couvrent déjà la commande.','error'); return; }
+  const dueCur = isInvoice && curAmounts ? getForeignInvoiceAmounts(type, curAmounts, docFx, due.pct, due.deductions) : null;
+  if(isInvoice && (due.ttc <= 0 || (dueCur && dueCur.ttc <= 0))){ toast('Rien à facturer : les acomptes couvrent déjà la commande.','error'); return; }
   const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',FDF:'FACTURE'};
   const typeLabel = typeLabels[type];
   const availability = isInvoice
@@ -4667,18 +4730,18 @@ async function generateAndPrint(){
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
 
   // Montants affichés : euros tels que calculés (et contrôlés par le serveur), ou convertis pour US / UK
-  const docAmounts = isEnglishQuote
-    ? convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx)
+  const docAmounts = curAmounts
+    ? curAmounts
     : {lines: lines.map(l=>({...l, unitBrut: l.unitPrice})), sousTotal, remisePct, remiseMontant, shipHT,
        baseHT: due.orderHT, tva: due.orderTVA, ttc: due.orderTTC, us: null};
   const docHTML = buildDocHtml({
     type, locale: docLocale, docNum, issueDate: today, validite,
     recipient: {contact, company, addr, livraison,
       siren: invoiceDetails?.clientSiren || '', vat: invoiceDetails?.clientVat || '', purchaseOrder: invoiceDetails?.purchaseOrder || ''},
-    lines: docAmounts.lines, A: docAmounts, shipping, vat: vatSettings, availability, due,
+    lines: docAmounts.lines, A: docAmounts, shipping, vat: vatSettings, availability, due: dueCur || due, eurDue: dueCur ? due : null,
     invoice: isInvoice ? {dueMode: invoiceDetails.dueMode, dueDate: invoiceDetails.dueDate, operationDate: invoiceDetails.operationDate,
       quoteNum: dgSourceQuote?.num || '', capital: invoiceDetails.seller.capital} : null,
-    fx: docFx,
+    fx: docFx, quoteFx: isInvoice && dgSourceQuote ? dgSourceQuote.num : '',
     fxDate: docFxRates?.date ? new Date(docFxRates.date).toLocaleDateString(docLocale.intl,{day:'numeric',month:'long',year:'numeric'}) : ''
   });
 
@@ -4758,13 +4821,14 @@ async function generateAndPrint(){
     ttc: isInvoice ? due.ttc : ttc,
     ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, ...(dgSourceQuote ? {sourceQuoteNum: dgSourceQuote.num} : {}),
         ...(type==='FAC' ? {depositPct: due.pct} : {}),
-        ...(type==='FDF' ? {deductions: due.deductions.map(d=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc}))} : {})} : {}),
+        ...(type==='FDF' ? {deductions: due.deductions.map((d,i)=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc, ...(dueCur?{ttcCurrency:dueCur.deductions[i].ttc}:{})}))} : {})} : {}),
     ...getShippingStorageFields(shipping),
+    ...(landedEUR ? {shippingHT: round2(shipHT + landedEUR), shippingDetails: (shipping.details ? shipping.details+' · ' : '')+'dont droits et taxes US '+formatDocMoney(landedEUR)} : {}),
     ...getVatStorageFields(vatSettings),
     prospectId: prospectId,
     availability,
     ...(isInvoice?{invoiceDetails}:{}),
-    ...(isEnglishQuote?(()=>{const conv=convertDocAmounts({lines, remisePct, shipHT, vatRate: vatSettings.vatRate, us: getUsDutySettings(docLocale)}, docFx);return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: conv.ttc, htCurrency: conv.baseHT, ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
+    ...(isEnglishQuote?(()=>{const conv=curAmounts;return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: dueCur ? dueCur.ttc : conv.ttc, htCurrency: dueCur ? dueCur.ht : conv.baseHT, ...(dueCur?{orderTTCCurrency: dueCur.orderTTC}:{}), ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
     createdAt: generatedAt.toISOString(),
     date: generatedAt.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})
   };
@@ -4843,7 +4907,8 @@ async function saveDocToHistory(doc,{alreadyPersisted=false}={}){
       ht: record.ht ?? null,
       tva: record.tva ?? null,
       ...getShippingSupabaseFields(record),
-      ...getVatSupabaseFields(getVatSettingsFromStored(record))
+      ...getVatSupabaseFields(getVatSettingsFromStored(record)),
+      doc_meta: getDocMetaFields(record)
     };
     insertSupabaseWithFallback('documents', vatPayload, basePayload, 'Doc history sync');
   }
