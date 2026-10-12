@@ -177,6 +177,16 @@ textarea{resize:vertical;line-height:1.6}
 .modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--vert-moyen);border-radius:3px}
 @media(max-width:900px){#nav{width:180px}#main{margin-left:180px}}
+.drafts{background:#FBF8EF;border:1px solid #EADFC2;border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.drafts-title{font-size:14px;font-weight:600;color:#1A1A1A}
+.drafts-sub{font-size:11px;color:#8A7A50;margin-top:2px}
+.drafts-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.draft-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid #EFE6CF;border-radius:9px;padding:9px 12px}
+.draft-main{flex:1 1 260px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.draft-meta{font-size:11px;color:#999}
+.draft-amount{font-weight:600;color:var(--vert);font-size:13px}
+.draft-actions{display:flex;gap:4px;flex-wrap:wrap}
+.draft-pending{margin-top:10px;font-size:12px;color:#922B21;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 </style>
 <!-- PDF.js loaded on demand -->
 </head>
@@ -543,6 +553,7 @@ textarea{resize:vertical;line-height:1.6}
       <button class="sort-btn" onclick="filterDevis('Accepté',this)">Acceptés</button>
       <button class="sort-btn" onclick="filterDevis('Refusé',this)">Refusés</button>
     </div>
+    <div id="invoice-drafts" class="drafts" style="display:none"></div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -1313,6 +1324,7 @@ async function loadAllData(){
     loadDocCounters().catch(e=>console.error('DocCounters:',e));
     syncStockDatesToSupabase().catch(e=>console.error('StockDates:',e));
     loadDevis().catch(e=>console.error('Devis:',e));
+    loadInvoiceDrafts().catch(e=>console.error('Brouillons:',e));
     loadCommandes().catch(e=>console.error('Commandes:',e));
     loadRdv().catch(e=>console.error('RDV:',e));
   }catch(e){
@@ -3460,7 +3472,7 @@ function printDocumentAndReturn(win, docHTML){
 // ══════════════════════════════════════════════════════════════
 function openDocGenerator(prospectId){
   document.getElementById('doc-generator-overlay')?.remove();
-  dgSourceQuote = null; dgDeductions = [];
+  dgSourceQuote = null; dgDeductions = []; dgEditingDraft = null;
   const p = prospectId ? prospects.find(x=>x.id===prospectId) : 
             currentProspectId ? prospects.find(x=>x.id===currentProspectId) : null;
   
@@ -3745,7 +3757,7 @@ function selectDocType(btn, type){
   const dueMode=document.getElementById('dg-due-mode');
   if(dueMode&&type!=='DEV'){dueMode.value=(type==='FDF'&&dgDeductions.length)?'expedition':'reception';syncDueModeField();}
   const generateButton=document.getElementById('dg-generate');
-  if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':(type==='FAC'?'Émettre la facture d’acompte':'Émettre la facture');
+  if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':'Enregistrer le brouillon';
   const depositBox=document.getElementById('dg-deposit-box');
   if(depositBox)depositBox.style.display=type==='FAC'?'block':'none';
   updateDocCalc();
@@ -4117,9 +4129,12 @@ function getQuoteInvoices(quoteNum){
 }
 
 // Ouvre le générateur en mode facture, à partir d'un devis accepté. Tout est repris du devis et verrouillé.
-async function openInvoiceFromQuote(quoteId, type){
+async function openInvoiceFromQuote(quoteId, type, {fromDraft=false}={}){
   const q = findQuoteRecord(quoteId);
   if(!q || q.type!=='DEV'){ toast('Devis introuvable','error'); return; }
+  // Un brouillon existe déjà pour ce devis : on le rouvre plutôt que d'en créer un second
+  const existingDraft = !fromDraft && findDraftForQuote(q.num, type);
+  if(existingDraft){ toast('Un brouillon existe déjà pour ce devis : il s’ouvre pour modification.'); return editInvoiceDraft(existingDraft.id); }
   if(q.statut!=='Accepté'){ toast(q.statut==='Facturé' ? 'Ce devis est déjà facturé.' : 'Marquer d’abord le devis comme accepté.','error'); return; }
   const items = normalizeDocLineItems(q.lineItems);
   const lines = items.length ? items : (q.prodId ? [{prodId:q.prodId, qty:+q.qty||1, lineDiscountPct:0, unitPriceHT:null}] : []);
@@ -4206,6 +4221,10 @@ async function issueInvoiceOnServer(pending){
   if(!data?.num||!data?.invoiceHtml||!data?.invoiceIssuedAt)throw new Error('Réponse de facturation incomplète. Reprendre la facture en attente.');
   await saveDocToHistory(data,{alreadyPersisted:true});
   localStorage.removeItem('mp_pending_invoice');
+  // Le brouillon correspondant disparaît une fois la facture émise
+  sb.from('invoice_drafts').delete().eq('request_id',pending.requestId).then(()=>{
+    invoiceDrafts=invoiceDrafts.filter(x=>x.request_id!==pending.requestId); renderInvoiceDrafts();
+  });
   // Compta : la facture part dans Pennylane en arrière-plan (sans bloquer l'impression)
   setTimeout(()=>pushInvoiceToPennylane(data,{silent:true}).catch(e=>toast('Pennylane : '+e.message,'error')),800);
   window.CrmDocuments?.invoice(data);
@@ -4408,6 +4427,187 @@ async function checkVatNumber(value){
     if(r.valid){ box.style.color='#1E8449'; box.textContent='✓ N° de TVA valide'+(r.name?' · '+r.name:'')+(r.address?' · '+r.address:''); }
     else { box.style.color='#C0392B'; box.textContent='✗ N° de TVA non reconnu par VIES : l’exonération ne peut pas s’appliquer en l’état.'; }
   }catch(e){ box.style.color='#B07A1F'; box.textContent='Vérification impossible : '+e.message; }
+}
+
+// ══════════════════════════════════════════════════════════════
+// BROUILLONS DE FACTURE
+// « Générer » enregistre un brouillon sans numéro, modifiable à volonté.
+// « Émettre » attribue le numéro définitif (serveur), fige la facture et l'envoie dans Pennylane.
+// ══════════════════════════════════════════════════════════════
+let invoiceDrafts = [];
+let dgEditingDraft = null;   // brouillon en cours de modification dans le générateur
+
+async function loadInvoiceDrafts(){
+  if(!sb||!currentUser) return;
+  const {data,error}=await sb.from('invoice_drafts').select('*').order('updated_at',{ascending:false});
+  if(error){ console.warn('invoice_drafts',error.message); return; }
+  invoiceDrafts = data||[];
+  renderInvoiceDrafts();
+}
+
+function findInvoiceDraft(id){ return invoiceDrafts.find(d=>d.id===id)||null; }
+
+function findDraftForQuote(quoteNum,type){
+  return invoiceDrafts.find(d=>d.source_quote_num===quoteNum && d.type===type)||null;
+}
+
+// Aperçu : « BROUILLON » à la place du numéro, filigrane sur chaque page, pas d'impression automatique
+function draftPreviewHtml(html){
+  const en=/<html[^>]+lang="en/i.test(html);
+  const mark=en?'DRAFT · NOT ISSUED':'BROUILLON · NON ÉMISE';
+  return String(html)
+    .split('__MP_INVOICE_NUMBER__').join(en?'DRAFT':'BROUILLON')
+    .split('__MP_INVOICE_DATE__').join(en?'on issue':'à l’émission')
+    .replace(/<script>\s*window\.print\(\)[\s\S]*?<\/script>/g,'')
+    .replace('</head>',`<style>.page{position:relative}.page::after{content:'${mark}';position:absolute;top:46%;left:50%;transform:translate(-50%,-50%) rotate(-28deg);font:700 58px Helvetica,Arial,sans-serif;letter-spacing:4px;color:rgba(192,57,43,.14);pointer-events:none;white-space:nowrap;z-index:9}</style></head>`);
+}
+
+function showDraftPreview(win, html){
+  win.document.open(); win.document.write(draftPreviewHtml(html)); win.document.close();
+  try{ win.document.title='Brouillon'; }catch(e){}
+}
+
+// Valeurs du formulaire, pour rouvrir le brouillon tel quel
+function captureGeneratorForm(){
+  const ov=document.getElementById('doc-generator-overlay');
+  const fields={};
+  if(ov) ov.querySelectorAll('input[id],select[id],textarea[id]').forEach(e=>{
+    if(e.closest('#dg-lignes')) return;
+    fields[e.id]= (e.type==='checkbox'||e.type==='radio') ? {checked:e.checked} : {value:e.value};
+  });
+  const avail=document.querySelector('input[name="dg-availability"]:checked')?.value;
+  const direct=!!document.querySelector('.doc-type-btn[data-direct][style*="403F21"]');
+  return {fields, lignes: dgLignes.map(l=>({...l})), availability:avail, direct};
+}
+
+function applyGeneratorForm(form){
+  if(!form) return;
+  if(Array.isArray(form.lignes)&&form.lignes.length){ dgLignes=form.lignes.map(l=>({...l})); renderLignesProduits(); }
+  Object.entries(form.fields||{}).forEach(([id,v])=>{
+    const e=document.getElementById(id); if(!e) return;
+    if('checked' in v) e.checked=v.checked; else e.value=v.value;
+  });
+  try{ syncDueModeField(); }catch(e){}
+  try{ syncVatControlVisibility('dg'); }catch(e){}
+  try{ updateDocCalc(); }catch(e){}
+}
+
+async function saveInvoiceDraft(record, html, form){
+  const base={
+    type:record.type, source_quote_num:record.sourceQuoteNum||null,
+    client:record.company||record.clientName||record.contact||'', ttc:record.ttc,
+    record:{...record, draftForm:form}, html, updated_at:new Date().toISOString()
+  };
+  let res;
+  if(dgEditingDraft?.id){
+    res=await sb.from('invoice_drafts').update(base).eq('id',dgEditingDraft.id).select().single();
+  }else{
+    res=await sb.from('invoice_drafts').insert({...base, request_id:crypto.randomUUID()}).select().single();
+  }
+  if(res.error) throw new Error('Brouillon non enregistré : '+res.error.message);
+  invoiceDrafts=[res.data, ...invoiceDrafts.filter(d=>d.id!==res.data.id)];
+  renderInvoiceDrafts();
+  return res.data;
+}
+
+function previewInvoiceDraft(id){
+  const d=findInvoiceDraft(id); if(!d) return;
+  const win=window.open('','_blank');
+  if(!win){ toast('Autoriser les popups pour voir le brouillon','error'); return; }
+  showDraftPreview(win, d.html);
+}
+
+async function editInvoiceDraft(id){
+  const d=findInvoiceDraft(id); if(!d) return;
+  const r=d.record||{}, form=r.draftForm||{};
+  if(d.source_quote_num){
+    await openInvoiceFromQuote(d.source_quote_num, d.type, {fromDraft:true});
+    if(!document.getElementById('doc-generator-overlay')) return;
+  }else{
+    openDocGenerator(r.prospectId||null);
+    const btn=document.querySelector('.doc-type-btn[data-type="'+d.type+'"][data-direct]')||document.querySelector('.doc-type-btn[data-type="'+d.type+'"]');
+    if(btn) selectDocType(btn, d.type);
+  }
+  applyGeneratorForm(form);
+  dgEditingDraft=d;
+  const sub=document.getElementById('dg-subtitle');
+  if(sub) sub.textContent='Brouillon de '+(d.type==='FAC'?'facture d’acompte':'facture')+(d.source_quote_num?' · devis '+d.source_quote_num:'')+' · sans numéro';
+}
+
+async function deleteInvoiceDraft(id){
+  const d=findInvoiceDraft(id); if(!d) return;
+  if(!confirm('Supprimer ce brouillon ? Aucun numéro de facture n’a été utilisé.')) return;
+  const {error}=await sb.from('invoice_drafts').delete().eq('id',id);
+  if(error){ toast(error.message,'error'); return; }
+  invoiceDrafts=invoiceDrafts.filter(x=>x.id!==id);
+  renderInvoiceDrafts();
+  toast('Brouillon supprimé');
+}
+
+async function emitInvoiceDraft(id, btn){
+  const d=findInvoiceDraft(id); if(!d) return;
+  if(documentGenerationBusy) return;
+  const pendingNow=readPendingInvoice();
+  if(pendingNow && pendingNow.requestId!==d.request_id){ toast('Une autre émission est en attente : clique d’abord sur « Reprendre l’émission en attente ».','error'); return; }
+  const record=JSON.parse(JSON.stringify(d.record||{}));
+  delete record.draftForm;
+  const det=record.invoiceDetails||{};
+  const today=todayParisISO();
+  if(det.dueMode==='date'){
+    if(!det.dueDate||det.dueDate<today){ toast('L’échéance du brouillon est passée : clique sur Modifier pour la changer.','error'); return; }
+  }else det.dueDate=today;
+  if(record.type==='FAC') det.operationDate=today;
+  record.invoiceDetails=det;
+  record.validity=det.dueDate;
+  const label=(d.type==='FAC'?'la facture d’acompte':'la facture')+' de '+(d.client||'ce client')+' ('+formatDocMoney(d.ttc)+' TTC)';
+  if(!confirm('Émettre '+label+' ?\n\nElle reçoit son numéro définitif et ne pourra plus être modifiée.\nElle part aussi dans Pennylane.\nUne erreur se corrigera ensuite par un avoir.')) return;
+  const win=openPrintWindowPlaceholder();
+  if(!win){ toast('Autoriser les popups pour imprimer la facture','error'); return; }
+  documentGenerationBusy=true;
+  if(btn){ btn.disabled=true; btn.textContent='Émission…'; }
+  try{
+    const pending={requestId:d.request_id, userId:currentUser.id, record, html:d.html};
+    localStorage.setItem('mp_pending_invoice',JSON.stringify(pending));
+    const issued=await issueInvoiceOnServer(pending);
+    await sb.from('invoice_drafts').delete().eq('id',d.id);
+    invoiceDrafts=invoiceDrafts.filter(x=>x.id!==d.id);
+    if(record.type==='FDF' && record.sourceQuoteNum){
+      const q=findQuoteRecord(record.sourceQuoteNum); if(q){ q.statut='Facturé'; saveDevisLocal(); }
+    }
+    renderInvoiceDrafts(); renderDevisList();
+    printDocumentAndReturn(win, issued.invoiceHtml);
+    toast('Facture '+issued.num+' émise ✓');
+  }catch(e){
+    try{ win.close(); }catch(_){}
+    toast(e.message,'error');
+  }finally{
+    documentGenerationBusy=false;
+    if(btn){ btn.disabled=false; btn.textContent='Émettre'; }
+  }
+}
+
+function renderInvoiceDrafts(){
+  const box=document.getElementById('invoice-drafts');
+  if(!box) return;
+  const pending=readPendingInvoice();
+  const pendingHtml=pending?`<div class="draft-pending">Une émission n’a pas été confirmée (coupure réseau ?). <button class="btn btn-sm btn-primary" onclick="resumeInvoiceIssuance().then(renderInvoiceDrafts)">Reprendre l’émission en attente</button></div>`:'';
+  if(!invoiceDrafts.length && !pending){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  if(!invoiceDrafts.length){ box.innerHTML=pendingHtml; return; }
+  const when=v=>{ try{ return new Date(v).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } };
+  box.innerHTML=`<div class="drafts-head"><div><div class="drafts-title">Factures en brouillon</div>
+    <div class="drafts-sub">Pas encore de numéro. Modifie-les autant que tu veux. Le numéro est attribué quand tu cliques sur Émettre.</div></div></div>
+    ${pendingHtml}<div class="drafts-list">${invoiceDrafts.map(d=>`<div class="draft-row">
+      <div class="draft-main"><span class="badge b-new">Brouillon</span>
+        <strong>${escapeHTML(d.client||'Client')}</strong>
+        <span class="draft-meta">${d.type==='FAC'?'Facture d’acompte':'Facture'}${d.source_quote_num?' · devis '+escapeHTML(d.source_quote_num):''} · modifié le ${when(d.updated_at)}</span></div>
+      <div class="draft-amount">${formatDocMoney(d.ttc)} TTC</div>
+      <div class="draft-actions">
+        <button class="btn btn-sm" onclick="previewInvoiceDraft('${d.id}')">Aperçu</button>
+        <button class="btn btn-sm" onclick="editInvoiceDraft('${d.id}')">Modifier</button>
+        <button class="btn btn-sm btn-primary" onclick="emitInvoiceDraft('${d.id}',this)">Émettre</button>
+        <button class="btn btn-sm" aria-label="Supprimer le brouillon" title="Supprimer le brouillon" style="color:#922B21" onclick="deleteInvoiceDraft('${d.id}')">✕</button>
+      </div></div>`).join('')}</div>`;
 }
 
 async function reprintInvoice(id){
@@ -4858,8 +5058,7 @@ async function generateAndPrint(){
   if(isInvoice){
     const invalid=validateInvoiceDetails(invoiceDetails,company||contact,addr);
     if(invalid){toast(invalid,'error');return;}
-    if(readPendingInvoice()){toast('Reprendre la facture en attente avant une nouvelle émission.','error');return;}
-    if(!sb||!currentUser){toast('Connexion Supabase requise pour la numérotation des factures.','error');return;}
+    if(!sb||!currentUser){toast('Connexion Supabase requise pour enregistrer le brouillon de facture.','error');return;}
   }
   const remisePct = parseFloat(document.getElementById('dg-remise')?.value) || 0;
   const vatSettings = getVatSettingsFromControls('dg');
@@ -5023,14 +5222,14 @@ async function generateAndPrint(){
     date: generatedAt.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})
   };
   if(isInvoice){
-    const pending={requestId:crypto.randomUUID(),userId:currentUser.id,record,html:docHTML};
-    localStorage.setItem('mp_pending_invoice',JSON.stringify(pending));
-    const issued=await issueInvoiceOnServer(pending);
-    if(type==='FDF' && dgSourceQuote){
-      // Le devis est scellé côté serveur ; on reflète l'état localement.
-      const q=findQuoteRecord(dgSourceQuote.num); if(q){ q.statut='Facturé'; saveDevisLocal(); renderDevisList(); }
-    }
-    printDocumentAndReturn(printWin,issued.invoiceHtml);
+    // Brouillon : aucun numéro n'est attribué. Le numéro vient au moment d'« Émettre ».
+    const wasEditing=!!dgEditingDraft;
+    await saveInvoiceDraft(record, docHTML, captureGeneratorForm());
+    dgEditingDraft=null;
+    showDraftPreview(printWin, docHTML);
+    closeDocGeneratorAndReturnToDevis();
+    toast(wasEditing?'Brouillon mis à jour. Clique sur Émettre quand il est prêt.':'Brouillon enregistré, sans numéro. Clique sur Émettre quand il est prêt.');
+    return;
   }else{
     await saveDocToHistory(record);
     saveQuoteHtml(record.num, docHTML);
