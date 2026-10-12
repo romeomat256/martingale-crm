@@ -3452,7 +3452,10 @@ function openDocGenerator(prospectId){
 	          <button class="doc-type-btn" data-type="FDF" onclick="selectDocType(this,'FDF')" style="display:none;flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
 	            Facture<br><span style="font-size:10px;font-weight:400">Vente conclue, acomptes déduits</span>
 	          </button>
-	          <div id="dg-invoice-hint" style="flex:1 1 100%;font-size:11px;color:#888">Les factures s'éditent depuis un devis accepté : onglet Devis, bouton « Facturer ».</div>
+	          <button class="doc-type-btn" data-type="FDF" data-direct="1" onclick="selectDocType(this,'FDF')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
+	            Facture directe<br><span style="font-size:10px;font-weight:400">Vente site ou comptoir, sans devis</span>
+	          </button>
+	          <div id="dg-invoice-hint" style="flex:1 1 100%;font-size:11px;color:#888">Vente issue d'un devis : passe plutôt par l'onglet Devis, bouton « Facturer », pour que tout soit repris et le devis scellé.</div>
 	        </div>
         <input type="hidden" id="dg-type" value="DEV">
         <input type="hidden" id="dg-prospect-id" value="${p?.id||''}">
@@ -4078,7 +4081,7 @@ async function openInvoiceFromQuote(quoteId, type){
   modal.querySelectorAll('button[onclick^="ajouterLigneProduit"]').forEach(b=>b.style.display='none');
   const lb = document.getElementById('dg-locale-box'); if(lb) lb.style.display='none';
   const cs = document.getElementById('dg-company-search'); if(cs) cs.parentElement.querySelectorAll('#dg-company-search').forEach(x=>x.style.display='none');
-  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.style.display = b.dataset.type==='DEV' ? 'none' : 'block'; });
+  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.style.display = (b.dataset.type==='DEV' || b.dataset.direct) ? 'none' : 'block'; });
   const hint = document.getElementById('dg-invoice-hint');
   if(hint) hint.innerHTML = 'Facture du devis <strong>'+escapeHTML(q.num)+'</strong>, accepté. Lignes, prix et remises sont repris du devis et verrouillés.'
     + (dgDeductions.length ? '<br>Acompte(s) déduit(s) : '+dgDeductions.map(d=>escapeHTML(d.num)+' ('+formatDocMoney(d.ttc)+' TTC)').join(', ') : '');
@@ -4364,7 +4367,7 @@ async function generateAndPrint(){
   // ── Lire toutes les valeurs du formulaire (overlay encore ouvert)
   const type      = document.getElementById('dg-type')?.value || 'DEV';
   const isInvoice = type!=='DEV';
-  if(isInvoice && !dgSourceQuote){ toast('Une facture s’édite depuis un devis accepté (onglet Devis, « Facturer »).','error'); return; }
+  if(type==='FAC' && !dgSourceQuote){ toast('Une facture d’acompte s’édite depuis un devis accepté (onglet Devis).','error'); return; }
   if(!['DEV','FAC','FDF'].includes(type)){ toast('Type de document invalide','error'); return; }
   const contact   = document.getElementById('dg-contact')?.value || '';
   const company   = document.getElementById('dg-company')?.value || '';
@@ -4741,7 +4744,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     ht: isInvoice ? due.ht : baseHT,
     tva: isInvoice ? due.tva : tva,
     ttc: isInvoice ? due.ttc : ttc,
-    ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, sourceQuoteNum: dgSourceQuote.num,
+    ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, ...(dgSourceQuote ? {sourceQuoteNum: dgSourceQuote.num} : {}),
         ...(type==='FAC' ? {depositPct: due.pct} : {}),
         ...(type==='FDF' ? {deductions: due.deductions.map(d=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc}))} : {})} : {}),
     ...getShippingStorageFields(shipping),
@@ -4756,7 +4759,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     const pending={requestId:crypto.randomUUID(),userId:currentUser.id,record,html:docHTML};
     localStorage.setItem('mp_pending_invoice',JSON.stringify(pending));
     const issued=await issueInvoiceOnServer(pending);
-    if(type==='FDF'){
+    if(type==='FDF' && dgSourceQuote){
       // Le devis est scellé côté serveur ; on reflète l'état localement.
       const q=findQuoteRecord(dgSourceQuote.num); if(q){ q.statut='Facturé'; saveDevisLocal(); renderDevisList(); }
     }
