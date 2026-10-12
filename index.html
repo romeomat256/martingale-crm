@@ -4031,7 +4031,7 @@ function selectDocType(btn, type){
   btn.classList.add('on'); btn.setAttribute('aria-pressed','true');
   document.getElementById('dg-type').value=type;
   const title=document.getElementById('dg-title');
-  if(title) title.textContent = type==='DEV' ? 'Nouveau devis' : (type==='FAC' ? 'Facture d’acompte' : 'Facture');
+  if(title) title.textContent = type==='DEV' ? 'Nouveau devis' : (type==='FAC' ? 'Facture d’acompte' : (dgSourceQuote ? 'Facture définitive' : 'Facture directe'));
   const invoiceOptions=document.getElementById('dg-invoice-options');
   const quoteOptions=document.getElementById('dg-quote-options');
   if(invoiceOptions)invoiceOptions.style.display=type==='DEV'?'none':'';
@@ -4420,6 +4420,22 @@ async function loadQuoteDeposits(quoteNum){
 function getQuoteInvoices(quoteNum){
   const seen = new Set();
   return [...devisList, ...docHistory].filter(d=>d.sourceQuoteNum===quoteNum && d.type!=='DEV' && !seen.has(d.num) && seen.add(d.num));
+}
+
+// Depuis un devis : facture d'acompte ou facture définitive.
+// Un devis encore « Envoyé » est d'abord passé en « Accepté » (commande créée, stock réservé).
+async function invoiceFromQuote(quoteId, type){
+  const q = findQuoteRecord(quoteId);
+  if(!q || q.type!=='DEV'){ toast('Devis introuvable','error'); return; }
+  if(q.statut==='Facturé'){ toast('Ce devis est déjà facturé.','error'); return; }
+  if(q.statut==='Refusé'){ toast('Ce devis est refusé.','error'); return; }
+  if(q.statut!=='Accepté' && !findDraftForQuote(q.num,type)){
+    const what = type==='FAC' ? 'la facture d’acompte' : 'la facture définitive';
+    if(!confirm('Le devis '+q.num+' n’est pas encore marqué accepté.\n\nPour préparer '+what+', il passe en « Accepté » : la commande est créée et les chaises sont réservées dans le stock.\n\nContinuer ?')) return;
+    await accepterDevis(q.id||q.num);
+  }
+  if(q.statut!=='Accepté'){ q.statut='Accepté'; }
+  return openInvoiceFromQuote(q.id||q.num, type);
 }
 
 // Ouvre le générateur en mode facture, à partir d'un devis accepté. Tout est repris du devis et verrouillé.
@@ -4881,6 +4897,7 @@ async function emitInvoiceDraft(id, btn){
 }
 
 function renderInvoiceDrafts(){
+  try{ if(!renderInvoiceDrafts._inList) renderDevisList(); }catch(e){}
   const box=document.getElementById('invoice-drafts');
   if(!box) return;
   const pending=readPendingInvoice();
@@ -6438,6 +6455,7 @@ function populateFiche(id){
         </div>
         <div style="font-size:10px;color:var(--gris-l);margin-top:3px">${getDocProductSummary(d)}</div>
         <div style="font-size:10px;color:var(--gris-l);margin-top:2px">${d.date||''}${vatSettings.isVatExempt?' · TVA 0%':''}${d.shippingHT!==null&&d.shippingHT!==undefined?' · Liv. '+formatDocMoney(d.shippingHT)+' HT':''}</div>
+        ${d.type==='DEV'&&['Envoyé','Accepté'].includes(d.statut)?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="invoiceFromQuote('${d.id||d.num}','FAC')">Acompte</button><button class="btn btn-sm btn-primary" onclick="invoiceFromQuote('${d.id||d.num}','FDF')">${findDraftForQuote(d.num,'FDF')?'Reprendre la facture':'Facture définitive'}</button></div>`:''}
       </div>`;
     }).join('') : '<div style="font-size:11px;color:var(--gris-l);padding:8px 0">Aucun devis généré</div>';
     
@@ -6652,7 +6670,7 @@ function renderDevisList(){
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
           ${canRefuse?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="refuserDevis('${d.id||d.num}')">✗ Refusé</button>`:''}
-          ${isDevis&&isAccepted?`<button class="btn btn-sm" onclick="openInvoiceFromQuote('${d.id||d.num}','FAC')">Facture d’acompte</button><button class="btn btn-sm btn-primary" onclick="openInvoiceFromQuote('${d.id||d.num}','FDF')">Facturer</button>`:''}
+          ${isDevis&&['Envoyé','Accepté'].includes(d.statut)?(()=>{const df=findDraftForQuote(d.num,'FDF'), da=findDraftForQuote(d.num,'FAC');return `<button class="btn btn-sm" onclick="invoiceFromQuote('${d.id||d.num}','FAC')">${da?'Brouillon d’acompte':'Facture d’acompte'}</button><button class="btn btn-sm btn-primary" onclick="invoiceFromQuote('${d.id||d.num}','FDF')">${df?'Reprendre la facture':'Facture définitive'}</button>`;})():''}
           ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
           ${(d.invoiceIssuedAt||isDevis)?`<button class="btn btn-sm" title="Envoyer au client un lien vers le document" onclick="openSendDocument('${d.id||d.num}')">Envoyer</button>`:''}
