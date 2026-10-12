@@ -910,15 +910,15 @@ html,body{font-family:'Montserrat',sans-serif;color:#1A1A1A;background:#fff;font
 table{width:100%;border-collapse:collapse}
 .tbl-head td{padding:7px 14px;font-size:9px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.6px;border-top:1.5px solid #5C6B3A;border-bottom:1.5px solid #5C6B3A}
 .product-img{width:130px;height:185px;object-fit:cover;display:block}
-.product-name{font-size:14px;font-weight:700;color:#1A1A1A;padding:18px 14px 8px}
-.product-desc{font-size:9.5px;color:#888;padding:0 14px 18px;white-space:pre-line;line-height:1.7}
+.product-name{font-size:14px;font-weight:700;color:#1A1A1A;padding:12px 14px 6px}
+.product-desc{font-size:9.5px;color:#888;padding:0 14px 10px;white-space:pre-line;line-height:1.6}
 .qty-cell{text-align:center;font-size:13px;vertical-align:middle;padding:0 8px}
 .price-cell,.total-cell{white-space:nowrap}
 .price-cell{text-align:right;font-size:12px;color:#666;vertical-align:middle;padding:0 14px;line-height:1.7}
 .total-cell{text-align:right;font-size:14px;font-weight:700;color:#1A1A1A;vertical-align:middle;padding:0 14px}
 /* Totaux */
 .totaux{margin-top:6px}
-.totaux td{padding:5px 14px;font-size:11px;text-align:right;color:#555}
+.totaux td{padding:3px 14px;font-size:11px;text-align:right;color:#555}
 .totaux .lbl{color:#888}
 .net-row td{background:#403F21;color:#fff;font-size:15px;font-weight:700;padding:12px 14px;text-align:right}
 /* Conditions */
@@ -949,7 +949,7 @@ table{width:100%;border-collapse:collapse}
 /* Footer */
 .footer-wrap{position:absolute;bottom:10mm;left:15mm;right:15mm}
 .footer-line{height:1px;background:#5C6B3A;margin-bottom:5px}
-.footer-text{font-size:7.5px;color:#888;display:flex;justify-content:space-between}
+.footer-text{font-size:7px;color:#888;display:flex;justify-content:space-between;gap:10px}
 /* CGV page */
 .cgv-title{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
 .cgv-sub{font-size:9px;color:#888;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0D0}
@@ -961,7 +961,8 @@ table{width:100%;border-collapse:collapse}
   .page{padding:12mm 13mm 20mm}
   @page{size:A4;margin:0}
   .page-break{page-break-before:always}
-}`;
+}
+.settle-block{break-inside:avoid;page-break-inside:avoid}`;
 
 // ── Langue & devise des devis (FR / US / UK)
 const DOC_LOCALES = {
@@ -1098,7 +1099,7 @@ function getUsDutySettings(locale){
 function convertDocAmounts(eur, fx){
   const r2 = v => Math.round(v*100)/100;
   const lines = eur.lines.map(l=>{
-    const unitBrut = r2(l.prod.price*fx);
+    const unitBrut = r2((l.unitPrice ?? l.prod.price)*fx);
     const prixNet = r2(l.prixNet*fx);
     return {...l, unitBrut, prixNet, total: r2(prixNet*l.qty)};
   });
@@ -3207,7 +3208,7 @@ function getDocLineItemsFromGenerator(lines){
     productName: l.prod ? 'Chaise Martingale '+l.prod.name : '',
     productRef: l.prod?.ref || '',
     qty: l.qty,
-    unitPriceHT: l.prod?.price || 0,
+    unitPriceHT: l.unitPrice ?? l.prod?.price ?? 0,
     lineDiscountPct: l.remise || 0,
     unitPriceNetHT: l.prixNet || 0,
     totalHT: l.total || 0
@@ -3413,6 +3414,8 @@ function printDocumentAndReturn(win, docHTML){
 // DOCUMENT GENERATOR MODAL
 // ══════════════════════════════════════════════════════════════
 function openDocGenerator(prospectId){
+  document.getElementById('doc-generator-overlay')?.remove();
+  dgSourceQuote = null; dgDeductions = [];
   const p = prospectId ? prospects.find(x=>x.id===prospectId) : 
             currentProspectId ? prospects.find(x=>x.id===currentProspectId) : null;
   
@@ -3432,7 +3435,7 @@ function openDocGenerator(prospectId){
       <div style="padding:22px 28px 18px;border-bottom:1px solid #E0DFD5;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
         <div>
           <div style="font-size:16px;font-weight:600;color:#1A1A1A">Créer un document</div>
-	          <div style="font-size:11px;color:#999;margin-top:2px">Devis · Facture simple · Acompte · Solde · Facture définitive</div>
+	          <div id="dg-subtitle" style="font-size:11px;color:#999;margin-top:2px">Devis</div>
         </div>
         <button onclick="this.closest('[style*=fixed]').remove()" style="border:none;background:none;cursor:pointer;font-size:22px;color:#999;padding:0 4px;line-height:1">×</button>
       </div>
@@ -3443,18 +3446,13 @@ function openDocGenerator(prospectId){
 	          <button class="doc-type-btn active" data-type="DEV" onclick="selectDocType(this,'DEV')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #403F21;border-radius:9px;background:#F5F5EE;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;color:#403F21">
 	            Devis
 	          </button>
-	          <button class="doc-type-btn" data-type="FSP" onclick="selectDocType(this,'FSP')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture simple<br><span style="font-size:10px;font-weight:400">100 %</span>
+	          <button class="doc-type-btn" data-type="FAC" onclick="selectDocType(this,'FAC')" style="display:none;flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
+	            Facture d'acompte<br><span style="font-size:10px;font-weight:400">% de la commande</span>
 	          </button>
-	          <button class="doc-type-btn" data-type="FAC" onclick="selectDocType(this,'FAC')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture acompte<br><span style="font-size:10px;font-weight:400">50%</span>
+	          <button class="doc-type-btn" data-type="FDF" onclick="selectDocType(this,'FDF')" style="display:none;flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
+	            Facture<br><span style="font-size:10px;font-weight:400">Vente conclue, acomptes déduits</span>
 	          </button>
-	          <button class="doc-type-btn" data-type="SOL" onclick="selectDocType(this,'SOL')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture solde<br><span style="font-size:10px;font-weight:400">Reste à payer</span>
-	          </button>
-	          <button class="doc-type-btn" data-type="FDF" onclick="selectDocType(this,'FDF')" style="flex:1 1 130px;padding:12px 8px;border:2px solid #E0DFD5;border-radius:9px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;color:#555">
-	            Facture définitive<br><span style="font-size:10px;font-weight:400">Total final</span>
-	          </button>
+	          <div id="dg-invoice-hint" style="flex:1 1 100%;font-size:11px;color:#888">Les factures s'éditent depuis un devis accepté : onglet Devis, bouton « Facturer ».</div>
 	        </div>
         <input type="hidden" id="dg-type" value="DEV">
         <input type="hidden" id="dg-prospect-id" value="${p?.id||''}">
@@ -3627,6 +3625,7 @@ function openDocGenerator(prospectId){
           </div>
         </div>
         <div id="dg-invoice-options" style="display:none;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:8px">
+          <label id="dg-deposit-box" style="display:none">Acompte (% de la commande)<input id="dg-deposit-pct" type="number" min="1" max="99" step="1" value="50" oninput="updateDocCalc()" style="width:100%;margin-top:4px"></label>
           <label>Capital social vendeur (€)<input id="dg-seller-capital" type="number" min="0.01" step="0.01" value="${INVOICE_SELLER.capital}" style="width:100%;margin-top:4px"></label>
           <label><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date" style="width:100%;margin-top:4px"></label>
           <label>Date limite de paiement<input id="dg-due-date" type="date" style="width:100%;margin-top:4px"></label>
@@ -3686,12 +3685,9 @@ function selectDocType(btn, type){
   const operationLabel=document.getElementById('dg-operation-date-label');
   if(operationLabel)operationLabel.textContent=type==='FAC'?'Date de versement de l’acompte':'Date de livraison';
   const generateButton=document.getElementById('dg-generate');
-  if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':'Émettre la facture';
-  const aLine = document.getElementById('dg-acompte-line');
-  const aLabel = document.getElementById('dg-acompte-label');
-  if(type==='FAC'){ aLine.style.display='flex'; aLabel.textContent='Acompte 50% à régler'; }
-  else if(type==='SOL'){ aLine.style.display='flex'; aLabel.textContent='Solde restant à régler'; }
-  else{ aLine.style.display='none'; }
+  if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':(type==='FAC'?'Émettre la facture d’acompte':'Émettre la facture');
+  const depositBox=document.getElementById('dg-deposit-box');
+  if(depositBox)depositBox.style.display=type==='FAC'?'block':'none';
   updateDocCalc();
 }
 
@@ -3862,7 +3858,8 @@ function renderLignesProduits(){
 
   dgLignes.forEach(function(l){
     const prod = PRODUCTS.find(function(p){ return p.id === l.prodId; });
-    const total = prod ? (prod.price * (1 - l.remise/100) * l.qty) : 0;
+    const unitPrice = (l.price ?? prod?.price) || 0;
+    const total = prod ? (unitPrice * (1 - l.remise/100) * l.qty) : 0;
     const totalStr = (prod && l.qty > 0) ? formatDocMoney(total) : '—';
     const totalColor = l.remise > 0 ? '#27AE60' : '#403F21';
     const lid = l.id;
@@ -3879,7 +3876,7 @@ function renderLignesProduits(){
     PRODUCTS.forEach(function(p){
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = (p.ref ? '['+p.ref+'] ' : '') + p.name + ' — ' + p.price + '€';
+      opt.textContent = (p.ref ? '['+p.ref+'] ' : '') + p.name + ' — ' + ((p.id === l.prodId && l.price != null) ? l.price : p.price) + '€';
       if(p.id === l.prodId) opt.selected = true;
       sel.appendChild(opt);
     });
@@ -3927,9 +3924,10 @@ function getDgLignesData(){
     .filter(l => l.prodId && l.qty > 0)
     .map(l => {
       const prod = PRODUCTS.find(p => p.id === l.prodId);
-      const prixNet = prod ? prod.price * (1 - l.remise/100) : 0;
+      const unitPrice = (l.price ?? prod?.price) || 0;
+      const prixNet = prod ? unitPrice * (1 - l.remise/100) : 0;
       const total   = prixNet * l.qty;
-      return {prod, qty: l.qty, remise: l.remise, prixNet, total, prodId: l.prodId};
+      return {prod, qty: l.qty, remise: l.remise, unitPrice, prixNet, total, prodId: l.prodId};
     });
 }
 
@@ -3946,7 +3944,7 @@ function updateDocCalc(){
     return;
   }
 
-  const sousTotalBrut = lines.reduce((s,l) => s + (l.prod ? l.prod.price * l.qty : 0), 0);
+  const sousTotalBrut = lines.reduce((s,l) => s + (l.prod ? l.unitPrice * l.qty : 0), 0);
   const sousTotal     = lines.reduce((s,l) => s + l.total, 0);
   const remisePct     = parseFloat(el('dg-remise')?.value) || 0;
   const remiseMontant = sousTotal * (remisePct/100);
@@ -3984,20 +3982,110 @@ function updateDocCalc(){
   }
 
   const type = el('dg-type')?.value;
-  if(type === 'FAC'){
+  const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
+  if(type === 'FAC' || (type === 'FDF' && due.deductions.length)){
     if(el('dg-acompte-line')) el('dg-acompte-line').style.display = 'flex';
-    if(el('dg-acompte-val'))  el('dg-acompte-val').textContent  = fmt(ttc * 0.5);
-    if(el('dg-acompte-label')) el('dg-acompte-label').textContent = 'Acompte 50%';
-  } else if(type === 'SOL'){
-    if(el('dg-acompte-line')) el('dg-acompte-line').style.display = 'flex';
-    if(el('dg-acompte-val'))  el('dg-acompte-val').textContent  = fmt(ttc * 0.5);
-    if(el('dg-acompte-label')) el('dg-acompte-label').textContent = 'Solde 50%';
+    if(el('dg-acompte-label')) el('dg-acompte-label').textContent = type==='FAC' ? 'Acompte '+due.pct+' % à facturer' : 'Reste à payer (acomptes déduits)';
+    if(el('dg-acompte-val'))  el('dg-acompte-val').textContent  = fmt(due.ttc);
   } else {
     if(el('dg-acompte-line')) el('dg-acompte-line').style.display = 'none';
   }
 }
 
 let documentGenerationBusy = false;
+let dgSourceQuote = null;      // devis accepté à l'origine de la facture
+let dgDeductions = [];         // factures d'acompte déjà émises pour ce devis
+
+const round2 = v => Math.round((+v + Number.EPSILON) * 100) / 100;
+
+function fmtDateFR(value){
+  const m = String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[3]+'/'+m[2]+'/'+m[1] : String(value||'');
+}
+
+// Montants réellement facturés : commande entière, acompte en %, ou commande moins acomptes
+function getInvoiceDueAmounts(type, baseHT, vatRate){
+  const orderHT = round2(baseHT);
+  const orderTVA = round2(orderHT * vatRate);
+  const order = {orderHT, orderTVA, orderTTC: round2(orderHT + orderTVA)};
+  if(type === 'FAC'){
+    const pct = Math.min(99, Math.max(1, parseFloat(document.getElementById('dg-deposit-pct')?.value) || 50));
+    const ht = round2(orderHT * pct / 100), tva = round2(ht * vatRate);
+    return {...order, pct, ht, tva, ttc: round2(ht + tva), deductions: []};
+  }
+  if(type === 'FDF' && dgSourceQuote){
+    const dHT = round2(dgDeductions.reduce((s,d)=>s+(+d.ht||0),0));
+    const dTVA = round2(dgDeductions.reduce((s,d)=>s+(+d.tva||0),0));
+    const ht = round2(orderHT - dHT), tva = round2(orderTVA - dTVA);
+    return {...order, ht, tva, ttc: round2(ht + tva), deductions: dgDeductions};
+  }
+  return {...order, ht: orderHT, tva: orderTVA, ttc: order.orderTTC, deductions: []};
+}
+
+function findQuoteRecord(id){
+  return devisList.find(d=>d.id===id||d.num===id) || docHistory.find(d=>d.id===id||d.num===id) || null;
+}
+
+// Factures d'acompte déjà émises pour un devis (serveur d'abord, cache local sinon)
+async function loadQuoteDeposits(quoteNum){
+  const pick = d => ({num:d.num, date:d.date||'', ht:+d.ht||0, tva:+d.tva||0, ttc:+d.ttc||0});
+  if(sb && currentUser){
+    const {data, error} = await sb.from('documents').select('num,ht,tva,ttc,invoice_snapshot->>date')
+      .eq('type','FAC').eq('invoice_snapshot->>sourceQuoteNum', quoteNum).order('num');
+    if(!error && Array.isArray(data)) return data.map(pick);
+  }
+  const seen = new Set();
+  return [...devisList, ...docHistory]
+    .filter(d=>d.type==='FAC' && d.sourceQuoteNum===quoteNum && !seen.has(d.num) && seen.add(d.num))
+    .map(pick);
+}
+
+function getQuoteInvoices(quoteNum){
+  const seen = new Set();
+  return [...devisList, ...docHistory].filter(d=>d.sourceQuoteNum===quoteNum && d.type!=='DEV' && !seen.has(d.num) && seen.add(d.num));
+}
+
+// Ouvre le générateur en mode facture, à partir d'un devis accepté. Tout est repris du devis et verrouillé.
+async function openInvoiceFromQuote(quoteId, type){
+  const q = findQuoteRecord(quoteId);
+  if(!q || q.type!=='DEV'){ toast('Devis introuvable','error'); return; }
+  if(q.statut!=='Accepté'){ toast(q.statut==='Facturé' ? 'Ce devis est déjà facturé.' : 'Marquer d’abord le devis comme accepté.','error'); return; }
+  const items = normalizeDocLineItems(q.lineItems);
+  const lines = items.length ? items : (q.prodId ? [{prodId:q.prodId, qty:+q.qty||1, lineDiscountPct:0, unitPriceHT:null}] : []);
+  if(!lines.length || lines.some(l=>!PRODUCTS.some(p=>p.id===l.prodId))){ toast('Lignes du devis illisibles : facture impossible','error'); return; }
+  const deposits = type==='FDF' ? await loadQuoteDeposits(q.num) : [];
+  openDocGenerator(q.prospectId || null);
+  dgSourceQuote = q;
+  dgDeductions = deposits;
+  const set = (id,v) => { const e=document.getElementById(id); if(e) e.value = v ?? ''; };
+  set('dg-contact', q.contactName || '');
+  set('dg-company', q.company || q.clientName || '');
+  set('dg-email', q.email); set('dg-tel', q.tel);
+  set('dg-addr', q.billingAddress); set('dg-livraison', q.shippingAddress);
+  set('dg-dept', q.deliveryDept);
+  set('dg-remise', q.globalDiscountPct || 0);
+  const vat = getVatSettingsFromStored(q);
+  applyVatSettingsToControls('dg', vat);
+  if(vat.vatRegime===VAT_REGIME_EU_B2B) set('dg-client-vat', vat.customerVatNumber);
+  if(q.shippingMode==='offerte'){ const c=document.getElementById('dg-livofferte'); if(c) c.checked = true; }
+  else set('dg-ship-manual', String(+q.shippingHT||0).replace('.',','));
+  dgLignes = lines.map((l,i)=>({id:'q-'+i, prodId:l.prodId, qty:+l.qty||1, remise:+l.lineDiscountPct||0, price:(l.unitPriceHT ?? null)}));
+  renderLignesProduits();
+  // Verrouillage : la facture reprend le devis à l'identique
+  const modal = document.getElementById('doc-generator-overlay');
+  modal.querySelectorAll('#dg-lignes select, #dg-lignes input, #dg-lignes button, #dg-remise, #dg-ship-manual, #dg-livofferte, #dg-rdv, #dg-dept, #dg-international, #dg-vat-regime, #dg-vat-number, #dg-prospect-sel')
+    .forEach(e=>{ e.disabled = true; e.style.opacity = '.6'; });
+  modal.querySelectorAll('button[onclick^="ajouterLigneProduit"]').forEach(b=>b.style.display='none');
+  const lb = document.getElementById('dg-locale-box'); if(lb) lb.style.display='none';
+  const cs = document.getElementById('dg-company-search'); if(cs) cs.parentElement.querySelectorAll('#dg-company-search').forEach(x=>x.style.display='none');
+  document.querySelectorAll('.doc-type-btn').forEach(b=>{ b.style.display = b.dataset.type==='DEV' ? 'none' : 'block'; });
+  const hint = document.getElementById('dg-invoice-hint');
+  if(hint) hint.innerHTML = 'Facture du devis <strong>'+escapeHTML(q.num)+'</strong>, accepté. Lignes, prix et remises sont repris du devis et verrouillés.'
+    + (dgDeductions.length ? '<br>Acompte(s) déduit(s) : '+dgDeductions.map(d=>escapeHTML(d.num)+' ('+formatDocMoney(d.ttc)+' TTC)').join(', ') : '');
+  const sub = document.getElementById('dg-subtitle'); if(sub) sub.textContent = 'Facturation du devis '+q.num;
+  selectDocType(document.querySelector('.doc-type-btn[data-type='+type+']'), type);
+  updateDocCalc();
+}
 
 function readInvoiceDetails(){
   const value=id=>(document.getElementById(id)?.value||'').trim();
@@ -4083,7 +4171,7 @@ function buildEnglishQuoteHtml(ctx){
   const tax = sp('excl. tax','excl. VAT');
   const fxDate = docFxRates?.date ? new Date(docFxRates.date).toLocaleDateString(locale.intl,{day:'numeric',month:'long',year:'numeric'}) : '';
   const validityEN = String(validite||'').replace(/(\d+)\s*jours?/i,'$1 days').replace(/(\d+)\s*mois/i,'$1 months');
-  const sellerLine = `${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} · SIRET ${INVOICE_SELLER.siret} · ${escapeHTML(INVOICE_SELLER.address)}, France · www.martingaleparis.fr`;
+  const sellerLine = `${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} · share capital €${INVOICE_SELLER.capital.toLocaleString('en-US')} · RCS ${INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()} ${INVOICE_SELLER.siren} · VAT ${INVOICE_SELLER.vat} · ${escapeHTML(INVOICE_SELLER.address)}, France · www.martingaleparis.fr`;
   const colours = {
     'rose-dragee':'Pink & White','rouge-cerise':'Red & Strawberry','kaki-botanique':'Black & Khaki Green','cafe-noir':'Black & White',
     'rouge-grenat':'Red & Raspberry','orange-sienne':'Orange & Black','bleu-atelier':'Midnight Blue & Royal Blue',
@@ -4160,7 +4248,7 @@ function buildEnglishQuoteHtml(ctx){
     const priceCell = l.remise>0
       ? '<span style="text-decoration:line-through;color:#aaa;font-size:10px">'+money(unitBrut)+'</span><br><strong>'+money(l.prixNet)+'</strong><br><small style="color:#C0392B">−'+l.remise+'%</small>'
       : money(unitBrut);
-    return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+p.img+'" style="width:100px;height:140px;object-fit:cover;display:block" alt="'+escapeHTML(p.name)+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Martingale Chair '+escapeHTML(p.name)+'</div><div class="product-desc">'+descFor(p.id)+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+priceCell+'</td><td class="total-cell">'+money(l.total)+'</td></tr>';
+    return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+p.img+'" style="width:90px;height:115px;object-fit:cover;display:block" alt="'+escapeHTML(p.name)+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Martingale Chair '+escapeHTML(p.name)+'</div><div class="product-desc">'+descFor(p.id)+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+priceCell+'</td><td class="total-cell">'+money(l.total)+'</td></tr>';
   }).join('');
 
   return `<!DOCTYPE html>
@@ -4274,11 +4362,10 @@ async function generateAndPrint(){
   let printWin = null;
   try {
   // ── Lire toutes les valeurs du formulaire (overlay encore ouvert)
-  const selectedType = document.getElementById('dg-type')?.value || 'DEV';
-  const isSimpleInvoice = selectedType === 'FSP';
-  // Le type FDF reste compatible avec le schéma existant ; la série de factures est centralisée.
-  const type      = isSimpleInvoice ? 'FDF' : selectedType;
+  const type      = document.getElementById('dg-type')?.value || 'DEV';
   const isInvoice = type!=='DEV';
+  if(isInvoice && !dgSourceQuote){ toast('Une facture s’édite depuis un devis accepté (onglet Devis, « Facturer »).','error'); return; }
+  if(!['DEV','FAC','FDF'].includes(type)){ toast('Type de document invalide','error'); return; }
   const contact   = document.getElementById('dg-contact')?.value || '';
   const company   = document.getElementById('dg-company')?.value || '';
   const addr      = document.getElementById('dg-addr')?.value || '';
@@ -4321,9 +4408,9 @@ async function generateAndPrint(){
   const prod      = firstLine.prod;
   if(!prod){ toast('Sélectionner un produit','error'); return; }
   
-  const prixUnitaireBrut = prod.price;
+  const prixUnitaireBrut = firstLine.unitPrice;
   const prixUnitaireNet = prixUnitaireBrut * (1 - remisePct/100);
-  const sousTotalBrut = lines.reduce((s,l)=>s+(l.prod?l.prod.price*l.qty:0),0);
+  const sousTotalBrut = lines.reduce((s,l)=>s+(l.prod?l.unitPrice*l.qty:0),0);
   const sousTotal = lines.reduce((s,l)=>s+l.total, 0);
   const remiseMontant = sousTotal * (remisePct/100);
   const sousTotalNet = sousTotal - remiseMontant;
@@ -4333,8 +4420,10 @@ async function generateAndPrint(){
   const baseHT = sousTotalNet + shipHT;
   const tva = baseHT * vatSettings.vatRate;
   const ttc = baseHT + tva;
+  const due = getInvoiceDueAmounts(type, baseHT, vatSettings.vatRate);
+  if(isInvoice && due.ttc <= 0){ toast('Rien à facturer : les acomptes couvrent déjà la commande.','error'); return; }
   const fmt = v => v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
-  const vatRowLabel = vatSettings.isVatExempt ? 'TVA exonérée' : 'TVA (20%)';
+  const vatRowLabel = vatSettings.isVatExempt ? 'TVA exonérée' : 'TVA (20 %)';
   const vatRowValue = vatSettings.isVatExempt ? '0,00 €' : fmt(tva);
   const netPayLabel = vatSettings.isVatExempt ? 'NET À PAYER' : 'NET À PAYER TTC';
   const vatLegalBlock = vatSettings.vatLegalMention ? `
@@ -4349,15 +4438,17 @@ async function generateAndPrint(){
   const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : await getNextDocNum(type);
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
   
-  const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',SOL:'FACTURE DE SOLDE',FDF:'FACTURE DÉFINITIVE'};
-  const typeLabel = isSimpleInvoice ? 'FACTURE' : typeLabels[type];
+  const typeLabels = {DEV:'DEVIS',FAC:'FACTURE D\'ACOMPTE',FDF:'FACTURE'};
+  const typeLabel = typeLabels[type];
+  const quoteRef = dgSourceQuote ? 'Devis N° '+dgSourceQuote.num+(dgSourceQuote.date?' du '+dgSourceQuote.date:'') : '';
+  const validityText = (()=>{ const m=String(validite).match(/^\s*(\d+)\s*jours?\s*$/i); if(type!=='DEV'||!m) return validite; const d=new Date(); d.setDate(d.getDate()+(+m[1])); return validite+' (jusqu’au '+d.toLocaleDateString('fr-FR')+')'; })();
+  const sellerLegalLine = escapeHTML(INVOICE_SELLER.name)+' · '+INVOICE_SELLER.legalForm+' au capital de '+INVOICE_SELLER.capital.toLocaleString('fr-FR')+' € · RCS '+INVOICE_SELLER.rcs.charAt(0)+INVOICE_SELLER.rcs.slice(1).toLowerCase()+' '+INVOICE_SELLER.siren+' · SIRET '+INVOICE_SELLER.siret+' · TVA '+INVOICE_SELLER.vat+' · '+escapeHTML(INVOICE_SELLER.address)+' · www.martingaleparis.fr';
   
   const latePenaltyText = 'Pénalités de retard : taux de refinancement de la BCE majoré de 10 points, exigibles dès le lendemain de l\'échéance sans rappel. Indemnité forfaitaire pour frais de recouvrement : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).';
   const conditions = {
     DEV: 'Règlement par virement bancaire, sans escompte : intégral à la commande pour les produits en stock ; acompte de 50 % à la commande et solde avant expédition pour les produits sur commande.\n'+latePenaltyText+'\nEn signant ce devis, vous acceptez sans réserve les Conditions Générales de Vente figurant en page 2.',
-    FAC: 'Acompte de 50 % exigible à la commande, par virement bancaire sous 7 jours. Les sommes versées constituent un acompte et non des arrhes.\n'+latePenaltyText+'\nCGV en page 2.',
-    SOL: 'Solde exigible avant expédition, par virement bancaire.\n'+latePenaltyText+'\nCGV en page 2.',
-    FDF: 'Facture définitive payable à réception, sauf échéance spécifique indiquée sur le document, sans escompte.\n'+latePenaltyText+'\nCGV en page 2.'
+    FAC: '',
+    FDF: ''
   };
   const dateMetaLabel = type === 'DEV' ? 'Validité' : 'Échéance';
   const sellerCapital = isInvoice ? invoiceDetails.seller.capital : INVOICE_SELLER.capital;
@@ -4400,13 +4491,6 @@ async function generateAndPrint(){
     ? `<span style="text-decoration:line-through;color:#aaa;font-size:10px">${fmt(prixUnitaireBrut)}</span><br><strong style="color:#27AE60">${fmt(prixUnitaireNet)}</strong>`
     : fmt(prixUnitaireBrut);
   
-  let acompteSection = '';
-  if(type==='FAC'){
-    acompteSection = `<tr style="background:#FEF9E7"><td colspan="4" style="padding:10px 16px;text-align:right;font-size:13px;font-weight:700;color:#C0392B;border-bottom:1px solid #E0DFD5">ACOMPTE 50% À RÉGLER : ${fmt(ttc*0.5)}</td></tr>`;
-  } else if(type==='SOL'){
-    acompteSection = `<tr style="background:#FEF9E7"><td colspan="4" style="padding:10px 16px;text-align:right;font-size:13px;font-weight:700;color:#C0392B;border-bottom:1px solid #E0DFD5">SOLDE RESTANT À RÉGLER : ${fmt(ttc*0.5)}</td></tr>`;
-  }
-
   // CGV helper
   function cgvBloc(titre, corps){
     return '<div class="cgv-section"><div class="cgv-section-title">'+titre+'</div><div class="cgv-section-body">'+corps+'</div></div>';
@@ -4432,7 +4516,7 @@ ${isInvoice?`.invoice-print-ref{display:none}
   .footer-wrap{position:static;margin-top:8mm}
   .footer-text span:last-child{display:none}
   .meta-row>div{min-width:0;max-width:50%;overflow-wrap:anywhere}
-  tr,.conditions-box,.payment-grid{break-inside:avoid}
+  tr,.conditions-box,.payment-grid,.settle-block{break-inside:avoid}
 }`:''}
 </style>
 </head>
@@ -4453,7 +4537,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
   <div class="meta-row">
     <div>
       <div class="doc-num">${typeLabel} N° ${docNum}</div>
-      <div class="doc-sub">Émis le ${today}<br>${dateMetaLabel} : ${escapeHTML(validite)}${isInvoice?'<br>'+ (type==='FAC'?'Versement de l’acompte':'Livraison')+' : '+escapeHTML(invoiceDetails.operationDate)+'<br>Nature : Livraison de biens':''}</div>
+      <div class="doc-sub">Émis le ${today}<br>${dateMetaLabel} : ${escapeHTML(isInvoice ? fmtDateFR(validite) : validityText)}${isInvoice?'<br>'+ (type==='FAC'?'Versement de l’acompte':'Livraison')+' : '+escapeHTML(fmtDateFR(invoiceDetails.operationDate))+'<br>Nature : Livraison de biens'+(quoteRef?'<br>Réf. : '+escapeHTML(quoteRef):''):''}</div>
     </div>
     <div>
       <div class="dest-label">Destinataire</div>
@@ -4481,32 +4565,47 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
       const lDesc = (prodDescs[lProd.id]||'Structure Rotin Malacca\nVernis Marin - Patins de Renforcement')+(isInvoice?'\n'+(vatSettings.isVatExempt?'TVA exonérée':'TVA : 20 %'):'');
       const lPrixNet = l.prixNet;
       const lPrixDisplay = l.remise>0 
-        ? '<span style="text-decoration:line-through;color:#aaa;font-size:10px">'+formatDocMoney(lProd.price)+'</span><br><strong>'+formatDocMoney(lPrixNet)+'</strong><br><small style="color:#C0392B">−'+l.remise+'%</small>'
-        : formatDocMoney(lProd.price);
-      return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+lProd.img+'" style="width:100px;height:140px;object-fit:cover;display:block" alt="'+lProd.name+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Chaise Martingale '+lProd.name+'</div><div class="product-desc">'+lDesc+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+lPrixDisplay+'</td><td class="total-cell">'+fmt(l.total)+'</td></tr>';
+        ? '<span style="text-decoration:line-through;color:#aaa;font-size:10px">'+formatDocMoney(l.unitPrice)+'</span><br><strong>'+formatDocMoney(lPrixNet)+'</strong><br><small style="color:#C0392B">−'+l.remise+'%</small>'
+        : formatDocMoney(l.unitPrice);
+      return '<tr style="border-bottom:1px solid #E8E7D8"><td style="padding:0;vertical-align:top"><img src="'+lProd.img+'" style="width:90px;height:115px;object-fit:cover;display:block" alt="'+lProd.name+'" crossorigin="anonymous"></td><td style="vertical-align:top"><div class="product-name">Chaise Martingale '+lProd.name+'</div><div class="product-desc">'+lDesc+'</div></td><td class="qty-cell">'+l.qty+'</td><td class="price-cell">'+lPrixDisplay+'</td><td class="total-cell">'+fmt(l.total)+'</td></tr>';
     }).join('')}
-    ${remisePct>0?'<tr><td colspan="4" style="text-align:right;padding:6px 14px;font-size:11px;color:#888">Remise globale −'+remisePct+'%</td><td class="total-cell" style="color:#C0392B">− '+fmt(remiseMontant)+'</td></tr>':''}
   </table>
 
   <table class="totaux">
-    ${(remiseMontant>0||lines.some(l=>l.remise>0)) ? '<tr><td class="lbl">SOUS-TOTAL HT brut</td><td>'+fmt(sousTotalBrut)+'</td></tr>' : ''}
+    ${(remiseMontant>0||lines.some(l=>l.remise>0)) ? '<tr><td class="lbl">SOUS-TOTAL HT BRUT</td><td>'+fmt(sousTotalBrut)+'</td></tr>' : ''}
+    ${lines.some(l=>l.remise>0) ? '<tr><td class="lbl">REMISES SUR LIGNES</td><td style="color:#C0392B">− '+fmt(sousTotalBrut-sousTotal)+'</td></tr>' : ''}
+    ${remisePct>0 ? '<tr><td class="lbl">REMISE GLOBALE −'+remisePct+' %</td><td style="color:#C0392B">− '+fmt(remiseMontant)+'</td></tr>' : ''}
     <tr><td class="lbl">SOUS-TOTAL HT</td><td style="color:#403F21;font-weight:600">${fmt(sousTotalNet)}</td></tr>
-    <tr><td class="lbl">LIVRAISON${isInvoice?' HT ('+(vatSettings.isVatExempt?'TVA exonérée':'TVA 20 %')+')':''}</td><td>${shipLabel}</td></tr>
-    ${isInvoice?'<tr><td class="lbl">TOTAL HT</td><td>'+fmt(baseHT)+'</td></tr>':''}
-    <tr><td class="lbl">${vatRowLabel}</td><td>${vatRowValue}</td></tr>
+    <tr><td class="lbl">LIVRAISON HT${isInvoice?' ('+(vatSettings.isVatExempt?'TVA exonérée':'TVA 20 %')+')':''}</td><td>${shipLabel}</td></tr>
+    <tr><td class="lbl">${(type==='FAC'||due.deductions.length)?'TOTAL COMMANDE HT':'TOTAL HT'}</td><td style="font-weight:600">${fmt(due.orderHT)}</td></tr>
+    <tr><td class="lbl">${vatRowLabel}</td><td>${vatSettings.isVatExempt ? '0,00 €' : fmt(due.orderTVA)}</td></tr>
+    ${type==='DEV' ? `
     <tr style="height:6px"><td colspan="2"></td></tr>
-    <tr class="net-row"><td colspan="2">${netPayLabel} &nbsp;&nbsp;&nbsp; ${fmt(ttc)}</td></tr>
-    ${acompteSection}
+    <tr class="net-row"><td colspan="2">${netPayLabel} &nbsp;&nbsp;&nbsp; ${fmt(due.orderTTC)}</td></tr>
+    <tr><td colspan="2" style="padding:8px 14px 0;font-size:10px;color:#666">Produits sur commande : acompte de 50 % à la commande, soit ${fmt(round2(due.orderTTC/2))} ${vatSettings.isVatExempt?'':'TTC'}</td></tr>` : `
+    ${(type==='FAC'||due.deductions.length) ? '<tr><td class="lbl">TOTAL COMMANDE'+(vatSettings.isVatExempt?'':' TTC')+'</td><td>'+fmt(due.orderTTC)+'</td></tr>' : ''}
+    ${type==='FAC' ? `
+    <tr><td colspan="2" style="padding:8px 0 0"><div style="border-top:1px solid #D4D3B8"></div></td></tr>
+    <tr><td class="lbl" style="color:#403F21;font-weight:600">ACOMPTE ${due.pct} % HT</td><td style="font-weight:600">${fmt(due.ht)}</td></tr>
+    <tr><td class="lbl">${vatSettings.isVatExempt?'TVA exonérée':'TVA SUR ACOMPTE (20 %)'}</td><td>${fmt(due.tva)}</td></tr>` : ''}
+    ${type==='FDF' && due.deductions.length ? `
+    <tr><td colspan="2" style="padding:8px 0 0"><div style="border-top:1px solid #D4D3B8"></div></td></tr>
+    ${due.deductions.map(d=>'<tr><td class="lbl">ACOMPTE FACTURÉ N° '+escapeHTML(d.num)+(d.date?' DU '+escapeHTML(d.date):'')+'</td><td style="color:#C0392B">− '+fmt(d.ht)+' HT · − '+fmt(d.ttc)+(vatSettings.isVatExempt?'':' TTC')+'</td></tr>').join('')}
+    <tr><td class="lbl" style="color:#403F21;font-weight:600">RESTE DÛ HT</td><td style="font-weight:600">${fmt(due.ht)}</td></tr>
+    <tr><td class="lbl">${vatSettings.isVatExempt?'TVA exonérée':'TVA (20 %)'}</td><td>${fmt(due.tva)}</td></tr>` : ''}
+    <tr style="height:6px"><td colspan="2"></td></tr>
+    <tr class="net-row"><td colspan="2">${type==='FAC' ? 'ACOMPTE À RÉGLER'+(vatSettings.isVatExempt?'':' TTC') : netPayLabel} &nbsp;&nbsp;&nbsp; ${fmt(due.ttc)}</td></tr>`}
   </table>
 
   ${vatLegalBlock}
 
   <div class="conditions-box">
-    <div class="conditions-text">${isInvoice ? 'Règlement par virement bancaire au plus tard le '+escapeHTML(validite)+'.\nPénalités de retard entre professionnels : taux de refinancement de la BCE en vigueur au 1er janvier ou au 1er juillet du semestre concerné, majoré de 10 points, exigibles dès le lendemain de l’échéance sans rappel.\nIndemnité forfaitaire de recouvrement en cas de retard entre professionnels : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).\nConditions Générales de Vente jointes en annexe.' : conditions[type]}</div>
+    <div class="conditions-text">${isInvoice ? 'Règlement par virement bancaire au plus tard le '+escapeHTML(fmtDateFR(validite))+', en indiquant la référence '+docNum+'.'+(type==='FAC'?' Les sommes versées constituent un acompte et non des arrhes.':'')+'\nPénalités de retard entre professionnels : taux de refinancement de la BCE en vigueur au 1er janvier ou au 1er juillet du semestre concerné, majoré de 10 points, exigibles dès le lendemain de l’échéance sans rappel.\nIndemnité forfaitaire de recouvrement en cas de retard entre professionnels : 40 € (articles L. 441-10 et D. 441-5 du Code de commerce).\nConditions Générales de Vente jointes en annexe.' : conditions[type]}</div>
   </div>
 
-  <div class="validation-header">${isSimpleInvoice ? 'RÈGLEMENT' : 'VALIDATION &amp; RÈGLEMENT'}</div>
-  ${isSimpleInvoice ? '' : `<div class="validation-sub">Annexe au ${typeLabel} N° ${docNum} — ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>`}
+  <div class="settle-block">
+  <div class="validation-header">${isInvoice ? 'RÈGLEMENT' : 'VALIDATION &amp; RÈGLEMENT'}</div>
+  ${isInvoice ? '' : `<div class="validation-sub">Annexe au devis N° ${docNum} · ${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm}</div>`}
 
   <div class="payment-grid${isInvoice ? ' invoice-payment-grid' : ''}">
     <div class="rib-block">
@@ -4515,7 +4614,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
       <div class="rib-row"><span class="rib-label">BIC :</span><span class="rib-val">CEPAFRPP333</span></div>
       <div class="rib-row"><span class="rib-label">IBAN :</span><span class="rib-val">FR76 1333 5000 4008 0027 7957 981</span></div>
       <div class="rib-row"><span class="rib-label">À l'ordre de :</span><span class="rib-val">${escapeHTML(INVOICE_SELLER.name)}</span></div>
-      ${isInvoice ? '<div class="payment-note">Escompte pour paiement anticipé : néant.</div>' : ''}
+      ${isInvoice ? '<div class="rib-row"><span class="rib-label">Référence :</span><span class="rib-val">'+docNum+'</span></div><div class="rib-row"><span class="rib-label">Montant :</span><span class="rib-val">'+fmt(due.ttc)+'</span></div><div class="payment-note">Escompte pour paiement anticipé : néant.</div>' : ''}
     </div>
     ${isInvoice ? `<div class="seller-block">
       <strong>${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} au capital de ${fmt(invoiceDetails.seller.capital)}</strong><br>
@@ -4523,18 +4622,19 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
       SIREN ${INVOICE_SELLER.siren} · SIRET ${INVOICE_SELLER.siret} · RCS ${INVOICE_SELLER.rcs} ${INVOICE_SELLER.siren}<br>
       TVA intracommunautaire : ${INVOICE_SELLER.vat}
     </div>` : ''}
-    ${isSimpleInvoice ? '' : `<div class="sign-block">
+    ${isInvoice ? '' : `<div class="sign-block">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px;text-align:center">Bon pour accord</div>
       <div style="font-size:8.5px;color:#888;text-align:center;margin-bottom:16px">Date, Cachet &amp; Signature</div>
       <div style="width:100%;border-bottom:1px solid #C0C0B0;margin-bottom:6px"></div>
       <div style="font-size:7.5px;color:#bbb;text-align:center">Signature</div>
     </div>`}
   </div>
+  </div>
 
   <div class="footer-wrap">
     <div class="footer-line"></div>
     <div class="footer-text">
-      <span>${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} · SIRET ${INVOICE_SELLER.siret} · ${escapeHTML(INVOICE_SELLER.address)} · www.martingaleparis.fr</span>
+      <span>${sellerLegalLine}</span>
       <span>Page 1 / 2</span>
     </div>
   </div>
@@ -4559,7 +4659,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
   <div class="footer-wrap">
     <div class="footer-line"></div>
     <div class="footer-text">
-      <span>${escapeHTML(INVOICE_SELLER.name)} · ${INVOICE_SELLER.legalForm} · SIRET ${INVOICE_SELLER.siret} · ${escapeHTML(INVOICE_SELLER.address)} · www.martingaleparis.fr</span>
+      <span>${sellerLegalLine}</span>
       <span>Page 2 / 2</span>
     </div>
   </div>
@@ -4619,7 +4719,7 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
   const record = {
     num: docNum,
     type: type,
-    typeLabel: isSimpleInvoice ? 'FACTURE SIMPLE' : typeLabel,
+    typeLabel: typeLabel,
     contact: clientName,
     clientName: clientName,
     company: company,
@@ -4638,9 +4738,12 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     subtotalHT: sousTotalNet,
     globalDiscountPct: remisePct,
     globalDiscountAmountHT: remiseMontant,
-    ht: baseHT,
-    tva: tva,
-    ttc: ttc,
+    ht: isInvoice ? due.ht : baseHT,
+    tva: isInvoice ? due.tva : tva,
+    ttc: isInvoice ? due.ttc : ttc,
+    ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, sourceQuoteNum: dgSourceQuote.num,
+        ...(type==='FAC' ? {depositPct: due.pct} : {}),
+        ...(type==='FDF' ? {deductions: due.deductions.map(d=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc}))} : {})} : {}),
     ...getShippingStorageFields(shipping),
     ...getVatStorageFields(vatSettings),
     prospectId: prospectId,
@@ -4653,6 +4756,10 @@ ${isInvoice?'<div class="invoice-print-ref">'+typeLabel+' N° '+docNum+' · '+es
     const pending={requestId:crypto.randomUUID(),userId:currentUser.id,record,html:docHTML};
     localStorage.setItem('mp_pending_invoice',JSON.stringify(pending));
     const issued=await issueInvoiceOnServer(pending);
+    if(type==='FDF'){
+      // Le devis est scellé côté serveur ; on reflète l'état localement.
+      const q=findQuoteRecord(dgSourceQuote.num); if(q){ q.statut='Facturé'; saveDevisLocal(); renderDevisList(); }
+    }
     printDocumentAndReturn(printWin,issued.invoiceHtml);
   }else{
     await saveDocToHistory(record);
@@ -5465,7 +5572,7 @@ function saveVentesSite(){ localStorage.setItem('mp_ventes_site', JSON.stringify
 let currentDevisFilter = '';
 
 const DEVIS_STATUT_CLASS = {
-  'Brouillon':'b-new','Envoyé':'b-devis','Accepté':'b-won','Refusé':'b-lost'
+  'Brouillon':'b-new','Envoyé':'b-devis','Accepté':'b-won','Facturé':'b-won','Refusé':'b-lost'
 };
 const CMD_STATUT_CLASS = {
   'Confirmé':'b-contact','En production':'b-devis','Expédié':'b-relance','Livré':'b-won'
@@ -5620,12 +5727,13 @@ function renderDevisList(){
       </td>
       <td style="font-weight:600;color:var(--vert)">${fmt(d.ttc)}${vatSettings.isVatExempt?`<div style="font-size:10px;color:#1E8449;margin-top:2px">TVA 0%</div>`:''}</td>
       <td style="font-size:11px;color:var(--gris-l)">${d.date||'—'}</td>
-      <td><span class="badge ${statutClass}">${d.statut||'—'}</span></td>
+      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
           ${canRefuse?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="refuserDevis('${d.id||d.num}')">✗ Refusé</button>`:''}
-          ${isAccepted?`<button class="btn btn-sm btn-primary" onclick="go('commandes')">Voir commande</button>`:''}
+          ${isDevis&&isAccepted?`<button class="btn btn-sm" onclick="openInvoiceFromQuote('${d.id||d.num}','FAC')">Facture d’acompte</button><button class="btn btn-sm btn-primary" onclick="openInvoiceFromQuote('${d.id||d.num}','FDF')">Facturer</button>`:''}
+          ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
           ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Réimprimer la facture" onclick="reprintInvoice('${d.id||d.num}')">Réimprimer</button>`:''}
           ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Archiver le PDF sans émettre une nouvelle facture" onclick="window.CrmDocuments?.invoice('${d.id}')">Archiver le PDF</button>`:''}
