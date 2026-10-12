@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Martingale Paris</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1F1F1A;--muted:#6B6B5E;--line:#E3E0D6;--olive:#4D5038;--ground:#EFEDE6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px}
+.bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 20px;background:#fff;border-bottom:1px solid var(--line)}
+.bar h1{margin:0;font-family:'Bricolage Grotesque','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:19px;font-weight:500}
+.bar h1 span{color:var(--muted)}
+button{font:inherit;font-size:14px;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+button.primary{background:var(--olive);border-color:var(--olive);color:#F7F5F0;font-weight:700}
+button:focus-visible,input:focus-visible{outline:2px solid var(--olive);outline-offset:2px}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:18px}
+.sheet{background:#fff;box-shadow:0 2px 16px rgba(31,31,26,.12);overflow:hidden}
+iframe{display:block;width:100%;border:0;background:#fff}
+.accept{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:12px}
+.accept h2{margin:0;font-family:'Bricolage Grotesque','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:21px;font-weight:500}
+.accept p{margin:0;color:var(--muted);line-height:1.5}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.row input{flex:1 1 240px;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:8px}
+.ok{background:#E8EFE2;border-color:#C9D8BF}
+.ok h2{color:#3F6B3A}
+.msg{padding:40px 20px;text-align:center;color:var(--muted)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1 id="title">Martingale Paris</h1>
+  <button id="print" type="button" hidden>Imprimer ou enregistrer en PDF</button>
+</div>
+<div class="wrap">
+  <div id="state" class="msg">Chargement du document…</div>
+  <div class="sheet" id="sheet" hidden><iframe id="doc" title="Document"></iframe></div>
+  <section class="accept" id="accept" hidden>
+    <h2 id="acc-title">Bon pour accord</h2>
+    <p id="acc-text">En validant, vous acceptez ce devis et les conditions générales de vente qui y figurent.</p>
+    <form class="row" id="acc-form">
+      <label for="acc-name" id="acc-label" style="position:absolute;width:1px;height:1px;overflow:hidden">Nom et fonction</label>
+      <input id="acc-name" autocomplete="name" placeholder="Nom, prénom et fonction" required minlength="2">
+      <button class="primary" type="submit" id="acc-btn">Valider le devis</button>
+    </form>
+    <p id="acc-err" style="color:#A33A2A" hidden></p>
+  </section>
+  <section class="accept ok" id="done" hidden>
+    <h2 id="done-title">Devis accepté</h2>
+    <p id="done-text"></p>
+  </section>
+</div>
+<script>
+const FN = 'https://hduxtygzhesmclxanocj.supabase.co/functions/v1/document-share';
+const t = new URLSearchParams(location.search).get('t') || '';
+const $ = id => document.getElementById(id);
+let EN = false;
+const T = (fr, en) => EN ? en : fr;
+
+function fitFrame(){
+  const f = $('doc');
+  try {
+    const d = f.contentDocument;
+    // Sur téléphone, la page A4 est réduite à la largeur de l'écran
+    const z = Math.min(1, f.clientWidth / 830);
+    d.body.style.zoom = z < 1 ? String(z) : '';
+    f.style.height = Math.ceil(d.documentElement.scrollHeight * (z < 1 && !('zoom' in d.body.style) ? z : 1)) + 'px';
+  } catch(e){}
+}
+
+async function load(){
+  try{
+    const r = await fetch(FN + '?t=' + encodeURIComponent(t));
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error();
+    EN = /<html[^>]+lang="en/i.test(j.html);
+    document.documentElement.lang = EN ? 'en' : 'fr';
+    const label = j.type === 'DEV' ? T('Devis', 'Quote') : (j.type === 'FAC' ? T('Facture d’acompte', 'Deposit invoice') : T('Facture', 'Invoice'));
+    $('title').innerHTML = label + ' <span>' + j.num.replace(/[<>&]/g,'') + '</span>';
+    document.title = label + ' ' + j.num + ' · Martingale Paris';
+    $('print').textContent = T('Imprimer ou enregistrer en PDF', 'Print or save as PDF');
+    const f = $('doc');
+    f.onload = () => { fitFrame(); setTimeout(fitFrame, 400); };
+    f.srcdoc = j.html.replace(/<script>\s*window\.print\(\)[\s\S]*?<\/script>/g, '');
+    $('state').hidden = true; $('sheet').hidden = false; $('print').hidden = false;
+    if(j.can_accept){
+      $('acc-title').textContent = T('Bon pour accord', 'Approval');
+      $('acc-text').textContent = T('En validant, vous acceptez ce devis et les conditions générales de vente qui y figurent.', 'By approving, you accept this quote and the terms and conditions it includes.');
+      $('acc-name').placeholder = T('Nom, prénom et fonction', 'Full name and position');
+      $('acc-btn').textContent = T('Valider le devis', 'Approve the quote');
+      $('accept').hidden = false;
+    } else if(j.accepted_at){
+      showDone(j.accepted_name, j.accepted_at);
+    }
+  }catch(e){
+    $('state').textContent = T('Ce lien n’est plus valable. Contactez-nous : romeo@martingaleparis.fr', 'This link is no longer valid. Contact us: romeo@martingaleparis.fr');
+  }
+}
+
+function showDone(name, at){
+  $('accept').hidden = true;
+  $('done-title').textContent = T('Devis accepté', 'Quote approved');
+  const d = new Date(at).toLocaleDateString(EN ? 'en-GB' : 'fr-FR', {day:'numeric', month:'long', year:'numeric'});
+  $('done-text').textContent = T('Accepté par ' + name + ' le ' + d + '. Merci, nous revenons vers vous très vite.', 'Approved by ' + name + ' on ' + d + '. Thank you, we will be in touch shortly.');
+  $('done').hidden = false;
+}
+
+$('print').addEventListener('click', () => { try { $('doc').contentWindow.focus(); $('doc').contentWindow.print(); } catch(e){ window.print(); } });
+$('acc-form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const name = $('acc-name').value.trim();
+  $('acc-err').hidden = true;
+  $('acc-btn').disabled = true;
+  try{
+    const r = await fetch(FN, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'accept', t, name})});
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error();
+    showDone(name, new Date().toISOString());
+  }catch(e){
+    $('acc-err').textContent = T('La validation n’a pas abouti. Réessayez ou écrivez à romeo@martingaleparis.fr.', 'Approval failed. Please try again or write to romeo@martingaleparis.fr.');
+    $('acc-err').hidden = false;
+    $('acc-btn').disabled = false;
+  }
+});
+window.addEventListener('resize', fitFrame);
+load();
+</script>
+</body>
+</html>

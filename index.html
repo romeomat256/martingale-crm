@@ -531,7 +531,10 @@ textarea{resize:vertical;line-height:1.6}
       <div class="page-title">Devis</div>
       <div class="page-subtitle" id="devis-count">0 devis</div>
     </div>
-    <button class="btn btn-primary" onclick="openDocGenerator(null)">+ Nouveau devis</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="syncPennylanePayments()" title="Relire dans Pennylane les factures payées">Paiements Pennylane</button>
+      <button class="btn btn-primary" onclick="openDocGenerator(null)">+ Nouveau devis</button>
+    </div>
   </div>
   <div class="page-content">
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
@@ -1230,6 +1233,7 @@ function showLogin(){
 
 function showApp(user){
   window.CrmDocuments?.resumePending();
+  setTimeout(()=>syncPennylanePayments({silent:true}).catch(()=>{}),4000);
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('nav').style.display='flex';
   document.getElementById('main').style.display='block';
@@ -3355,7 +3359,7 @@ function getDocMetaFields(record){
 }
 
 function mapSupabaseDocument(row){
-  if(row.invoice_snapshot) return normalizeDocumentRecord({...row.invoice_snapshot,id:row.id,statut:row.statut||row.invoice_snapshot.statut||'Envoyé'});
+  if(row.invoice_snapshot) return normalizeDocumentRecord({...row.invoice_snapshot,id:row.id,statut:row.statut||row.invoice_snapshot.statut||'Envoyé',pennylane:row.pennylane||null});
   const createdAt = row.created_at || row.createdAt || '';
   return normalizeDocumentRecord({
     id: row.id,
@@ -3397,6 +3401,7 @@ function mapSupabaseDocument(row){
     createdAt,
     date: row.date || (createdAt ? new Date(createdAt).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}) : ''),
     statut: row.statut || 'Envoyé',
+    pennylane: row.pennylane || null,
     ...(row.doc_meta || {})
   });
 }
@@ -3591,9 +3596,10 @@ function openDocGenerator(prospectId){
               </div>
               <div id="dg-vat-number-box" style="display:none;flex-direction:column;gap:4px">
                 <label style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.4px">N° TVA intracommunautaire client</label>
-                <input type="text" id="dg-vat-number" placeholder="Ex: BE0123456789" oninput="onDocVatChange()" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;text-transform:uppercase">
+                <input type="text" id="dg-vat-number" placeholder="Ex: BE0123456789" oninput="onDocVatChange()" onchange="checkVatNumber(this.value)" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit;text-transform:uppercase">
               </div>
             </div>
+            <div id="dg-vies-result" style="display:none;margin-top:8px;font-size:11px;font-weight:600"></div>
             <div id="dg-vat-mention" style="display:none;margin-top:10px;padding:8px 10px;background:#EAFAF1;border:1px solid #A9DFBF;border-radius:7px;font-size:11px;color:#1E8449;font-weight:600"></div>
           </div>
         </div>
@@ -4200,6 +4206,8 @@ async function issueInvoiceOnServer(pending){
   if(!data?.num||!data?.invoiceHtml||!data?.invoiceIssuedAt)throw new Error('Réponse de facturation incomplète. Reprendre la facture en attente.');
   await saveDocToHistory(data,{alreadyPersisted:true});
   localStorage.removeItem('mp_pending_invoice');
+  // Compta : la facture part dans Pennylane en arrière-plan (sans bloquer l'impression)
+  setTimeout(()=>pushInvoiceToPennylane(data,{silent:true}).catch(e=>toast('Pennylane : '+e.message,'error')),800);
   window.CrmDocuments?.invoice(data);
   return data;
 }
@@ -4220,6 +4228,186 @@ async function resumeInvoiceIssuance(){
     const button=document.getElementById('dg-resume-invoice');
     if(button)button.style.display=readPendingInvoice()?'block':'none';
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// CONNEXIONS : Pennylane, envoi au client, TVA européenne
+// (fonctions serveur Supabase ; les clés restent côté serveur)
+// ══════════════════════════════════════════════════════════════
+async function callCrmFunction(name, body){
+  if(!sb||!currentUser) throw new Error('Connexion requise.');
+  const {data, error} = await sb.functions.invoke(name, {body});
+  if(error){
+    let detail = '';
+    try{ const j = await error.context?.json?.(); detail = j?.detail || j?.error || ''; }catch(e){}
+    throw new Error(detail || error.message || 'Service indisponible');
+  }
+  return data;
+}
+
+function loadScriptOnce(src){
+  return new Promise((resolve,reject)=>{
+    if(document.querySelector('script[src="'+src+'"]')) return resolve();
+    const s=document.createElement('script'); s.src=src; s.onload=resolve; s.onerror=()=>reject(new Error('Chargement impossible'));
+    document.head.appendChild(s);
+  });
+}
+
+// PDF fidèle au document : chaque page A4 est photographiée puis assemblée
+async function htmlToPdfBase64(html){
+  await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  const frame=document.createElement('iframe');
+  frame.style.cssText='position:fixed;left:-10000px;top:0;width:830px;height:1200px;border:0';
+  document.body.appendChild(frame);
+  try{
+    await new Promise(r=>{ frame.onload=r; frame.srcdoc=String(html).replace(/<script>\s*window\.print\(\)[\s\S]*?<\/script>/g,''); });
+    const doc=frame.contentDocument;
+    try{ await doc.fonts?.ready; }catch(e){}
+    await new Promise(r=>setTimeout(r,400));
+    const pages=[...doc.querySelectorAll('.page')];
+    if(!pages.length) throw new Error('Document sans page');
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',compress:true});
+    for(let i=0;i<pages.length;i++){
+      const canvas=await window.html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false});
+      if(i) pdf.addPage();
+      const h=Math.min(297, 210*canvas.height/canvas.width);
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.9),'JPEG',0,0,210,h);
+    }
+    return pdf.output('datauristring').split(',')[1];
+  } finally { frame.remove(); }
+}
+
+async function getInvoiceHtml(rec){
+  if(rec.invoiceHtml) return rec.invoiceHtml;
+  if(!sb||!currentUser) throw new Error('Connexion requise.');
+  const {data,error}=await sb.from('documents').select('invoice_snapshot').eq('num',rec.num).single();
+  if(error) throw error;
+  const html=data?.invoice_snapshot?.invoiceHtml;
+  if(!html) throw new Error('Copie de la facture introuvable.');
+  return html;
+}
+
+async function pushInvoiceToPennylane(rec,{silent=false}={}){
+  if(!rec?.num||!rec.invoiceIssuedAt) return null;
+  if(rec.pennylane?.invoice_id) return rec.pennylane;
+  const status = await callCrmFunction('pennylane-sync',{action:'status'});
+  if(!status?.configured){ if(!silent) toast('Pennylane n’est pas encore branché : la clé est à ajouter dans Supabase.','error'); return null; }
+  const pdf = await htmlToPdfBase64(await getInvoiceHtml(rec));
+  const res = await callCrmFunction('pennylane-sync',{action:'push', num:rec.num, pdf_base64:pdf});
+  if(!res?.ok) throw new Error(res?.detail||res?.error||'Envoi impossible');
+  const link = {invoice_id:res.invoice_id, customer_id:res.customer_id, pushed_at:res.pushed_at};
+  [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(d.num===rec.num) d.pennylane=link; }));
+  saveDevisLocal(); renderDevisList();
+  toast('Facture '+rec.num+' enregistrée dans Pennylane');
+  return link;
+}
+
+async function pushInvoiceToPennylaneById(id,btn){
+  const rec = findQuoteRecord(id);
+  if(!rec) return;
+  if(btn){ btn.disabled=true; btn.textContent='Envoi…'; }
+  try{ await pushInvoiceToPennylane(rec); }
+  catch(e){ toast('Pennylane : '+e.message,'error'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='→ Pennylane'; } }
+}
+
+async function syncPennylanePayments({silent=false}={}){
+  try{
+    const status = await callCrmFunction('pennylane-sync',{action:'status'});
+    if(!status?.configured){ if(!silent) toast('Pennylane n’est pas encore branché : la clé est à ajouter dans Supabase.','error'); return; }
+    const res = await callCrmFunction('pennylane-sync',{action:'payments'});
+    const paid = res?.paid||[];
+    if(paid.length){
+      [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(paid.includes(d.num)){ d.statut='Payée'; d.pennylane={...(d.pennylane||{}),paid:true}; } }));
+      saveDevisLocal(); renderDevisList();
+      toast(paid.length+' facture'+(paid.length>1?'s':'')+' payée'+(paid.length>1?'s':'')+' : '+paid.join(', '));
+    } else if(!silent) toast('Aucun nouveau paiement dans Pennylane');
+  }catch(e){ if(!silent) toast('Pennylane : '+e.message,'error'); }
+}
+
+// HTML du devis gardé sur le serveur, pour le lien envoyé au client
+async function saveQuoteHtml(num, html){
+  if(!sb||!currentUser||!num||!html) return;
+  const {error}=await sb.from('document_html').upsert({num, html, user_id:currentUser.id, updated_at:new Date().toISOString()});
+  if(error) console.warn('document_html',error.message);
+}
+
+function defaultSendMessage(d){
+  const en = d.docLocale==='US'||d.docLocale==='UK';
+  const first = String(d.contactName||'').trim().split(/\s+/)[0]||'';
+  const qty = getDocTotalQty(d);
+  if(d.type==='DEV') return en
+    ? {subject:'Your Martingale Paris quote '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your quote '+d.num+(qty?' for '+qty+' Martingale chairs':'')+'.\nYou can view it, save it as a PDF and approve it online.\n\nI remain at your disposal for any question.\n\nBest regards,\nRoméo\nMartingale Paris'}
+    : {subject:'Votre devis Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVoici votre devis '+d.num+(qty?' pour '+qty+' chaises Martingale':'')+'.\nVous pouvez le consulter, l’enregistrer en PDF et nous donner votre accord directement en ligne.\n\nJe reste disponible pour toute question.\n\nBien à vous,\nRoméo\nMartingale Paris'};
+  const label = d.type==='FAC' ? (en?'deposit invoice':'facture d’acompte') : (en?'invoice':'facture');
+  return en
+    ? {subject:'Martingale Paris '+label+' '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your '+label+' '+d.num+'.\nBank details are on the document.\n\nThank you for your trust.\n\nRoméo\nMartingale Paris'}
+    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVeuillez trouver votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci pour votre confiance.\n\nRoméo\nMartingale Paris'};
+}
+
+function openSendDocument(id){
+  const d = findQuoteRecord(id);
+  if(!d) return;
+  document.getElementById('send-doc-overlay')?.remove();
+  const def = defaultSendMessage(d);
+  const en = d.docLocale==='US'||d.docLocale==='UK';
+  const ov = document.createElement('div');
+  ov.id='send-doc-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=`<div style="background:#fff;border-radius:12px;width:560px;max-width:96vw;max-height:94vh;overflow:auto;padding:24px 26px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:16px;font-weight:600">Envoyer ${escapeHTML(d.num)}</div><button type="button" aria-label="Fermer" onclick="this.closest('#send-doc-overlay').remove()" style="border:0;background:none;font-size:22px;cursor:pointer;color:#999">×</button></div>
+    <div style="font-size:12px;color:#888">Le client reçoit un lien sécurisé vers le document${d.type==='DEV'?', avec le bon pour accord en ligne':''}. Le lien reste valable 90 jours.</div>
+    <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Destinataire</span><input id="sd-to" type="email" value="${escapeHTML(d.email||'')}" placeholder="client@exemple.fr"></label>
+    <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Objet</span><input id="sd-subject" type="text" value="${escapeHTML(def.subject)}"></label>
+    <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Message</span><textarea id="sd-message" rows="9">${escapeHTML(def.message)}</textarea></label>
+    <div id="sd-link" style="display:none;font-size:12px;background:#F5F5EE;border-radius:7px;padding:8px 10px;overflow-wrap:anywhere"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button type="button" class="btn" id="sd-copy">Copier le lien</button>
+      <button type="button" class="btn" id="sd-gmail">Ouvrir dans Gmail</button>
+      <button type="button" class="btn btn-primary" id="sd-send">Envoyer</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+  const val = id2 => document.getElementById(id2).value.trim();
+  const getLink = async () => {
+    const r = await callCrmFunction('document-share',{action:'link', num:d.num});
+    if(!r?.ok){ if(r?.error==='no_html') throw new Error('Ce devis date d’avant l’envoi en ligne : régénère-le pour pouvoir l’envoyer.'); throw new Error(r?.error||'Lien indisponible'); }
+    const box=document.getElementById('sd-link'); box.style.display='block'; box.textContent=r.url;
+    return r.url;
+  };
+  const openGmail = url => window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(val('sd-to'))+'&su='+encodeURIComponent(val('sd-subject'))+'&body='+encodeURIComponent(val('sd-message')+'\n\n'+url),'_blank');
+  document.getElementById('sd-copy').onclick = async () => {
+    try{ const url=await getLink(); try{ await navigator.clipboard.writeText(url); toast('Lien copié'); }catch(e){ toast('Lien prêt, sélectionne-le pour le copier'); } }
+    catch(e){ toast(e.message,'error'); }
+  };
+  document.getElementById('sd-gmail').onclick = async () => { try{ openGmail(await getLink()); }catch(e){ toast(e.message,'error'); } };
+  document.getElementById('sd-send').onclick = async ev => {
+    const btn=ev.currentTarget; btn.disabled=true; btn.textContent='Envoi…';
+    try{
+      const r = await callCrmFunction('document-share',{action:'send', num:d.num, to:val('sd-to'), subject:val('sd-subject'), message:val('sd-message'), lang: en?'en':'fr'});
+      if(r?.sent){ toast('Envoyé à '+val('sd-to')); ov.remove(); return; }
+      if(r?.error==='not_configured'){ toast('Envoi automatique pas encore branché : Gmail s’ouvre avec le message prêt.'); openGmail(r.url); ov.remove(); return; }
+      throw new Error(r?.error==='no_html'?'Ce devis date d’avant l’envoi en ligne : régénère-le pour pouvoir l’envoyer.':(r?.detail||r?.error||'Envoi impossible'));
+    }catch(e){ toast(e.message,'error'); }
+    finally{ btn.disabled=false; btn.textContent='Envoyer'; }
+  };
+}
+
+// Vérification VIES du n° de TVA d'un client européen
+async function checkVatNumber(value){
+  const box=document.getElementById('dg-vies-result');
+  const vat=String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(!box) return;
+  if(vat.length<6){ box.style.display='none'; return; }
+  box.style.display='block'; box.style.color='#888'; box.textContent='Vérification du n° de TVA auprès de la Commission européenne…';
+  try{
+    const r = await callCrmFunction('vat-check',{vat});
+    if(!r?.ok){ box.style.color='#B07A1F'; box.textContent='Service VIES indisponible pour le moment. Vérification à refaire plus tard.'; return; }
+    if(r.valid){ box.style.color='#1E8449'; box.textContent='✓ N° de TVA valide'+(r.name?' · '+r.name:'')+(r.address?' · '+r.address:''); }
+    else { box.style.color='#C0392B'; box.textContent='✗ N° de TVA non reconnu par VIES : l’exonération ne peut pas s’appliquer en l’état.'; }
+  }catch(e){ box.style.color='#B07A1F'; box.textContent='Vérification impossible : '+e.message; }
 }
 
 async function reprintInvoice(id){
@@ -4845,6 +5033,7 @@ async function generateAndPrint(){
     printDocumentAndReturn(printWin,issued.invoiceHtml);
   }else{
     await saveDocToHistory(record);
+    saveQuoteHtml(record.num, docHTML);
     window.CrmDocuments?.quote(record,docHTML);
     printDocumentAndReturn(printWin,docHTML);
   }
@@ -4869,7 +5058,7 @@ let docHistory = JSON.parse(localStorage.getItem('mp_doc_history')||'[]');
 
 function documentCacheReplacer(key,value){
   // Le HTML original reste sur le serveur pour ne pas saturer le stockage du navigateur.
-  return key==='invoiceHtml'?undefined:value;
+  return (key==='invoiceHtml'||key==='html')?undefined:value;
 }
 
 async function saveDocToHistory(doc,{alreadyPersisted=false}={}){
@@ -5818,6 +6007,8 @@ function renderDevisList(){
           ${isDevis&&isAccepted?`<button class="btn btn-sm" onclick="openInvoiceFromQuote('${d.id||d.num}','FAC')">Facture d’acompte</button><button class="btn btn-sm btn-primary" onclick="openInvoiceFromQuote('${d.id||d.num}','FDF')">Facturer</button>`:''}
           ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
+          ${(d.invoiceIssuedAt||isDevis)?`<button class="btn btn-sm" title="Envoyer au client un lien vers le document" onclick="openSendDocument('${d.id||d.num}')">Envoyer</button>`:''}
+          ${d.invoiceIssuedAt?(d.pennylane?.invoice_id?`<span class="badge b-won" title="Facture enregistrée dans Pennylane">${d.pennylane.paid?'Payée · Pennylane':'Pennylane ✓'}</span>`:`<button class="btn btn-sm" title="Envoyer la facture dans Pennylane" onclick="pushInvoiceToPennylaneById('${d.id||d.num}',this)">→ Pennylane</button>`):''}
           ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Réimprimer la facture" onclick="reprintInvoice('${d.id||d.num}')">Réimprimer</button>`:''}
           ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Archiver le PDF sans émettre une nouvelle facture" onclick="window.CrmDocuments?.invoice('${d.id}')">Archiver le PDF</button>`:''}
           ${!d.invoiceIssuedAt?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="deleteDevis('${d.id||d.num}',this.closest('tr'))">✕</button>`:''}
