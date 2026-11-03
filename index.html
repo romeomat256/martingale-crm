@@ -1109,10 +1109,13 @@ body.nd-open{overflow:hidden}
     </div>
     <!-- PRODUITS -->
     <div id="pp-produits" style="display:none">
-      <div class="card-title" style="margin-bottom:14px">Catalogue Martingale Paris — 11 références</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="card-title" id="catalogue-title" style="margin:0">Catalogue Martingale Paris</div>
+        <button type="button" class="btn-primary" onclick="openCatalogProductModal()" style="padding:8px 16px;border:none;border-radius:7px;background:#403F21;color:#fff;cursor:pointer;font-size:13px;font-weight:600">+ Ajouter un produit (table, piétement…)</button>
+      </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Réf. fournisseur</th><th>Nom commercial</th><th>Prix HT</th><th>Prix TTC (20%)</th><th>Image</th></tr></thead>
+          <thead><tr><th>Catégorie</th><th>Réf.</th><th>Nom commercial</th><th>Prix HT</th><th>Prix TTC (20%)</th><th>Image</th><th></th></tr></thead>
           <tbody id="catalogue-tbody"></tbody>
         </table>
 
@@ -1150,6 +1153,88 @@ const PRODUCTS = [
   {id:'kaki-botanique', ref:'Chair 09', name:'Kaki Botanique',  price:180, img:'https://cdn.shopify.com/s/files/1/0916/0035/5661/files/Chaisebistrotrotinfinitionlaitonpremium_b6678196-7249-4536-8c3a-66dc7f709999.webp?v=1773046378'},
   {id:'bleu-atelier',   ref:'Chair 10', name:'Bleu Atelier',    price:175, img:'https://cdn.shopify.com/s/files/1/0916/0035/5661/files/Chaiseterrasserotindesignelegant_77657bf9-9423-439b-a6d3-4d7e33adf666.webp?v=1775207698'},
 ];
+PRODUCTS.forEach(p=>{ p.category='chaise'; p.builtin=true; });
+
+// ══════════════════════════════════════════════════════════════
+// CATALOGUE EXTENSIBLE
+// Les 10 chaises ci-dessus restent codées en dur. La table Supabase `products`
+// complète le catalogue (tables, piétements, plateaux…) ou corrige un prix.
+// Les lignes « sur-mesure » (chaise configurée) sont des produits éphémères,
+// enregistrés dans PRODUCTS pour la session et sauvegardés dans la ligne du devis.
+// ══════════════════════════════════════════════════════════════
+const PRODUCT_CATEGORIES = {
+  chaise:     {label:'Chaise',            en:'Chair',        plural:'Chaises catalogue'},
+  'sur-mesure':{label:'Chaise sur-mesure', en:'Custom chair', plural:'Sur-mesure'},
+  table:      {label:'Table',             en:'Table',        plural:'Tables'},
+  pietement:  {label:'Piétement',         en:'Table base',   plural:'Piétements'},
+  plateau:    {label:'Plateau',           en:'Table top',    plural:'Plateaux'},
+  autre:      {label:'Autre',             en:'Other',        plural:'Autres produits'}
+};
+const CUSTOM_CHAIR_PRICE_HT = 205;
+function productCategory(p){ return (p && p.category) || 'chaise'; }
+function isCatalogChair(p){ return !!p && productCategory(p)==='chaise' && !p.custom; }
+function getCatalogChairs(){ return PRODUCTS.filter(isCatalogChair); }
+function registerProduct(p){
+  if(!p || !p.id) return null;
+  const i = PRODUCTS.findIndex(x=>x.id===p.id);
+  if(i>=0) Object.assign(PRODUCTS[i], p); else PRODUCTS.push(p);
+  return PRODUCTS.find(x=>x.id===p.id);
+}
+// Nom affiché sur les documents : les chaises catalogue gardent « Chaise Martingale … »
+function getProductDisplayName(p, en){
+  if(!p) return '';
+  const cat = productCategory(p);
+  if(cat==='chaise') return (en ? 'Martingale Chair ' : 'Chaise Martingale ') + p.name;
+  if(cat==='sur-mesure') return (en ? 'Custom Martingale chair · ' : 'Chaise Martingale sur-mesure · ') + p.name;
+  return p.name;
+}
+function productOptionLabel(p, price){
+  const cat = productCategory(p);
+  const tag = p.ref ? '['+p.ref+'] ' : (cat==='sur-mesure' ? '✦ ' : '');
+  return tag + p.name + ' — ' + (price ?? p.price) + '€';
+}
+// Charge la table `products` (Supabase) : écrase les prix des chaises codées en dur, ajoute le reste
+async function loadProductsCatalog(){
+  if(!sb||NOT_CONFIGURED) return;
+  const {data,error} = await sb.from('products').select('*').order('ordre',{ascending:true});
+  if(error){ console.warn('Catalogue Supabase:', error.message); return; }
+  (data||[]).forEach(row=>{
+    if(!row.product_id || row.product_id==='nouveau-modele') return; // ancien placeholder « Chaise personnalisée », remplacé par le sur-mesure
+    const existing = PRODUCTS.find(p=>p.id===row.product_id);
+    if(existing && existing.builtin){
+      if(row.price!=null) existing.price = +row.price;
+      if(row.actif===false) existing.hidden = true;
+      return;
+    }
+    if(row.actif===false) return;
+    registerProduct({
+      id: row.product_id, dbId: row.id, ref: row.ref||'', name: row.name, price: +row.price||0,
+      img: row.img||'', category: row.categorie||'chaise', desc: row.description||'', ordre: row.ordre
+    });
+  });
+}
+// Ajoute ou modifie un produit catalogue (tables, piétements…) dans Supabase
+async function saveCatalogProduct(fields){
+  const id = fields.id || (fields.name||'produit').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') + '-' + Date.now().toString(36).slice(-4);
+  const p = registerProduct({ id, ref: fields.ref||'', name: fields.name, price: +fields.price||0, img: fields.img||'', category: fields.category||'autre', desc: fields.desc||'' });
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const row = { product_id: id, user_id: currentUser.id, ref: p.ref||null, name: p.name, price: p.price, img: p.img||null, categorie: p.category, description: p.desc||null, actif: true, ordre: fields.ordre || (20000 + PRODUCTS.length), updated_at: new Date().toISOString() };
+    const {data:found} = await sb.from('products').select('id').eq('user_id', currentUser.id).eq('product_id', id).maybeSingle();
+    const q = found ? sb.from('products').update(row).eq('id', found.id) : sb.from('products').insert(row);
+    const {error} = await q;
+    if(error) throw error;
+  }
+  return p;
+}
+async function removeCatalogProduct(id){
+  const p = PRODUCTS.find(x=>x.id===id);
+  if(!p || p.builtin) return;
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {error} = await sb.from('products').update({actif:false, updated_at:new Date().toISOString()}).eq('user_id', currentUser.id).eq('product_id', id);
+    if(error) throw error;
+  }
+  const i = PRODUCTS.findIndex(x=>x.id===id); if(i>=0) PRODUCTS.splice(i,1);
+}
 
 const SELLER_VAT_NUMBER = 'FR56928180728';
 const INVOICE_SELLER = {name:'MARTINGALE',legalForm:'EURL',capital:1000,siren:'928180728',siret:'92818072800018',rcs:'BAYONNE',address:"30 rue de l'Étang, 64600 Anglet",vat:SELLER_VAT_NUMBER};
@@ -1556,7 +1641,7 @@ function hideLoginError(){document.getElementById('login-error').style.display='
 function loadLocalData(){
   prospects = JSON.parse(localStorage.getItem('mp_prospects') || '[]') || getDemoProspects();
   const sd = JSON.parse(localStorage.getItem('mp_stock') || '{}');
-  PRODUCTS.forEach(p=>{stockData[p.id]=sd[p.id]||0;});
+  getCatalogChairs().forEach(p=>{stockData[p.id]=sd[p.id]||0;});
   updateBadge();
   renderProspects();
   renderStock();
@@ -1566,7 +1651,7 @@ function loadLocalData(){
 
 function saveLocal(){
   localStorage.setItem('mp_prospects',JSON.stringify(prospects));
-  const sd={};PRODUCTS.forEach(p=>{sd[p.id]=stockData[p.id]||0;});
+  const sd={};getCatalogChairs().forEach(p=>{sd[p.id]=stockData[p.id]||0;});
   localStorage.setItem('mp_stock',JSON.stringify(sd));
 }
 
@@ -1579,7 +1664,7 @@ async function loadAllData(){
   const timeout = new Promise((_,reject) => setTimeout(()=>reject(new Error('timeout')), 8000));
   
   try{
-    await Promise.race([Promise.all([loadProspects(),loadStock()]), timeout]);
+    await Promise.race([Promise.all([loadProductsCatalog().catch(e=>console.warn('Catalogue:',e)),loadProspects(),loadStock()]), timeout]);
     setConnStatus('online','Connecté · Supabase');
     updateBadge();renderProspects();renderStock();renderDashboard();
     // Load conteneurs in background (non-blocking)
@@ -1643,10 +1728,10 @@ async function refreshProspects(){
 }
 
 async function loadStock(){
-  if(!sb||NOT_CONFIGURED){PRODUCTS.forEach(p=>{if(!stockData[p.id])stockData[p.id]=0;});return;}
+  if(!sb||NOT_CONFIGURED){getCatalogChairs().forEach(p=>{if(!stockData[p.id])stockData[p.id]=0;});return;}
   const {data,error}=await sb.from('stock').select('*');
   if(error)throw error;
-  PRODUCTS.forEach(p=>{stockData[p.id]=0;});
+  getCatalogChairs().forEach(p=>{stockData[p.id]=0;});
   (data||[]).forEach(s=>{
     stockData[s.product_id]=Math.max(0, Math.round(s.rolls||0));
     // Reload stock dates from Supabase
@@ -2348,7 +2433,7 @@ function renderStock(){
   if(!tbody) return;
   let tc=0, tv=0;
 
-  tbody.innerHTML = PRODUCTS.map(p => {
+  tbody.innerHTML = getCatalogChairs().map(p => {
     const sc = getStockComplet(p.id);
     const val = Math.max(0, sc.disponible) * p.price;
     tc += sc.disponible; tv += val;
@@ -2511,9 +2596,63 @@ function openSheets(prospectId){
 // ══════════════════════════════════════════════════════════════
 // CATALOGUE
 // ══════════════════════════════════════════════════════════════
-function renderCatalogue(){paramTab('auto');setTimeout(()=>{const tbody=document.getElementById('catalogue-tbody');if(!tbody||tbody.innerHTML)return;tbody.innerHTML=PRODUCTS.map(p=>`<tr><td style="font-size:10px;color:var(--gris-l)">${p.id}</td><td style="font-weight:600">${escapeHTML(p.name)}</td><td style="font-weight:600;color:var(--vert)">${p.price} €</td><td>${(p.price*1.2).toFixed(2)} €</td><td><img src="${p.img}" style="width:44px;height:66px;object-fit:cover;border-radius:4px" onerror="this.style.display='none'"></td></tr>`).join('');},50);}
+function renderCatalogue(){paramTab('auto');setTimeout(renderCatalogueTable,50);}
+function renderCatalogueTable(){
+  const tbody=document.getElementById('catalogue-tbody'); if(!tbody) return;
+  const list = PRODUCTS.filter(p=>!p.custom && !p.hidden);
+  const title=document.getElementById('catalogue-title'); if(title) title.textContent='Catalogue Martingale Paris — '+list.length+' référence'+(list.length>1?'s':'');
+  tbody.innerHTML = list.map(p=>{
+    const cat = PRODUCT_CATEGORIES[productCategory(p)]?.label || productCategory(p);
+    return `<tr>
+      <td><span style="font-size:10px;background:#F2F1E8;color:#403F21;border-radius:3px;padding:2px 7px;font-weight:600">${escapeHTML(cat)}</span></td>
+      <td style="font-size:10px;color:var(--gris-l)">${escapeHTML(p.ref||p.id)}</td>
+      <td style="font-weight:600">${escapeHTML(p.name)}${p.desc?'<div style="font-size:11px;font-weight:400;color:var(--gris-l)">'+escapeHTML(p.desc)+'</div>':''}</td>
+      <td style="font-weight:600;color:var(--vert)">${p.price} €</td><td>${(p.price*1.2).toFixed(2)} €</td>
+      <td>${p.img?`<img src="${p.img}" style="width:44px;height:66px;object-fit:cover;border-radius:4px" onerror="this.style.display='none'">`:''}</td>
+      <td style="white-space:nowrap">${p.builtin?'':`<button type="button" onclick="openCatalogProductModal('${p.id}')" style="border:1px solid #E0DFD5;background:#fff;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px">Modifier</button> <button type="button" onclick="deleteCatalogProduct('${p.id}')" style="border:none;background:none;color:var(--gris-l);cursor:pointer;font-size:16px" title="Retirer du catalogue">×</button>`}</td>
+    </tr>`;
+  }).join('');
+}
+function openCatalogProductModal(id){
+  const p = id ? PRODUCTS.find(x=>x.id===id) : null;
+  const catOpts = Object.entries(PRODUCT_CATEGORIES).filter(([k])=>k!=='sur-mesure').map(([k,v])=>`<option value="${k}" ${p&&productCategory(p)===k?'selected':(!p&&k==='table'?'selected':'')}>${v.label}</option>`).join('');
+  const f=(label,inner)=>`<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px"><label style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">${label}</label>${inner}</div>`;
+  const inp='style="padding:9px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit"';
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML=`<div style="background:#fff;border-radius:14px;padding:28px 32px;width:460px;max-width:96vw;max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:18px">${p?'Modifier le produit':'Nouveau produit catalogue'}</div>
+    ${f('Catégorie',`<select id="cp-cat" ${inp}>${catOpts}</select>`)}
+    ${f('Nom commercial',`<input type="text" id="cp-name" value="${escapeHTML(p?.name||'')}" placeholder="Guéridon bistrot Ø60 marbre blanc" ${inp}>`)}
+    ${f('Référence (optionnel)',`<input type="text" id="cp-ref" value="${escapeHTML(p?.ref||'')}" placeholder="Table 01" ${inp}>`)}
+    ${f('Prix unitaire HT (€)',`<input type="number" id="cp-price" value="${p?p.price:''}" step="0.01" min="0" ${inp}>`)}
+    ${f('Description courte (apparaît sous le nom dans le devis)',`<input type="text" id="cp-desc" value="${escapeHTML(p?.desc||'')}" placeholder="Plateau marbre, piétement fonte noire" ${inp}>`)}
+    ${f('URL de l’image (optionnel)',`<input type="url" id="cp-img" value="${escapeHTML(p?.img||'')}" placeholder="https://cdn.shopify.com/…" ${inp}>`)}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button type="button" id="cp-cancel" style="padding:9px 18px;border:1px solid #E0DFD5;border-radius:7px;background:#fff;cursor:pointer;font-size:13px">Annuler</button>
+      <button type="button" id="cp-save" style="padding:9px 22px;border:none;border-radius:7px;background:#403F21;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Enregistrer</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#cp-cancel').onclick=()=>overlay.remove();
+  overlay.querySelector('#cp-name').focus();
+  overlay.querySelector('#cp-save').onclick=async()=>{
+    const name=overlay.querySelector('#cp-name').value.trim();
+    const price=parseFloat(overlay.querySelector('#cp-price').value);
+    if(!name){toast('Nom requis','error');return;}
+    if(!(price>=0)){toast('Prix HT requis','error');return;}
+    try{
+      await saveCatalogProduct({id:p?.id, name, ref:overlay.querySelector('#cp-ref').value.trim(), price, category:overlay.querySelector('#cp-cat').value, desc:overlay.querySelector('#cp-desc').value.trim(), img:overlay.querySelector('#cp-img').value.trim()});
+      overlay.remove(); renderCatalogueTable(); toast(name+' enregistré au catalogue');
+    }catch(e){ console.error(e); toast('Enregistrement impossible : '+(e.message||e),'error'); }
+  };
+}
+async function deleteCatalogProduct(id){
+  const p=PRODUCTS.find(x=>x.id===id); if(!p) return;
+  if(!confirm('Retirer « '+p.name+' » du catalogue ? Les devis existants le gardent.')) return;
+  try{ await removeCatalogProduct(id); renderCatalogueTable(); toast('Produit retiré'); }catch(e){ toast('Suppression impossible : '+(e.message||e),'error'); }
+}
 function renderDevisCatalogue(){const div=document.getElementById('catalogue-list');if(!div)return;div.innerHTML='<table style="font-size:12px;width:100%">'+PRODUCTS.map(p=>`<tr><td style="padding:4px 0">${escapeHTML(p.name)}</td><td style="text-align:right;font-weight:600;color:var(--vert)">${p.price} €</td></tr>`).join('')+'</table>';}
-function paramTab(id){['auto','tpl','produits'].forEach(t=>{const e=document.getElementById('pp-'+t);if(e)e.style.display='none';const tab=document.getElementById('ptab-'+t);if(tab)tab.classList.remove('active');});const e=document.getElementById('pp-'+id);if(e)e.style.display='block';const tab=document.getElementById('ptab-'+id);if(tab)tab.classList.add('active');if(id==='produits'){const tbody=document.getElementById('catalogue-tbody');if(tbody&&!tbody.innerHTML)tbody.innerHTML=PRODUCTS.map(p=>`<tr><td style="font-size:10px;color:var(--gris-l)">${p.id}</td><td style="font-weight:600">${escapeHTML(p.name)}</td><td style="font-weight:600;color:var(--vert)">${p.price} €</td><td>${(p.price*1.2).toFixed(2)} €</td><td><img src="${p.img}" style="width:44px;height:66px;object-fit:cover;border-radius:4px" onerror="this.style.display='none'"></td></tr>`).join('');}}
+function paramTab(id){['auto','tpl','produits'].forEach(t=>{const e=document.getElementById('pp-'+t);if(e)e.style.display='none';const tab=document.getElementById('ptab-'+t);if(tab)tab.classList.remove('active');});const e=document.getElementById('pp-'+id);if(e)e.style.display='block';const tab=document.getElementById('ptab-'+id);if(tab)tab.classList.add('active');if(id==='produits') renderCatalogueTable();}
 
 // ══════════════════════════════════════════════════════════════
 // UI UTILS
@@ -3558,15 +3697,34 @@ function normalizeDocLineItems(items){
     unitPriceHT: +(item.unitPriceHT ?? item.unit_price_ht ?? item.priceHT ?? item.price_ht ?? 0),
     lineDiscountPct: +(item.lineDiscountPct ?? item.line_discount_pct ?? item.remise ?? 0),
     unitPriceNetHT: +(item.unitPriceNetHT ?? item.unit_price_net_ht ?? 0),
-    totalHT: +(item.totalHT ?? item.total_ht ?? item.total ?? 0)
-  })).filter(item=>item.productName || item.qty || item.prodId);
+    totalHT: +(item.totalHT ?? item.total_ht ?? item.total ?? 0),
+    productCategory: item.productCategory || item.product_category || 'chaise',
+    productLabel: item.productLabel || item.product_label || '',
+    productDesc: item.productDesc || item.product_desc || '',
+    productImg: item.productImg || item.product_img || '',
+    productConfig: item.productConfig || item.product_config || null
+  })).filter(item=>item.productName || item.qty || item.prodId).map(item=>{ ensureLineProduct(item); return item; });
+}
+// Un produit sur-mesure (ou un produit catalogue retiré depuis) est recréé depuis la ligne sauvegardée,
+// pour que les anciens devis restent lisibles et facturables.
+function ensureLineProduct(item){
+  if(!item.prodId || PRODUCTS.some(p=>p.id===item.prodId)) return;
+  if(!item.productName && !item.productLabel) return;
+  const cat = item.productCategory || 'chaise';
+  const name = item.productLabel || String(item.productName).replace(/^(Chaise Martingale sur-mesure · |Custom Martingale chair · |Chaise Martingale |Martingale Chair )/,'');
+  registerProduct({ id:item.prodId, custom: cat==='sur-mesure' || /^(custom-|cfg-)/.test(item.prodId), category:cat, ref:item.productRef||'', name, desc:item.productDesc||'', img:item.productImg||'', price:+item.unitPriceHT||0, config:item.productConfig||null, restored:true });
 }
 
 function getDocLineItemsFromGenerator(lines){
   return lines.map(l=>({
     prodId: l.prodId,
-    productName: l.prod ? 'Chaise Martingale '+l.prod.name : '',
+    productName: l.prod ? getProductDisplayName(l.prod) : '',
     productRef: l.prod?.ref || '',
+    productCategory: l.prod ? productCategory(l.prod) : 'chaise',
+    productLabel: l.prod?.name || '',
+    productDesc: l.prod?.desc || '',
+    productImg: (l.prod && (l.prod.custom || !l.prod.builtin)) ? (l.prod.img || '') : '',
+    productConfig: l.prod?.config || null,
     qty: l.qty,
     unitPriceHT: l.unitPrice ?? l.prod?.price ?? 0,
     lineDiscountPct: l.remise || 0,
@@ -3905,12 +4063,18 @@ function openDocGenerator(prospectId){
           </div>
         </fieldset>
 
-        <!-- CHAISES -->
-        <fieldset class="nd-card">
-          <legend>Chaises</legend>
-          <div class="nd-lines-head"><span></span><span>Modèle</span><span>Qté</span><span>Remise</span><span>Total HT</span><span></span></div>
+        <!-- PRODUITS -->
+        <fieldset class="nd-card" id="dg-products-card">
+          <legend>Produits</legend>
+          <div class="nd-lines-head"><span></span><span>Produit</span><span>Qté</span><span>Remise</span><span>Total HT</span><span></span></div>
           <div id="dg-lignes"></div>
-          <button type="button" class="nd-add" onclick="ajouterLigneProduit()">+ Ajouter un modèle</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button type="button" class="nd-add" onclick="ajouterLigneProduit()">+ Ajouter un produit</button>
+            <button type="button" class="nd-add" onclick="ajouterLigneSurMesure()">✦ Chaise sur-mesure</button>
+            <button type="button" class="nd-add" onclick="document.getElementById('dg-config-file').click()" title="Glisser le PDF « Votre configuration » du configurateur, ou cliquer">⤓ Importer une fiche configurateur (PDF)</button>
+            <input type="file" id="dg-config-file" accept="application/pdf,.pdf" multiple style="display:none" onchange="importConfiguratorFiles(this.files);this.value=''">
+          </div>
+          <div id="dg-config-drop-hint" class="nd-note" style="display:none">Déposez le PDF du configurateur ici</div>
         </fieldset>
 
         <div class="nd-grid2 nd-gap">
@@ -4002,6 +4166,7 @@ function openDocGenerator(prospectId){
   overlay.addEventListener('input', scheduleGeneratorPreview);
   overlay.addEventListener('change', scheduleGeneratorPreview);
   document.body.classList.add('nd-open');
+  setupConfiguratorDropZone(overlay);
   
   // Populate prospect selector NOW that overlay is in DOM
   populateDocProspectSelect(p?.id||null);
@@ -4185,14 +4350,65 @@ function fillProspectFromCompany(c){
 let dgLignes = [];
 
 function ajouterLigneProduit(prodId, qty, remise){
-  dgLignes.push({
+  const line = {
     id: 'ligne-' + Date.now() + Math.floor(Math.random()*1000),
-    prodId: prodId || (PRODUCTS[0]?.id || ''),
+    prodId: prodId || (getCatalogChairs()[0]?.id || PRODUCTS[0]?.id || ''),
     qty: qty || 1,
     remise: remise || 0
-  });
+  };
+  dgLignes.push(line);
   renderLignesProduits();
   updateDocCalc();
+  return line;
+}
+// Ligne « chaise sur-mesure » : produit éphémère à 205 € HT, nom et description libres
+function ajouterLigneSurMesure(preset){
+  const line = ajouterLigneProduit('__pending__', 1, 0);
+  openCustomProductModal(line.id, preset);
+}
+// Crée (ou met à jour) un produit sur-mesure et l'affecte à une ligne
+function assignCustomProductToLine(lineId, fields){
+  const l = dgLignes.find(x=>x.id===lineId); if(!l) return null;
+  const prev = PRODUCTS.find(p=>p.id===l.prodId && p.custom);
+  const id = (prev && prev.id) || fields.id || ('custom-'+Date.now().toString(36)+Math.floor(Math.random()*1000));
+  const p = registerProduct({
+    id, custom:true, category: fields.category || 'sur-mesure',
+    ref: fields.ref || '', name: fields.name || 'Chaise sur-mesure',
+    desc: fields.desc || '', img: fields.img || '', price: +fields.price || CUSTOM_CHAIR_PRICE_HT,
+    config: fields.config || null
+  });
+  l.prodId = p.id; l.price = null;
+  renderLignesProduits(); updateDocCalc();
+  return p;
+}
+function openCustomProductModal(lineId, preset){
+  const l = dgLignes.find(x=>x.id===lineId); if(!l) return;
+  const p = PRODUCTS.find(x=>x.id===l.prodId && x.custom) || preset || {};
+  const f=(label,inner)=>`<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px"><label style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">${label}</label>${inner}</div>`;
+  const inp='style="padding:9px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit"';
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML=`<div style="background:#fff;border-radius:14px;padding:28px 32px;width:480px;max-width:96vw;max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px">Chaise sur-mesure</div>
+    <div style="font-size:12px;color:var(--gris-l);margin-bottom:18px">${p.ref?'Réf. configurateur '+escapeHTML(p.ref)+' · ':''}Prix fixe ${CUSTOM_CHAIR_PRICE_HT} € HT, modifiable</div>
+    ${p.img?`<img src="${p.img}" alt="" style="width:96px;height:120px;object-fit:cover;border-radius:6px;margin-bottom:12px;background:#ECE9E0">`:''}
+    ${f('Nom (structure et tressage)',`<input type="text" id="cm-name" value="${escapeHTML(p.name||'')}" placeholder="Tradition Maille" ${inp}>`)}
+    ${f('Description (couleurs, détails)',`<input type="text" id="cm-desc" value="${escapeHTML(p.desc||'')}" placeholder="Rouge bordeaux · Rouge cerise · Kaki feutré · Crème" ${inp}>`)}
+    ${f('Prix unitaire HT (€)',`<input type="number" id="cm-price" value="${p.price ?? CUSTOM_CHAIR_PRICE_HT}" step="0.01" min="0" ${inp}>`)}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button type="button" id="cm-cancel" style="padding:9px 18px;border:1px solid #E0DFD5;border-radius:7px;background:#fff;cursor:pointer;font-size:13px">Annuler</button>
+      <button type="button" id="cm-save" style="padding:9px 22px;border:none;border-radius:7px;background:#403F21;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Valider</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+  const close=()=>{ overlay.remove(); if(l.prodId==='__pending__'){ if(l._prevProd){ l.prodId=l._prevProd; delete l._prevProd; } else dgLignes=dgLignes.filter(x=>x.id!==lineId); renderLignesProduits(); updateDocCalc(); } };
+  overlay.querySelector('#cm-cancel').onclick=close;
+  overlay.querySelector('#cm-name').focus();
+  overlay.querySelector('#cm-save').onclick=()=>{
+    const name=overlay.querySelector('#cm-name').value.trim();
+    if(!name){toast('Nom requis','error');return;}
+    assignCustomProductToLine(lineId,{...p, name, desc:overlay.querySelector('#cm-desc').value.trim(), price:parseFloat(overlay.querySelector('#cm-price').value)});
+    overlay.remove(); toast('Chaise sur-mesure ajoutée');
+  };
 }
 
 function supprimerLigne(id){
@@ -4236,16 +4452,35 @@ function renderLignesProduits(){
     const sel = document.createElement('select');
     sel.setAttribute('aria-label','Modèle');
     const defOpt = document.createElement('option');
-    defOpt.value = ''; defOpt.textContent = '— Modèle —';
+    defOpt.value = ''; defOpt.textContent = '— Produit —';
     sel.appendChild(defOpt);
-    PRODUCTS.forEach(function(p){
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = (p.ref ? '['+p.ref+'] ' : '') + p.name + ' — ' + ((p.id === l.prodId && l.price != null) ? l.price : p.price) + '€';
-      if(p.id === l.prodId) opt.selected = true;
-      sel.appendChild(opt);
+    const groups = {};
+    PRODUCTS.filter(function(p){ return !p.hidden && (!p.custom || p.id === l.prodId || dgLignes.some(function(x){ return x.prodId === p.id; })); })
+      .forEach(function(p){ const c = productCategory(p); (groups[c] = groups[c] || []).push(p); });
+    Object.keys(PRODUCT_CATEGORIES).concat(Object.keys(groups)).filter(function(c,i,a){ return groups[c] && a.indexOf(c)===i; }).forEach(function(c){
+      const og = document.createElement('optgroup'); og.label = PRODUCT_CATEGORIES[c]?.plural || c;
+      groups[c].forEach(function(p){
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = productOptionLabel(p, (p.id === l.prodId && l.price != null) ? l.price : p.price);
+        if(p.id === l.prodId) opt.selected = true;
+        og.appendChild(opt);
+      });
+      sel.appendChild(og);
     });
-    sel.addEventListener('change', function(){ updateLigne(lid, 'prodId', this.value); });
+    const newCustom = document.createElement('option');
+    newCustom.value = '__new_custom__'; newCustom.textContent = '✦ Nouvelle chaise sur-mesure…';
+    sel.appendChild(newCustom);
+    if(prod && prod.custom){
+      const editCustom = document.createElement('option');
+      editCustom.value = '__edit_custom__'; editCustom.textContent = '✎ Modifier cette chaise sur-mesure…';
+      sel.appendChild(editCustom);
+    }
+    sel.addEventListener('change', function(){
+      if(this.value === '__new_custom__'){ const cur=dgLignes.find(function(x){return x.id===lid;}); if(cur){ cur._prevProd=cur.prodId; cur.prodId='__pending__'; } openCustomProductModal(lid); renderLignesProduits(); return; }
+      if(this.value === '__edit_custom__'){ openCustomProductModal(lid); renderLignesProduits(); return; }
+      updateLigne(lid, 'prodId', this.value);
+    });
 
     // Quantité
     const qtyI = document.createElement('input');
@@ -5051,7 +5286,7 @@ function fit(){
   var p=document.querySelector('[data-doc-page="1"]'); if(!p) return;
   var probe=document.createElement('div'); probe.style.cssText='position:absolute;visibility:hidden;height:296.5mm;width:1px';
   document.body.appendChild(probe); var max=probe.getBoundingClientRect().height; probe.remove();
-  var imgs=[].slice.call(p.querySelectorAll('img.ph')), grids=[].slice.call(p.querySelectorAll('.grid')), h0=+p.dataset.phh;
+  var imgs=[].slice.call(p.querySelectorAll('.ph')), grids=[].slice.call(p.querySelectorAll('.grid')), h0=+p.dataset.phh;
   var hs=[h0].concat([150,130,112,96,80,66,54].filter(function(h){return h<h0;}));
   var steps=[[0,h0]]; hs.forEach(function(h){steps.push([1,h]);}); steps.push([1,0]);
   for(var i=0;i<steps.length;i++){
@@ -5189,17 +5424,23 @@ function buildDocHtml(ctx){
   // Lignes produits
   const rows = lines.map(l=>{
     const p = l.prod;
-    const col = (DOC_COLOURS[p.id]||[])[en?1:0] || '';
-    const name = L('Chaise Martingale ','Martingale Chair ')+p.name;
+    const cat = productCategory(p);
+    const isChair = cat === 'chaise' || cat === 'sur-mesure';
+    const col = cat === 'sur-mesure' ? (p.desc || '') : ((DOC_COLOURS[p.id]||[])[en?1:0] || p.desc || '');
+    const name = getProductDisplayName(p, en);
+    const refLine = cat === 'sur-mesure' && p.ref ? L('Réf. configurateur ','Configurator ref. ')+p.ref : '';
     const matA = L('Rotin Malacca · fibre brillante','Malacca rattan · glossy '+(isUS?'fiber':'fibre'));
     const matB = L('Vernis marin · patins de renfort','Marine varnish · reinforcement glides');
-    const descHtml = dens === 2
-      ? `<span class="muted">${esc([col, L('rotin Malacca, vernis marin','Malacca rattan, marine varnish')].filter(Boolean).join(' · '))}</span>`
-      : `${col?`<span class="muted">${esc(col)}</span>`:''}${dens===0 && isQuote ? `<span class="muted">${matA}</span><span class="muted">${matB}</span>` : `<span class="muted">${matA} · ${L('vernis marin','marine varnish')}</span>`}`;
+    const descHtml = !isChair
+      ? (p.desc ? `<span class="muted">${esc(p.desc)}</span>` : '')
+      : dens === 2
+      ? `<span class="muted">${esc([col, refLine, L('rotin Malacca, vernis marin','Malacca rattan, marine varnish')].filter(Boolean).join(' · '))}</span>`
+      : `${col?`<span class="muted">${esc(col)}</span>`:''}${refLine?`<span class="muted">${esc(refLine)}</span>`:''}${dens===0 && isQuote ? `<span class="muted">${matA}</span><span class="muted">${matB}</span>` : `<span class="muted">${matA} · ${L('vernis marin','marine varnish')}</span>`}`;
     const price = l.remise > 0
       ? `<div class="pu"><span class="strike">${money(l.unitBrut)}</span><span class="net">${money(l.prixNet)}</span></div>`
       : `<span class="r" style="white-space:nowrap">${money(l.unitBrut)}</span>`;
-    return `<div class="grid row" style="grid-template-columns:${cols}"><img class="ph" src="${p.img}" alt="${esc(p.name)}" style="width:${ph[0]}px;height:${ph[1]}px"><div class="desc"><span class="pname serif">${esc(name)}</span>${descHtml}</div><span class="c qty">${l.qty}</span>${price}<span class="r ltot">${money(l.total)}</span></div>`;
+    const photo = p.img ? `<img class="ph" src="${p.img}" alt="${esc(p.name)}" style="width:${ph[0]}px;height:${ph[1]}px">` : `<div class="ph" style="width:${ph[0]}px;height:${ph[1]}px"></div>`;
+    return `<div class="grid row" style="grid-template-columns:${cols}">${photo}<div class="desc"><span class="pname serif">${esc(name)}</span>${descHtml}</div><span class="c qty">${l.qty}</span>${price}<span class="r ltot">${money(l.total)}</span></div>`;
   }).join('');
 
   // Totaux (une seule colonne)
@@ -6141,7 +6382,7 @@ function renderToday(){
   const signed=docs.filter(d=>d.type==='DEV'&&['Accepté','Facturé'].includes(d.statut)&&inMonth(d.createdAt||d.date)).length;
   const monthName=now.toLocaleDateString('fr-FR',{month:'long'});
   let low=[];
-  try{ low=PRODUCTS.map(p=>({p,n:Math.max(0,Math.round(getStockComplet(p.id).disponible||0))})).filter(x=>x.n<12).sort((a,b)=>a.n-b.n); }catch(e){}
+  try{ low=getCatalogChairs().map(p=>({p,n:Math.max(0,Math.round(getStockComplet(p.id).disponible||0))})).filter(x=>x.n<12).sort((a,b)=>a.n-b.n); }catch(e){}
   side.innerHTML=`
     <div class="td-card"><span class="td-cap">${monthName}</span>
       <div><div class="td-big">${formatDocMoney(billed).replace(',00','')}</div><span class="td-mute">facturé HT</span></div>
@@ -8192,6 +8433,118 @@ function prefillFromProspect(prospectId){
   toast(p.name+' sélectionné');
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// IMPORT D'UNE FICHE CONFIGURATEUR (PDF « Votre configuration »)
+// Lit d'abord les métadonnées écrites par le configurateur (JSON complet :
+// structure, tressage, couleurs avec hex), sinon le texte de la page (anciens PDF).
+// Découpe le visuel principal de la chaise pour l'afficher sur le devis.
+// ══════════════════════════════════════════════════════════════
+const CONFIG_PDF_PT = 0.75;                 // 1 px de maquette = 0,75 pt (A4 = 794 × 1123 px)
+const CONFIG_PDF_HERO = {x:44, y:234, w:346, h:432};   // visuel trois-quarts
+let pdfjsLoading = null;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(pdfjsLoading) return pdfjsLoading;
+  pdfjsLoading = new Promise((resolve,reject)=>{
+    const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload=()=>{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; resolve(window.pdfjsLib); };
+    sc.onerror=()=>reject(new Error('pdf.js indisponible'));
+    document.head.appendChild(sc);
+  });
+  return pdfjsLoading;
+}
+function parseConfiguratorText(items, pageH){
+  const out = {ref:'', date:'', shapeName:'', weaveName:'', colors:[], ent:'', email:''};
+  const PT = CONFIG_PDF_PT;
+  for(const it of items){
+    const m = it.str.match(/MP-[0-9A-F]{8}/i); if(m) out.ref = m[0].toUpperCase();
+    const d = it.str.match(/(\d{2})\.(\d{2})\.(\d{4})/); if(d && !out.date) out.date = d[3]+'-'+d[2]+'-'+d[1];
+  }
+  const title = items.filter(it=>it.yTop>100 && it.yTop<150 && it.x<380 && it.str.trim()).sort((a,b)=>a.x-b.x).map(t=>t.str.trim());
+  if(title.length){ out.shapeName = title[0]; out.weaveName = title.slice(1).join(' '); }
+  out.colors = items.filter(it=>it.x>=420 && it.yTop>=678*PT && it.yTop<=878*PT && it.str.trim() && !/^la palette$/i.test(it.str.trim()))
+    .sort((a,b)=>a.yTop-b.yTop).map(t=>({name:t.str.trim()}));
+  const prep = items.find(it=>/^Préparé pour /.test(it.str));
+  if(prep){ const parts=prep.str.replace(/^Préparé pour /,'').split(' · '); out.ent=parts.filter(x=>!x.includes('@')).join(' · '); out.email=parts.find(x=>x.includes('@'))||''; }
+  return out;
+}
+async function readConfiguratorPdf(file){
+  const pdfjs = await loadPdfJs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const doc = await pdfjs.getDocument({data}).promise;
+  let config = null;
+  try{
+    const meta = await doc.getMetadata();
+    const subj = String(meta?.info?.Subject||'');
+    if(subj.startsWith('MARTINGALE-CONFIG ')) config = JSON.parse(subj.slice('MARTINGALE-CONFIG '.length));
+  }catch(e){ console.warn('Métadonnées PDF illisibles', e); }
+  const page = await doc.getPage(1);
+  const vp1 = page.getViewport({scale:1});
+  if(!config){
+    const tc = await page.getTextContent();
+    const items = tc.items.map(it=>({str:it.str, x:it.transform[4], yTop: vp1.height - it.transform[5]}));
+    config = parseConfiguratorText(items, vp1.height);
+    config.source = 'texte';
+  } else config.source = 'metadonnees';
+  if(!config.ref && !config.shapeName) throw new Error('Ce PDF ne ressemble pas à une fiche du configurateur');
+  // Visuel principal, découpé dans la page rendue
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  const vp = page.getViewport({scale});
+  canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+  await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
+  const k = CONFIG_PDF_PT*scale, H = CONFIG_PDF_HERO;
+  const crop = document.createElement('canvas');
+  crop.width = Math.round(H.w*k); crop.height = Math.round(H.h*k);
+  crop.getContext('2d').drawImage(canvas, H.x*k, H.y*k, H.w*k, H.h*k, 0, 0, crop.width, crop.height);
+  config.img = crop.toDataURL('image/jpeg', 0.82);
+  return config;
+}
+function configToCustomProduct(cfg){
+  const name = [cfg.shapeName, cfg.weaveName].filter(Boolean).join(' ') || 'Chaise configurée';
+  const seen = new Set();
+  const palette = (cfg.colors||[]).map(c=>c.name).filter(n=>n && !seen.has(n) && seen.add(n));
+  return {
+    id: cfg.ref ? 'cfg-'+cfg.ref.toLowerCase() : 'custom-'+Date.now().toString(36),
+    category:'sur-mesure', custom:true, ref: cfg.ref||'', name,
+    desc: palette.join(' · '), img: cfg.img||'', price: CUSTOM_CHAIR_PRICE_HT,
+    config: {v:cfg.v||0, ref:cfg.ref, date:cfg.date, cat:cfg.cat, shape:cfg.shape, shapeName:cfg.shapeName, weave:cfg.weave, weaveName:cfg.weaveName, colors:cfg.colors||[], source:cfg.source}
+  };
+}
+async function importConfiguratorFiles(files){
+  const list = Array.from(files||[]).filter(f=>/pdf$/i.test(f.name) || f.type==='application/pdf');
+  if(!list.length){ toast('Déposer un PDF du configurateur','error'); return; }
+  toast('Lecture de la fiche configurateur…');
+  for(const file of list){
+    try{
+      const cfg = await readConfiguratorPdf(file);
+      const preset = configToCustomProduct(cfg);
+      // Même référence déjà dans le devis : on ajoute à la quantité
+      const existing = dgLignes.find(l=>l.prodId===preset.id);
+      if(existing){ existing.qty += 1; registerProduct(preset); renderLignesProduits(); updateDocCalc(); toast(preset.name+' : quantité +1'); continue; }
+      // Remplace une ligne vide plutôt que d'en ajouter une
+      const empty = dgLignes.find(l=>!l.prodId || l.prodId==='__pending__');
+      const line = empty || ajouterLigneProduit('__pending__',1,0);
+      assignCustomProductToLine(line.id, preset);
+      // Coordonnées du client si la fiche les porte et que le devis est vierge
+      const set=(id,v)=>{ const e=document.getElementById(id); if(e && !e.value && v) e.value=v; };
+      set('dg-company', cfg.ent); set('dg-email', cfg.email);
+      toast('Chaise '+preset.name+(preset.ref?' ('+preset.ref+')':'')+' ajoutée au devis'+(cfg.source==='texte'?' (PDF ancien : couleurs lues sur la page)':''));
+    }catch(e){ console.error(e); toast('Import impossible : '+(e.message||e),'error'); }
+  }
+}
+function setupConfiguratorDropZone(overlay){
+  const card = overlay.querySelector('#dg-products-card'); if(!card) return;
+  const hint = overlay.querySelector('#dg-config-drop-hint');
+  let depth = 0;
+  const show=on=>{ card.style.outline = on ? '2px dashed #403F21' : ''; card.style.outlineOffset = on ? '4px' : ''; if(hint) hint.style.display = on ? 'block' : 'none'; };
+  overlay.addEventListener('dragenter', e=>{ if(!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); depth++; show(true); });
+  overlay.addEventListener('dragover',  e=>{ if(!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.dataTransfer.dropEffect='copy'; });
+  overlay.addEventListener('dragleave', e=>{ if(!e.dataTransfer?.types?.includes('Files')) return; depth=Math.max(0,depth-1); if(!depth) show(false); });
+  overlay.addEventListener('drop', e=>{ if(!e.dataTransfer?.files?.length) return; e.preventDefault(); depth=0; show(false); importConfiguratorFiles(e.dataTransfer.files); });
+}
 
 function ouvrirNouvelleCommande(){
   const prospectOpts = '<option value="">— Sans prospect lié —</option>'+
