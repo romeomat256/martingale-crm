@@ -4070,7 +4070,6 @@ function openDocGenerator(prospectId){
           <div id="dg-lignes"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button type="button" class="nd-add" onclick="ajouterLigneProduit()">+ Ajouter un produit</button>
-            <button type="button" class="nd-add" onclick="ajouterLigneSurMesure()">✦ Chaise sur-mesure</button>
             <button type="button" class="nd-add" onclick="document.getElementById('dg-config-file').click()" title="Glisser le PDF « Votre configuration » du configurateur, ou cliquer">⤓ Importer une fiche configurateur (PDF)</button>
             <input type="file" id="dg-config-file" accept="application/pdf,.pdf" multiple style="display:none" onchange="importConfiguratorFiles(this.files);this.value=''">
           </div>
@@ -5428,14 +5427,13 @@ function buildDocHtml(ctx){
     const isChair = cat === 'chaise' || cat === 'sur-mesure';
     const col = cat === 'sur-mesure' ? (p.desc || '') : ((DOC_COLOURS[p.id]||[])[en?1:0] || p.desc || '');
     const name = getProductDisplayName(p, en);
-    const refLine = cat === 'sur-mesure' && p.ref ? L('Réf. configurateur ','Configurator ref. ')+p.ref : '';
     const matA = L('Rotin Malacca · fibre brillante','Malacca rattan · glossy '+(isUS?'fiber':'fibre'));
     const matB = L('Vernis marin · patins de renfort','Marine varnish · reinforcement glides');
     const descHtml = !isChair
       ? (p.desc ? `<span class="muted">${esc(p.desc)}</span>` : '')
       : dens === 2
-      ? `<span class="muted">${esc([col, refLine, L('rotin Malacca, vernis marin','Malacca rattan, marine varnish')].filter(Boolean).join(' · '))}</span>`
-      : `${col?`<span class="muted">${esc(col)}</span>`:''}${refLine?`<span class="muted">${esc(refLine)}</span>`:''}${dens===0 && isQuote ? `<span class="muted">${matA}</span><span class="muted">${matB}</span>` : `<span class="muted">${matA} · ${L('vernis marin','marine varnish')}</span>`}`;
+      ? `<span class="muted">${esc([col, L('rotin Malacca, vernis marin','Malacca rattan, marine varnish')].filter(Boolean).join(' · '))}</span>`
+      : `${col?`<span class="muted">${esc(col)}</span>`:''}${dens===0 && isQuote ? `<span class="muted">${matA}</span><span class="muted">${matB}</span>` : `<span class="muted">${matA} · ${L('vernis marin','marine varnish')}</span>`}`;
     const price = l.remise > 0
       ? `<div class="pu"><span class="strike">${money(l.unitBrut)}</span><span class="net">${money(l.prixNet)}</span></div>`
       : `<span class="r" style="white-space:nowrap">${money(l.unitBrut)}</span>`;
