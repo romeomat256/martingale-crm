@@ -8307,7 +8307,7 @@ async function loadProspectMessages(prospectId){
   if(!sb || NOT_CONFIGURED || !currentUser || !pid || pid.startsWith('temp-') || pid.startsWith('local-')) return;
   try{
     const {data,error} = await sb.from('messages')
-      .select('id,canal,direction,subject,content,from_addr,to_addr,sent_at,created_at,attachments')
+      .select('id,canal,direction,subject,content,from_addr,to_addr,sent_at,created_at,attachments,meta')
       .eq('prospect_id', pid)
       .order('sent_at',{ascending:false})
       .limit(300);
@@ -8330,7 +8330,11 @@ function messageEvent(m){
     rest = body.slice(cutAt);
   }
   const files = (Array.isArray(m.attachments) ? m.attachments : []).map(a=>a && a.name).filter(Boolean);
-  const who = out ? 'Envoyé'+(m.to_addr ? ' à '+m.to_addr : '') : 'Reçu'+(m.from_addr ? ' de '+m.from_addr : '');
+  // Résumé d'une conversation (passage WhatsApp automatique) : ni « reçu » ni « envoyé »
+  const isResume = !!(m.meta && m.meta.kind === 'resume');
+  const who = isResume
+    ? 'Résumé de la conversation'+(m.from_addr ? ' · '+m.from_addr : '')
+    : (out ? 'Envoyé'+(m.to_addr ? ' à '+m.to_addr : '') : 'Reçu'+(m.from_addr ? ' de '+m.from_addr : ''));
   const textStyle = 'white-space:pre-wrap;overflow-wrap:anywhere';
   return {
     sort: when,
