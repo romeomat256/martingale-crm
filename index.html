@@ -5162,16 +5162,49 @@ async function getInvoiceHtml(rec){
 async function pushInvoiceToPennylane(rec,{silent=false}={}){
   if(!rec?.num||!rec.invoiceIssuedAt) return null;
   if(rec.pennylane?.invoice_id) return rec.pennylane;
-  const status = await callCrmFunction('pennylane-sync',{action:'status'});
-  if(!status?.configured){ if(!silent) toast('Pennylane n’est pas encore branché : la clé est à ajouter dans Supabase.','error'); return null; }
-  const pdf = await htmlToPdfBase64(await getInvoiceHtml(rec));
-  const res = await callCrmFunction('pennylane-sync',{action:'push', num:rec.num, pdf_base64:pdf});
-  if(!res?.ok) throw new Error(res?.detail||res?.error||'Envoi impossible');
-  const link = {invoice_id:res.invoice_id, customer_id:res.customer_id, pushed_at:res.pushed_at};
-  [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(d.num===rec.num) d.pennylane=link; }));
-  saveDevisLocal(); renderDevisList();
-  toast('Facture '+rec.num+' enregistrée dans Pennylane');
-  return link;
+  // Un seul envoi à la fois par facture : deux envois croisés créeraient un doublon dans Pennylane.
+  if(pennylanePushing.has(rec.num)) return null;
+  pennylanePushing.add(rec.num);
+  try{
+    const status = await callCrmFunction('pennylane-sync',{action:'status'});
+    if(!status?.configured){ if(!silent) toast('Pennylane n’est pas encore branché : la clé est à ajouter dans Supabase.','error'); return null; }
+    const pdf = await htmlToPdfBase64(await getInvoiceHtml(rec));
+    const res = await callCrmFunction('pennylane-sync',{action:'push', num:rec.num, pdf_base64:pdf});
+    if(!res?.ok) throw new Error(res?.detail||res?.error||'Envoi impossible');
+    const link = {invoice_id:res.invoice_id, customer_id:res.customer_id, pushed_at:res.pushed_at||new Date().toISOString()};
+    [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(d.num===rec.num) d.pennylane=link; }));
+    saveDevisLocal(); renderDevisList();
+    toast('Facture '+rec.num+' enregistrée dans Pennylane');
+    return link;
+  } finally {
+    pennylanePushing.delete(rec.num);
+  }
+}
+
+// Filet de sécurité : une facture émise qui n'est pas partie dans Pennylane (onglet fermé trop vite,
+// réseau coupé) repart toute seule à l'ouverture suivante. Les factures d'avant la mise en place ne
+// sont pas concernées : certaines sont des doublons, elles se décident à la main.
+const PENNYLANE_RETRY_FROM = '2026-11-19';
+const pennylanePushing = new Set();
+async function retryPennylanePushes(){
+  if(!sb || !currentUser) return 0;
+  const seen = new Set(), todo = [];
+  [devisList, docHistory].forEach(list=>(list||[]).forEach(d=>{
+    if(!d?.num || seen.has(d.num)) return;
+    seen.add(d.num);
+    if(!d.invoiceIssuedAt || d.pennylane?.invoice_id) return;
+    if(isArchivedDoc(d) || d.statut==='Annulée') return;
+    if(String(d.invoiceIssuedAt).slice(0,10) < PENNYLANE_RETRY_FROM) return;
+    // L'envoi lancé à l'émission est peut-être encore en cours.
+    if(Date.now()-new Date(d.invoiceIssuedAt).getTime() < 2*60*1000) return;
+    todo.push(d);
+  }));
+  let sent = 0;
+  for(const d of todo.slice(0,5)){
+    try{ if(await pushInvoiceToPennylane(d,{silent:true})) sent++; }
+    catch(e){ console.warn('Pennylane, reprise '+d.num+' :', e?.message||e); }
+  }
+  return sent;
 }
 
 async function pushInvoiceToPennylaneById(id,btn){
@@ -6869,6 +6902,8 @@ async function syncEverything({silent=false}={}){
     if(prospects.length > before) news.push((prospects.length-before)+' nouvelle'+(prospects.length-before>1?'s':'')+' fiche'+(prospects.length-before>1?'s':''));
     await loadSyncStatus();
     try{ renderToday(); }catch(e){}
+    // Les factures émises restées hors de Pennylane repartent ici (chacune annonce son envoi).
+    try{ await retryPennylanePushes(); }catch(e){}
     if(!silent || news.length){
       const parts = [...news, ...(silent ? [] : problems)];
       toast(parts.length ? 'Mise à jour : '+parts.join(' · ') : 'Tout est à jour ✓', (!news.length && problems.length && !silent) ? 'error' : undefined);
@@ -6919,6 +6954,7 @@ async function syncOnOpen(){
   if(!s) return;
   const last = s.banque?.passage ? new Date(s.banque.passage).getTime() : 0;
   if(Date.now()-last > 30*60*1000) syncEverything({silent:true});
+  else retryPennylanePushes().catch(()=>{});
 }
 
 // Au retour sur l'onglet : les encaissements sont relus (au plus toutes les 5 minutes)
