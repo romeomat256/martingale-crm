@@ -2286,6 +2286,7 @@ function openNewProspect(){
   { const i=document.querySelector('#np-company-search input'); if(i) i.value=''; }
   editingProspectId=null;tempProduits=[];
   editingProspectProducts = '';
+  window.__mpPendingCompany = null;
   document.getElementById('modal-prospect-title').textContent='Nouveau prospect';
   // Reset text fields
   ['np-name','np-contact','np-tel','np-email','np-ville','np-dept','np-budget'].forEach(id=>{
@@ -2383,7 +2384,21 @@ async function saveProspectForm(){
     rappel:'À définir',
     groupe_wa:false
   };
-  
+  const pickedCompany = window.__mpPendingCompany || null;
+  window.__mpPendingCompany = null;
+
+  // Nouvelle fiche : si ce client existe déjà (même mail, téléphone, SIREN ou nom), on le dit avant de créer.
+  if(!editingProspectId){
+    const dup = findProspectDuplicates({...newP, siren: pickedCompany?.siren || ''}, null)[0];
+    if(dup && confirm('Cette fiche existe peut-être déjà :\n\n'+prospectDupLabel(dup)+'\n\nOK : ouvrir la fiche existante.\nAnnuler : créer quand même une nouvelle fiche.')){
+      if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Enregistrer';}
+      closeModal('modal-prospect');
+      openFiche(dup.id);
+      return;
+    }
+    if(pickedCompany && pickedCompany.siren) Object.assign(newP, companyFieldsFrom(pickedCompany));
+  }
+
   try {
     if(editingProspectId){
       // UPDATE existing
@@ -2393,6 +2408,7 @@ async function saveProspectForm(){
       const idx=prospects.findIndex(p=>p.id===editingProspectId);
       if(idx>=0) prospects[idx]={...prospects[idx],...newP};
       upsertProspect(idx>=0 ? prospects[idx] : newP);
+      if(idx>=0 && pickedCompany) saveProspectCompany(prospects[idx], pickedCompany);
       closeModal('modal-prospect');
       go('prospects');
       updateBadge();
@@ -4291,6 +4307,7 @@ function printDocumentAndReturn(win, docHTML){
 // DOCUMENT GENERATOR MODAL
 // ══════════════════════════════════════════════════════════════
 function openDocGenerator(prospectId){
+  window.__mpDgProspectId = prospectId || null;
   document.getElementById('doc-generator-overlay')?.remove();
   dgSourceQuote = null; dgDeductions = []; dgEditingDraft = null;
   const p = prospectId ? prospects.find(x=>x.id===prospectId) : 
@@ -4350,7 +4367,7 @@ function openDocGenerator(prospectId){
             <label class="nd-f"><span>Contact</span><input type="text" id="dg-contact" value="${escapeHTML(p?.contact||'')}" placeholder="Prénom Nom"></label>
             <label class="nd-f"><span>Téléphone</span><input type="tel" id="dg-tel" value="${escapeHTML(p?.tel||'')}" placeholder="06 12 34 56 78"></label>
             <label class="nd-f"><span>Email</span><input type="email" id="dg-email" value="${escapeHTML(p?.email||'')}" placeholder="contact@restaurant.fr"></label>
-            <label class="nd-f nd-span2"><span>Adresse de facturation</span><input type="text" id="dg-addr" value="" placeholder="55 avenue Ledru-Rollin, 75012 Paris"></label>
+            <label class="nd-f nd-span2"><span>Adresse de facturation</span><input type="text" id="dg-addr" value="${escapeHTML(p?.adresse||'')}" placeholder="55 avenue Ledru-Rollin, 75012 Paris"></label>
             <label class="nd-f nd-span2"><span>Adresse de livraison, si différente</span><input type="text" id="dg-livraison" placeholder="27 rue du Faubourg du Temple, 75010 Paris"></label>
           </div>
           <div class="nd-sub">
@@ -4444,8 +4461,8 @@ function openDocGenerator(prospectId){
             <label id="dg-operation-date-box" class="nd-f"><span id="dg-operation-date-label">Date de livraison</span><input id="dg-operation-date" type="date"></label>
             <label class="nd-f"><span>Échéance</span><select id="dg-due-mode" onchange="syncDueModeField()"><option value="reception">À réception</option><option value="expedition">Avant expédition</option><option value="date">Date précise</option></select></label>
             <label id="dg-due-date-box" class="nd-f" style="display:none"><span>Date d’échéance</span><input id="dg-due-date" type="date"></label>
-            <label class="nd-f"><span>SIREN client</span><input id="dg-client-siren" inputmode="numeric" maxlength="9"></label>
-            <label class="nd-f"><span>TVA client</span><input id="dg-client-vat"></label>
+            <label class="nd-f"><span>SIREN client</span><input id="dg-client-siren" inputmode="numeric" maxlength="9" value="${escapeHTML(p?.siren||'')}"></label>
+            <label class="nd-f"><span>TVA client</span><input id="dg-client-vat" value="${escapeHTML(p?.tva_intra||'')}"></label>
             <label class="nd-f"><span>Bon de commande client</span><input id="dg-purchase-order"></label>
             <label class="nd-f"><span>Capital social vendeur (€)</span><input id="dg-seller-capital" type="number" min="0.01" step="0.01" value="${INVOICE_SELLER.capital}"></label>
           </div>
@@ -4551,6 +4568,8 @@ function mapCompanyResult(r){
   const address = String(siege.adresse||'').replace(/\s+(\d{5})\s+/, ', $1 ').trim();
   return {
     siren: r.siren || '',
+    siret: siege.siret || '',
+    zip: siege.code_postal || '',
     vat: frVatFromSiren(r.siren),
     legalName,
     enseigne,
@@ -4637,6 +4656,8 @@ function fillDocFromCompany(c){
   set('dg-client-vat', c.vat);
   if(/^\d{2,3}$/.test(c.dept)) set('dg-dept', c.dept);
   if(c.closed) toast('Attention : cette entreprise est fermée au registre','error');
+  // La société choisie pour le devis est gardée sur la fiche.
+  try{ const fp = window.__mpDgProspectId && prospects.find(x=>x.id===window.__mpDgProspectId); if(fp && !fp.siren) saveProspectCompany(fp, c); }catch(e){}
   updateDocCalc();
 }
 
@@ -4649,6 +4670,7 @@ function fillProspectFromCompany(c){
   const notes = document.getElementById('np-notes');
   const line = c.legalName+' · SIREN '+c.siren+' · TVA '+c.vat+' · '+c.address;
   if(notes && !notes.value.includes(c.siren)) notes.value = (notes.value.trim() ? notes.value.trim()+'\n' : '') + line;
+  window.__mpPendingCompany = c;
   if(c.closed) toast('Attention : cette entreprise est fermée au registre','error');
 }
 
@@ -6198,6 +6220,7 @@ async function saveDocToHistory(doc,{alreadyPersisted=false}={}){
 
   // Register in devis list (all document types)
   registerDevis(record);
+  try{ markProspectQuoted(record); }catch(e){}
   
   // Enregistrement dans la base : on attend la réponse, et l'appelant sait si elle a accepté.
   if(!alreadyPersisted && sb && !NOT_CONFIGURED && currentUser){
@@ -6897,7 +6920,9 @@ async function syncEverything({silent=false}={}){
       else if(res.error) problems.push('banque : lecture impossible');
     }
     const before = prospects.length;
-    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), loadExchangeState(), reloadTeam(), loadStock()]);
+    // Le lien stock vers Shopify est réveillé au passage : son état (branché ou non) se met à jour.
+    try{ await callCrmFunction('shopify-stock', {}); }catch(e){}
+    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), loadExchangeState(), reloadTeam(), loadStock(), loadAutomationState()]);
     try{ renderStock(); }catch(e){}
     if(prospects.length > before) news.push((prospects.length-before)+' nouvelle'+(prospects.length-before>1?'s':'')+' fiche'+(prospects.length-before>1?'s':''));
     await loadSyncStatus();
@@ -6939,6 +6964,14 @@ function renderSyncCard(){
     rows += row(bq.stock_en_direct?'ok':(bq.stock_lu?'warn':'off'),'Boutique (Shopify)',
       (+bq.commandes||0)+' commande'+(+bq.commandes>1?'s':'')+(bq.derniere_commande?', dernière '+ago(bq.derniere_commande):'')
       +' · '+(bq.stock_en_direct?'stock en direct':(bq.stock_lu?'stock relu '+ago(bq.stock_lu)+', direct à brancher':'stock non relié')));
+    const sp = s.stock_shopify || null;
+    if(sp){
+      const e = sp.etat || null, err = +sp.erreurs||0, todo = +sp.a_faire||0, left = +sp.laisses||0;
+      rows += (!e || e.configured===false) ? row('off','Stock vers Shopify','à brancher : clés Shopify à ajouter'+(left?' · '+left+' mouvement'+(left>1?'s':'')+' laissé'+(left>1?'s':'')+' de côté':''))
+        : (e.ok===false && e.erreur) ? row('warn','Stock vers Shopify','connexion refusée par Shopify')
+        : err ? row('warn','Stock vers Shopify', err+' mouvement'+(err>1?'s':'')+' en échec')
+        : row('ok','Stock vers Shopify', todo ? todo+' envoi'+(todo>1?'s':'')+' en cours' : (sp.dernier ? 'dernière sortie '+ago(sp.dernier) : 'branché, aucune sortie pour l’instant'));
+    }
     const site = s.site || {};
     rows += row(site.derniere_demande?'ok':'off','Demandes du site', site.derniere_demande ? 'dernière '+ago(site.derniere_demande) : 'aucune demande reçue');
   }
@@ -6948,8 +6981,189 @@ function renderSyncCard(){
     <span class="td-mute">${s && s.tache_horaire===false ? 'Le passage automatique est arrêté.' : 'Automatique toutes les heures, de 7 h à 21 h.'}</span>`;
 }
 
+// ══════════════════════════════════════════════════════════════
+// AUTOMATISATIONS : stock vers Shopify, devis consultés, société de la fiche, doublons
+// ══════════════════════════════════════════════════════════════
+function autoStore(){ return window.__mpAuto || (window.__mpAuto = {moves:[], links:{}}); }
+
+// Mouvements de stock envoyés à Shopify et consultations des liens clients.
+async function loadAutomationState(){
+  if(!sb || NOT_CONFIGURED || !currentUser) return;
+  const st = autoStore();
+  try{
+    const [m, l] = await Promise.allSettled([
+      sb.from('shopify_stock_moves').select('id,order_id,quote_num,client,direction,lines,unknown,status,note,created_at,done_at').order('id',{ascending:false}).limit(300),
+      sb.from('document_links').select('document_num,views,first_viewed_at,last_viewed_at,accepted_at,accepted_name').limit(1000)
+    ]);
+    if(m.status==='fulfilled' && m.value && !m.value.error) st.moves = m.value.data || [];
+    if(l.status==='fulfilled' && l.value && !l.value.error){
+      const map = {};
+      (l.value.data||[]).forEach(x=>{
+        const c = map[x.document_num] || (map[x.document_num] = {views:0, first_viewed_at:null, last_viewed_at:null, accepted_at:null, accepted_name:''});
+        c.views += +x.views||0;
+        if(x.first_viewed_at && (!c.first_viewed_at || new Date(x.first_viewed_at) < new Date(c.first_viewed_at))) c.first_viewed_at = x.first_viewed_at;
+        if(x.last_viewed_at && (!c.last_viewed_at || new Date(x.last_viewed_at) > new Date(c.last_viewed_at))) c.last_viewed_at = x.last_viewed_at;
+        if(x.accepted_at){ c.accepted_at = x.accepted_at; c.accepted_name = x.accepted_name||''; }
+      });
+      st.links = map;
+    }
+  }catch(e){ console.warn('Automatisations :', e?.message||e); }
+}
+
+// ── Devis consultés (lien client ouvert)
+function docLinkInfo(num){ return autoStore().links[num] || null; }
+function docViewedLabel(num){
+  const l = docLinkInfo(num);
+  if(!l || !l.views || !l.last_viewed_at) return '';
+  return 'Consulté '+(l.views>1 ? l.views+' fois, dernière le ' : 'le ')+frDay(l.last_viewed_at);
+}
+function quotesViewed(){
+  return uniqueDocs().filter(d=>d.type==='DEV' && d.statut==='Envoyé' && !isArchivedDoc(d))
+    .map(d=>({d, l:docLinkInfo(d.num)}))
+    .filter(x=>x.l && x.l.views && x.l.last_viewed_at && !x.l.accepted_at && (Date.now()-new Date(x.l.last_viewed_at).getTime()) < 7*86400000)
+    .sort((a,b)=>new Date(b.l.last_viewed_at)-new Date(a.l.last_viewed_at));
+}
+
+// Devis créé pour une fiche : elle passe en « Devis envoyé » (la base fait de même de son côté).
+function markProspectQuoted(rec){
+  if(!rec || rec.type!=='DEV' || !rec.prospectId || isArchivedDoc(rec)) return;
+  const p = prospects.find(x=>x.id===rec.prospectId);
+  if(!p || !['Nouveau','Contacté'].includes(p.statut||'Nouveau')) return;
+  p.statut = 'Devis envoyé';
+  saveLocal();
+  try{ renderToday(); }catch(e){}
+}
+
+// ── Stock : commande pro partie, stock Shopify ajusté par le serveur
+function orderStockMove(c){
+  const id = c && (c.supabase_id || c.id);
+  if(!id) return null;
+  return autoStore().moves.find(m=>m.order_id===id && !/^Annulé :/.test(m.note||'')) || null;
+}
+function stockMoveInfo(m){
+  if(!m) return null;
+  const n = (m.lines||[]).reduce((s,l)=>s+(+l.qty||0),0);
+  const what = (m.direction<0?'−':'+')+n+' chaise'+(n>1?'s':'');
+  const miss = (m.unknown||[]).length ? ' Hors stock Shopify : '+(m.unknown||[]).map(u=>(u.label||u.product_id||'ligne')+' ×'+u.qty).join(', ')+'.' : '';
+  if(m.status==='fait') return {cls:'ok', what, text:'Shopify '+what, title:'Stock Shopify mis à jour le '+frDay(m.done_at||m.created_at)+'.'+miss};
+  if(m.status==='a_faire') return {cls:'wait', what, text:'Shopify : envoi en cours', title:what+'.'+miss};
+  if(m.status==='erreur') return {cls:'err', what, text:'Shopify : échec', title:(m.note||'Envoi refusé')+miss, retry:n>0};
+  return {cls:'off', what, text:'Stock Shopify non modifié', title:(m.note||'')+miss, retry:n>0};
+}
+function stockMoveBadge(c){
+  const m = orderStockMove(c), i = stockMoveInfo(m);
+  if(!i) return '';
+  const colors = {ok:'#1E8449;background:#EAFAF1;border-color:#A9DFBF', wait:'#7D6608;background:#FEF9E7;border-color:#F9E79F', err:'#922B21;background:#FDEDEC;border-color:#F5B7B1', off:'#6B6B5E;background:#F4F3EC;border-color:#D4D3B8'}[i.cls];
+  const action = m.status==='erreur' ? 'Réessayer' : (m.direction<0 ? 'Retirer du stock Shopify' : 'Remettre dans le stock Shopify');
+  return '<span data-stock-move="'+m.id+'" title="'+escapeHTML(i.title||'')+'" style="display:inline-block;margin-top:4px;font-size:10px;font-weight:600;border:1px solid;border-radius:4px;padding:1px 6px;white-space:nowrap;color:'+colors+'">'+escapeHTML(i.text)+'</span>'
+    + (i.retry ? '<br><button type="button" onclick="event.stopPropagation();retryStockMove('+m.id+',this)" style="margin-top:3px;font-size:10px;border:1px solid #D4D3B8;background:#fff;border-radius:4px;padding:1px 6px;cursor:pointer;font-family:inherit">'+action+'</button>' : '');
+}
+async function retryStockMove(id, btn){
+  const m = autoStore().moves.find(x=>x.id===id); if(!m) return;
+  const i = stockMoveInfo(m);
+  if(!confirm('Envoyer ce mouvement à Shopify ?\n\n'+(m.client||m.quote_num||'Commande')+' : '+i.what+'\n\nLe stock du site sera modifié.')) return;
+  if(btn){ btn.disabled = true; btn.textContent = 'Envoi…'; }
+  const {error} = await sb.rpc('crm_stock_move_retry', {p_id:id});
+  if(error){ toast('Shopify : '+error.message,'error'); if(btn){ btn.disabled = false; btn.textContent = 'Réessayer'; } return; }
+  toast('Mouvement transmis à Shopify');
+  setTimeout(refreshAutomation, 1200); setTimeout(refreshAutomation, 7000);
+}
+async function refreshAutomation(){
+  await loadAutomationState();
+  try{ await loadStock(); renderStock(); }catch(e){}
+  try{ renderCommandes(); }catch(e){}
+  try{ await loadSyncStatus(); }catch(e){}
+}
+
+// ── Société de la fiche (annuaire des entreprises)
+function companyFieldsFrom(c){
+  return {siren:c.siren||null, siret:c.siret||null, raison_sociale:c.legalName||null, adresse:c.address||null, code_postal:c.zip||null, tva_intra:c.vat||null};
+}
+async function saveProspectCompany(p, c){
+  if(!p || !c || !c.siren) return false;
+  const fields = companyFieldsFrom(c);
+  Object.assign(p, fields);
+  saveLocal();
+  if(!p.id || /^(temp|local)-/.test(p.id)) return true;   // fiche pas encore en base : les champs partiront avec elle
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {error} = await sb.from('prospects').update(fields).eq('id', p.id);
+    if(error){ console.error('Société de la fiche :', error); return false; }
+  }
+  return true;
+}
+function ficheCompanyField(p){
+  if(p.siren){
+    const l1 = [p.raison_sociale, 'SIREN '+p.siren, p.tva_intra ? 'TVA '+p.tva_intra : ''].filter(Boolean).join(' · ');
+    return `<div class="field" style="grid-column:1/-1"><label>Société</label><div class="field-val" style="height:auto;min-height:36px;display:block;line-height:1.5;padding-top:8px;padding-bottom:8px;overflow-wrap:anywhere">${escapeHTML(l1)}${p.adresse?'<br><span style="color:var(--gris-l);font-size:11px">'+escapeHTML(p.adresse)+'</span>':''}</div></div>`;
+  }
+  return `<div class="field" style="grid-column:1/-1"><label>Société</label><div id="fiche-company-search"></div></div>`;
+}
+function mountFicheCompany(p){
+  const host = document.getElementById('fiche-company-search');
+  if(!host) return;
+  mountCompanySearch(host, c=>{ saveProspectCompany(p, c).then(()=>{ if(currentProspectId===p.id) populateFiche(p.id); }); });
+  const input = host.querySelector('input');
+  if(input) input.placeholder = 'Trouver la société dans l’annuaire : nom, SIREN ou SIRET';
+  autoCompleteCompany(p).then(done=>{ if(done && currentProspectId===p.id) populateFiche(p.id); }).catch(()=>{});
+}
+function luhnOk(d){ let s = 0; for(let i=0;i<d.length;i++){ let n = +d[d.length-1-i]; if(i%2===1){ n *= 2; if(n>9) n -= 9; } s += n; } return d.length>0 && s%10===0; }
+// Un SIREN ou un SIRET écrit dans la fiche (demande du site, note) suffit à retrouver la société.
+function findSirenInText(text){
+  const t = String(text||'');
+  const lab = t.match(/SIRE[NT]\s*(?:n[°o]\s*)?:?\s*((?:\d[\s.]?){9,14})/i);
+  if(lab){ const siren = lab[1].replace(/\D/g,'').slice(0,9); if(siren.length===9 && luhnOk(siren)) return siren; }
+  const m = t.match(/(?:^|\D)(\d{14})(?:\D|$)/);
+  if(m && luhnOk(m[1]) && luhnOk(m[1].slice(0,9))) return m[1].slice(0,9);
+  return '';
+}
+const companyLookupTried = new Set();
+async function autoCompleteCompany(p){
+  if(!p || p.siren || !p.id || /^(temp|local)-/.test(p.id) || companyLookupTried.has(p.id)) return false;
+  const siren = findSirenInText((p.notes||'')+'\n'+(p.name||''));
+  if(!siren) return false;
+  companyLookupTried.add(p.id);
+  const res = await searchCompanies(siren);
+  const c = res.find(x=>x.siren===siren);
+  if(!c) return false;
+  return saveProspectCompany(p, c);
+}
+async function autoCompleteCompanies(){
+  const list = prospects.filter(p=>!p.siren && p.id && !/^(temp|local)-/.test(p.id) && !companyLookupTried.has(p.id) && findSirenInText((p.notes||'')+'\n'+(p.name||''))).slice(0,6);
+  for(const p of list){
+    try{ await autoCompleteCompany(p); }catch(e){ break; }
+    await new Promise(r=>setTimeout(r, 500));
+  }
+}
+
+// ── Doublons : même e-mail, même téléphone, même SIREN, ou même nom dans le même département
+function dupNorm(v){ return String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function findProspectDuplicates(c, excludeId){
+  if(!c) return [];
+  const email = String(c.email||'').trim().toLowerCase();
+  const tel = String(c.tel||'').replace(/\D/g,'').slice(-9);
+  const siren = String(c.siren||'');
+  const name = dupNorm(c.name);
+  return prospects.filter(p=>{
+    if(!p || p.id===excludeId) return false;
+    if(email && String(p.email||'').trim().toLowerCase()===email) return true;
+    if(tel.length===9 && String(p.tel||'').replace(/\D/g,'').slice(-9)===tel) return true;
+    if(siren && p.siren===siren) return true;
+    if(name.length>=5 && dupNorm(p.name)===name && (!c.dept || !p.dept || String(c.dept)===String(p.dept))) return true;
+    return false;
+  });
+}
+function prospectDupLabel(p){
+  return [p.name||p.contact||'Fiche', p.name&&p.contact?p.contact:'', p.ville||'', '('+(p.statut||'Nouveau')+')'].filter(Boolean).join(' · ');
+}
+function ficheDuplicateTag(p){
+  const k = findProspectDuplicates(p, p.id)[0];
+  if(!k) return '';
+  return `<button type="button" class="badge" onclick="openFiche('${escapeHTML(k.id)}')" title="Même e-mail, téléphone, SIREN ou nom. Cliquer pour ouvrir l’autre fiche." style="background:#FEF5E7;color:#B9770E;border:1px solid #F5CBA7;cursor:pointer;font-family:inherit">Doublon possible : ${escapeHTML(k.name||k.contact||'autre fiche')}</button>`;
+}
+
 // À l'ouverture : l'état est lu, et une mise à jour part seule si la dernière date de plus de 30 minutes.
 async function syncOnOpen(){
+  loadAutomationState().then(()=>{ try{ renderToday(); renderCommandes(); renderDevisList(); }catch(e){} autoCompleteCompanies(); }).catch(()=>{});
   const s = await loadSyncStatus();
   if(!s) return;
   const last = s.banque?.passage ? new Date(s.banque.passage).getTime() : 0;
@@ -6980,7 +7194,10 @@ function quotesToInvoice(){
     const paid = receipts.reduce((s,r)=>s+(+r.amount||0),0);
     const delivered = !!order && ['Livré','Expédié'].includes(order.statut);
     if(!paid && !delivered) return null;
-    return {d, order, paid, lastReceipt:receipts[0]||null, delivered};
+    // Acompte seulement : c'est la facture d'acompte qui est prête, pas la facture finale.
+    const deposit = !delivered && paid>0 && paid < (+d.ttc||0)-0.05;
+    if(deposit && (invoices.some(i=>i.type==='FAC') || findDraftForQuote(d.num,'FAC'))) return null;
+    return {d, order, paid, lastReceipt:receipts[0]||null, delivered, deposit};
   }).filter(Boolean);
 }
 
@@ -7373,8 +7590,10 @@ function renderToday(){
   // 7. Échanges : le client a répondu, ou n'a pas répondu
   const awaiting=prospectsAwaitingYou();
   const noReply=prospectsNoReply();
+  // 8. Devis que le client a ouverts ces 7 derniers jours
+  const viewed=quotesViewed();
 
-  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length;
+  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
@@ -7388,7 +7607,7 @@ function renderToday(){
   let html='';
   html+=section('Nouvelles demandes','à rappeler sous 24 h', nouveaux.slice(0,6).map(({p,d})=>`
     <div class="td-row">
-      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}</span></button>
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}${(()=>{const k=findProspectDuplicates(p,p.id)[0];return k?' · <em style="font-style:normal;color:#B9770E;font-weight:600">existe déjà : '+esc(k.name||k.contact||'fiche')+'</em>':'';})()}</span></button>
       <span class="td-what">${esc(prodSummary(p))}</span>
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
@@ -7416,6 +7635,13 @@ function renderToday(){
       <span class="td-when ${ageClass(j,5,10)}">depuis ${j} j</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(p.id)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="goRelanceGmail('${esc(p.id)}')">Email</button></div>
     </div>`).join(''), noReply.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${noReply.length} clients sans réponse</button>`:'');
+  html+=section('Devis consultés','le client a ouvert le lien, c’est le moment d’appeler', viewed.slice(0,6).map(({d,l})=>{const p=d.prospectId?prospects.find(x=>x.id===d.prospectId):null;return `
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
+      <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
+      <span class="td-when is-warn">${esc(docViewedLabel(d.num).replace(/^Consulté/,'ouvert'))}</span>
+      <div class="td-act">${p?telLink(p.tel):''}${d.prospectId?`<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(d.prospectId)}')">WhatsApp</button>`:''}<button type="button" class="btn btn-sm td-ok" onclick="accepterDevis('${esc(d.id||d.num)}')">Signé</button></div>
+    </div>`;}).join(''));
   html+=section('Devis à relancer','envoyés depuis plus de 7 jours', relances.slice(0,8).map(({d,j})=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
@@ -7423,12 +7649,12 @@ function renderToday(){
       <span class="td-when ${ageClass(j,7,14)}">J+${j}</span>
       <div class="td-act">${d.prospectId?`<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(d.prospectId)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="openSendDocument('${esc(d.id||d.num)}')">Renvoyer</button>`:''}<button type="button" class="btn btn-sm td-ok" onclick="accepterDevis('${esc(d.id||d.num)}')">Signé</button></div>
     </div>`).join(''), relances.length>8?`<button type="button" class="td-more" onclick="go('devis')">Voir les ${relances.length} devis</button>`:'');
-  html+=section('Factures à émettre','devis payés ou livrés, et brouillons', toBill.map(({d,paid,lastReceipt,delivered})=>`
+  html+=section('Factures à émettre','devis payés ou livrés, et brouillons', toBill.map(({d,paid,lastReceipt,delivered,deposit})=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>Devis ${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
       <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
-      <span class="td-when is-warn">${paid?'payé'+(lastReceipt?' le '+esc(frDay(lastReceipt.date)):''):''}${paid&&delivered?' · ':''}${delivered?'livrée':''}</span>
-      <div class="td-act"><button type="button" class="btn btn-sm" onclick="markQuoteInvoiced('${esc(d.num)}')">Déjà facturée</button><button type="button" class="btn btn-sm btn-primary" onclick="openBilling('${esc(d.id||d.num)}','FDF')">Facturer</button></div>
+      <span class="td-when is-warn">${paid?(deposit?'acompte de '+formatDocMoney(paid)+' reçu':'payé')+(lastReceipt?' le '+esc(frDay(lastReceipt.date)):''):''}${paid&&delivered?' · ':''}${delivered?'livrée':''}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="markQuoteInvoiced('${esc(d.num)}')">Déjà facturée</button><button type="button" class="btn btn-sm btn-primary" onclick="openBilling('${esc(d.id||d.num)}','${deposit?'FAC':'FDF'}')">${deposit?'Facture d’acompte':'Facturer'}</button></div>
     </div>`).join('')+drafts.map(d=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="go('devis')"><b>${esc(d.client||'Client')}</b><span>${d.type==='FAC'?'Facture d’acompte':'Facture'}${d.source_quote_num?' · devis '+esc(d.source_quote_num):''}</span></button>
@@ -7710,6 +7936,7 @@ function populateFiche(id){
       <div class="field"><label>Dernière activité</label><div class="field-val">${formatProspectActivity(p)}</div></div>
       ${safeProspectUrl(p.utm)?`<div class="field" style="grid-column:1/-1"><label>Page d’origine</label><div class="field-val" style="overflow-wrap:anywhere"><a href="${escapeHTML(safeProspectUrl(p.utm))}" target="_blank" rel="noopener noreferrer">${escapeHTML(p.utm)}</a></div></div>`:''}
       <div class="field"><label>Ville / Dept</label><div class="field-val">${p.ville||'—'}${p.dept?' ('+p.dept+')':''}</div></div>
+      ${ficheCompanyField(p)}
       <div class="field"><label>Type</label><div class="field-val">${p.type||'—'}</div></div>
       <div class="field"><label>Profil</label><div class="field-val"><span class="badge ${PROFIL_CLASS[p.profil]||'b-res'}">${p.profil||'—'}</span>${p.etablissements>0?'<span style="font-size:10px;color:var(--gris-l);margin-left:6px">'+p.etablissements+' étab.</span>':''}</div></div>
       <div class="field"><label>Source</label><div class="field-val"><span class="src"><span class="src-dot" style="background:${SOURCE_COLORS[p.source]||'#999'}"></span>${p.source||'—'}</span></div></div>
@@ -7731,8 +7958,9 @@ function populateFiche(id){
       <span class="badge ${PROFIL_CLASS[p.profil]||'b-res'}">${p.profil||'—'}</span>
       <span class="src"><span class="src-dot" style="background:${SOURCE_COLORS[p.source]||'#999'}"></span>${p.source||'—'}</span>
       ${p.statut?`<span class="badge ${STATUT_CLASS[p.statut]||''}">${p.statut}</span>`:''}
-      ${waTag}`;
+      ${waTag}${ficheDuplicateTag(p)}`;
   }
+  try{ mountFicheCompany(p); }catch(e){}
   
   // Rappel
   const rappelDate = el('fiche-rappel-date');
@@ -8051,6 +8279,7 @@ function renderDevisList(){
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
           ${canRefuse?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="refuserDevis('${d.id||d.num}')">✗ Refusé</button>`:''}
           ${isDevis&&['Envoyé','Accepté'].includes(d.statut)?(()=>{const df=findDraftForQuote(d.num,'FDF'), da=findDraftForQuote(d.num,'FAC');return `<button class="btn btn-sm" onclick="openBilling('${d.id||d.num}','FAC')">${da?'Brouillon d’acompte':'Acompte'}</button><button class="btn btn-sm btn-primary" onclick="openBilling('${d.id||d.num}','FDF')">${df?'Reprendre la facture':'Facturer'}</button>`;})():''}
+          ${isDevis&&docViewedLabel(d.num)?`<span class="badge" style="background:#FEF9E7;color:#7D6608;border:1px solid #F9E79F" title="Le client a ouvert le lien du devis">${escapeHTML(docViewedLabel(d.num))}</span>`:''}
           ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
           ${isArchivedDoc(d)?`<button class="btn btn-sm" title="Remettre ce document dans la liste" onclick="restoreArchivedDoc('${d.id||d.num}')">Restaurer</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
@@ -8677,6 +8906,7 @@ function renderCommandes(){
           + '<td style="padding:8px 10px">'
             + '<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;background:'+sc.bg+';color:'+sc.col+'">'+c.statut+'</span>'
             + alertHtml
+            + (c.operation_category==='shopify' ? '' : '<div>'+stockMoveBadge(c)+'</div>')
           + '</td>'
           // Livraison
           + '<td style="padding:8px 10px;font-size:11px;color:#888">'+livrLabel+'</td>'
@@ -8771,7 +9001,11 @@ function changerStatutCmd(cmdId){
   c.statut = next;
   saveCmdLocal();
   if(sb && !NOT_CONFIGURED && currentUser && c.supabase_id){
-    sb.from('orders').update({statut:next}).eq('id',c.supabase_id).then(({error})=>{ if(error){ console.error(error); toast('Statut non enregistré dans la base : '+error.message,'error'); } });
+    sb.from('orders').update({statut:next}).eq('id',c.supabase_id).then(({error})=>{
+      if(error){ console.error(error); toast('Statut non enregistré dans la base : '+error.message,'error'); }
+      // Commande pro partie (ou revenue en arrière) : le serveur ajuste le stock Shopify, on relit le résultat.
+      else if(c.operation_category!=='shopify'){ setTimeout(refreshAutomation, 1200); setTimeout(refreshAutomation, 7000); }
+    });
   }
   renderCommandes();
   try{ renderToday(); }catch(e){}
@@ -9993,7 +10227,9 @@ function prefillFromProspect(prospectId){
   set('dg-email', p.email);
   set('dg-tel', p.tel);
   
-  set('dg-addr', p.ville ? p.ville+(p.dept?' ('+p.dept+')':'') : '');
+  set('dg-addr', p.adresse || (p.ville ? p.ville+(p.dept?' ('+p.dept+')':'') : ''));
+  if(p.siren) set('dg-client-siren', p.siren);
+  if(p.tva_intra) set('dg-client-vat', p.tva_intra);
   set('dg-livraison', '');
   
   // Pre-fill product lines from prospect

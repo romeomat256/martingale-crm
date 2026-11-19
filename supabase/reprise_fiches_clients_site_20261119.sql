@@ -1,0 +1,7 @@
+-- Martingale CRM : reprise du 19/11/2026.
+-- Les commandes du site importées sans fiche client ont été reliées à une fiche :
+--   - fiche existante retrouvée par e-mail, sinon par téléphone (9 derniers chiffres), sinon par nom de société ;
+--   - sinon fiche créée (source « Shopify - Commande », statut « Gagné », datée de la première commande).
+-- Les commandes annulées sans fiche existante sont laissées telles quelles.
+-- Résultat : 45 commandes sans fiche -> 41 fiches créées, 2 commandes reliées par téléphone, 2 annulées laissées.
+-- Depuis, la fonction shopify-order fait ce rapprochement à chaque nouvelle commande.

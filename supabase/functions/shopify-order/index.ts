@@ -140,9 +140,23 @@ Deno.serve(async (req: Request) => {
     `Total : ${totalTTC.toFixed(2)} € TTC · ${paid ? "payée" : "en attente de paiement"}`,
     ship ? `Livraison : ${formatAddress(ship)}` : "",
   ].filter(Boolean).join("\n");
-  if (email) {
-    const { data: ex } = await sb.from("prospects").select("id, notes, tel, contact, name")
-      .eq("user_id", USER_ID).ilike("email", email).limit(1).maybeSingle();
+  // La fiche est retrouvée par e-mail, sinon par téléphone, sinon par nom de société. Elle est créée si elle n'existe pas.
+  const tel9 = tel.replace(/\D/g, "").slice(-9);
+  if (email || person || company) {
+    let ex: any = null;
+    if (email) {
+      const { data } = await sb.from("prospects").select("id, notes, tel, contact, name")
+        .eq("user_id", USER_ID).ilike("email", email).limit(1).maybeSingle();
+      ex = data;
+    }
+    if (!ex && (tel9.length === 9 || company.length >= 5)) {
+      const { data: all } = await sb.from("prospects").select("id, notes, tel, contact, name")
+        .eq("user_id", USER_ID).order("date_created", { ascending: true }).limit(3000);
+      const norm = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      ex = (tel9.length === 9 ? (all || []).find((p: any) => String(p.tel || "").replace(/\D/g, "").slice(-9) === tel9) : null)
+        || (company.length >= 5 ? (all || []).find((p: any) => norm(p.name) === norm(company)) : null)
+        || null;
+    }
     if (ex) {
       prospectId = ex.id;
       await sb.from("prospects").update({
@@ -157,7 +171,7 @@ Deno.serve(async (req: Request) => {
         user_id: USER_ID,
         name: company || person || email,
         contact: person || null,
-        email,
+        email: email || null,
         tel: tel || null,
         ville: ship?.city || bill?.city || null,
         dept: zip.slice(0, 2) || null,

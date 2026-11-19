@@ -73,7 +73,10 @@ function fitFrame(){
 
 async function load(){
   try{
-    const r = await fetch(FN + '?t=' + encodeURIComponent(t));
+    // Ouvert depuis un navigateur connecté au CRM (même site) : c'est l'équipe, pas le client. La consultation n'est pas comptée.
+    let team = false;
+    try{ team = Object.keys(localStorage).some(k => /^sb-.*-auth-token$/.test(k) && localStorage.getItem(k)); }catch(e){}
+    const r = await fetch(FN + '?t=' + encodeURIComponent(t) + (team ? '&apercu=1' : ''));
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error();
     EN = /<html[^>]+lang="en/i.test(j.html);

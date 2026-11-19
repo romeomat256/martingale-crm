@@ -64,7 +64,13 @@ Deno.serve(async (req: Request) => {
     const doc = await loadDoc(link.document_num);
     const html = docHtml(doc);
     if (!doc || !html) return rep(404, { ok: false, error: "document" });
-    await sb.from("document_links").update({ views: (link.views || 0) + 1, last_viewed_at: new Date().toISOString() }).eq("token", link.token);
+    // Consultation par le client : comptée, sauf quand c'est l'équipe qui ouvre le lien depuis le CRM (apercu=1).
+    if (new URL(req.url).searchParams.get("apercu") !== "1") {
+      const seen = new Date().toISOString();
+      await sb.from("document_links")
+        .update({ views: (link.views || 0) + 1, last_viewed_at: seen, first_viewed_at: link.first_viewed_at || seen })
+        .eq("token", link.token);
+    }
     return rep(200, {
       ok: true, num: doc.num, type: doc.type, html,
       accepted_at: link.accepted_at, accepted_name: link.accepted_name,
