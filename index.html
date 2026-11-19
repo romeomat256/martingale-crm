@@ -877,6 +877,7 @@ body.nd-open{overflow:hidden}
       <button class="sort-btn" onclick="filterDevis('Envoyé',this)">Envoyés</button>
       <button class="sort-btn" onclick="filterDevis('Accepté',this)">Acceptés</button>
       <button class="sort-btn" onclick="filterDevis('Refusé',this)">Refusés</button>
+      <button class="sort-btn" onclick="filterDevis('__archives',this)" title="Versions remplacées et doublons">Archivés</button>
     </div>
     <div id="invoice-drafts" class="drafts" style="display:none"></div>
     <div class="table-wrap">
@@ -7189,7 +7190,7 @@ function renderToday(){
   // 4. Factures à émettre
   const drafts=invoiceDrafts||[];
   // 5. Paiements attendus
-  const unpaid=docs.filter(d=>d.type!=='DEV' && d.invoiceIssuedAt && !['Payée','Annulée'].includes(d.statut) && !d.pennylane?.paid)
+  const unpaid=docs.filter(d=>d.type!=='DEV' && d.invoiceIssuedAt && !['Payée','Annulée'].includes(d.statut) && !isArchivedDoc(d) && !d.pennylane?.paid)
     .map(d=>({d, j:daysSince(d.invoiceIssuedAt)})).sort((a,b)=>(b.j||0)-(a.j||0));
 
   // 6. Encaissements à rattacher, devis payés ou livrés à facturer
@@ -7258,7 +7259,7 @@ function renderToday(){
   const m=now.getMonth(), y=now.getFullYear();
   const inMonth=v=>{const t=parseDocDateValue(v); if(!t) return false; const d=new Date(t); return d.getMonth()===m&&d.getFullYear()===y;};
   const billed=docs.filter(d=>d.type!=='DEV'&&d.invoiceIssuedAt&&inMonth(d.invoiceIssuedAt)).reduce((s,d)=>s+(+d.ht||0),0);
-  const sent=docs.filter(d=>d.type==='DEV'&&inMonth(d.createdAt||d.date)).length;
+  const sent=docs.filter(d=>d.type==='DEV'&&!isArchivedDoc(d)&&inMonth(d.createdAt||d.date)).length;
   const signed=docs.filter(d=>d.type==='DEV'&&['Accepté','Facturé'].includes(d.statut)&&inMonth(d.createdAt||d.date)).length;
   const monthName=now.toLocaleDateString('fr-FR',{month:'long'});
   let low=[];
@@ -7648,8 +7649,21 @@ function saveVentesSite(){ localStorage.setItem('mp_ventes_site', JSON.stringify
 let currentDevisFilter = '';
 
 const DEVIS_STATUT_CLASS = {
-  'Brouillon':'b-new','Envoyé':'b-devis','Accepté':'b-won','Facturé':'b-won','Refusé':'b-lost'
+  'Brouillon':'b-new','Envoyé':'b-devis','Accepté':'b-won','Facturé':'b-won','Refusé':'b-lost',
+  'Payée':'b-won','Annulée':'b-lost','Remplacé':'b-new','Doublon':'b-new'
 };
+// Documents rangés : version remplacée par une autre, ou copie identique. Ils sortent des listes et des relances,
+// rien n'est supprimé. On les retrouve avec le filtre « Archivés ».
+function isArchivedDoc(d){ return !!d && (d.statut==='Remplacé' || d.statut==='Doublon'); }
+async function restoreArchivedDoc(id){
+  const d = findQuoteRecord(id);
+  if(!d || !isArchivedDoc(d)) return;
+  d.statut = 'Envoyé';
+  saveDevisLocal();
+  try{ updateDocumentStatut(d, 'Envoyé'); }catch(e){}
+  renderDevisList();
+  toast((d.num||'Document')+' remis dans la liste');
+}
 const CMD_STATUT_CLASS = {
   'Confirmé':'b-contact','En production':'b-devis','Expédié':'b-relance','Livré':'b-won'
 };
@@ -7787,14 +7801,16 @@ function renderDevisList(){
   if(!tbody) return;
   
   let list = [...devisList];
-  if(currentDevisFilter) list = list.filter(d=>d.statut===currentDevisFilter);
+  if(currentDevisFilter==='__archives') list = list.filter(isArchivedDoc);
+  else if(currentDevisFilter) list = list.filter(d=>d.statut===currentDevisFilter);
+  else list = list.filter(d=>!isArchivedDoc(d));
   
   const count = document.getElementById('devis-count');
   if(count) count.textContent = list.length+' devis';
   
   if(!list.length){
     tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--gris-l);padding:30px">
-      Aucun devis${currentDevisFilter?' avec ce statut':''}. Crée ton premier devis depuis un prospect ou via "+ Nouveau devis".
+      Aucun devis${currentDevisFilter==='__archives'?' archivé':(currentDevisFilter?' avec ce statut':'')}. Crée ton premier devis depuis un prospect ou via "+ Nouveau devis".
     </td></tr>`;
     return;
   }
@@ -7833,6 +7849,7 @@ function renderDevisList(){
           ${canRefuse?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="refuserDevis('${d.id||d.num}')">✗ Refusé</button>`:''}
           ${isDevis&&['Envoyé','Accepté'].includes(d.statut)?(()=>{const df=findDraftForQuote(d.num,'FDF'), da=findDraftForQuote(d.num,'FAC');return `<button class="btn btn-sm" onclick="openBilling('${d.id||d.num}','FAC')">${da?'Brouillon d’acompte':'Acompte'}</button><button class="btn btn-sm btn-primary" onclick="openBilling('${d.id||d.num}','FDF')">${df?'Reprendre la facture':'Facturer'}</button>`;})():''}
           ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
+          ${isArchivedDoc(d)?`<button class="btn btn-sm" title="Remettre ce document dans la liste" onclick="restoreArchivedDoc('${d.id||d.num}')">Restaurer</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
           ${(d.invoiceIssuedAt||isDevis)?`<button class="btn btn-sm" title="Envoyer au client un lien vers le document" onclick="openSendDocument('${d.id||d.num}')">Envoyer</button>`:''}
           ${d.invoiceIssuedAt?(d.pennylane?.invoice_id?`<span class="badge b-won" title="Facture enregistrée dans Pennylane">${d.pennylane.paid?'Payée · Pennylane':'Pennylane ✓'}</span>`:`<button class="btn btn-sm" title="Envoyer la facture dans Pennylane" onclick="pushInvoiceToPennylaneById('${d.id||d.num}',this)">→ Pennylane</button>`):''}
@@ -9558,6 +9575,7 @@ function renderHistorique(prospectId){
   const sameName = v=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase();
   const ficheName = sameName(p.name);
   const fiche_docs = devisList.filter(d=>{
+    if(d.statut === 'Doublon') return false; // copie identique : l'original suffit dans l'historique
     if(d.prospectId === prospectId) return true;
     if(d.prospectId && prospects.some(x=>x.id===d.prospectId)) return false;
     return !!ficheName && [d.company, d.clientName, d.contact].some(n=>sameName(n) === ficheName);

@@ -1,0 +1,14 @@
+-- Rangement des doublons, fait le 19/11/2026. Rien n'a été supprimé : les documents changent de statut.
+-- Copie de sécurité : table crm_backup_documents_20261119_menage (documents avant le rangement).
+-- Pour revenir en arrière sur un document : update documents set statut = 'Envoyé' where num = '...';
+-- ou le bouton « Restaurer » du filtre « Archivés » dans le CRM.
+--
+-- « Doublon »  : copie identique d'un autre document (même client, même montant, à quelques minutes d'écart).
+--   DEV-261008-039, DEV-260929-031, DEV-261012-042, FDF-260918-008, FDF-260902-002,
+--   FACT-000021 à FACT-000024 (Colette : cinq factures pour une vente ; FACT-000025 reste, passée à « Payée »).
+-- « Remplacé » : version d'un devis remplacée par une autre (signée, ou refaite plus tard).
+--   DEV-260901-013, DEV-260921-028, DEV-260918-026, DEV-261005-033, DEV-260629-004, DEV-260831-010,
+--   DEV-261008-038, DEV-260625-001, DEV-260715-007, DEV-260828-009 (celui de Jérémy Caruso).
+-- « Facturé »  : devis signés déjà facturés (facture dans Pennylane au numéro du devis, ou même montant dans le CRM).
+--   DEV-260902-015, DEV-260909-020, DEV-260911-025, DEV-260918-027, DEV-261014-044,
+--   DEV-260715-006, DEV-260709-005, DEV-260831-011.
