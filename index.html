@@ -424,6 +424,50 @@ body.nd-open{overflow:hidden}
 .td-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-top:12px;border-top:1px solid var(--ligne)}
 .td-2 b{font-size:18px}
 .td-link{border:0;background:none;padding:0;text-align:left;font-size:13px;font-weight:700;color:var(--vert);cursor:pointer}
+
+/* Facturer et encaissements */
+.dg-headless{display:none!important}
+.bill-ov{position:fixed;inset:0;z-index:4800;background:rgba(30,32,22,.55);display:flex;align-items:center;justify-content:center;padding:20px}
+.bill-box{width:min(1060px,100%);max-height:calc(100vh - 40px);background:#fff;border-radius:14px;display:grid;grid-template-columns:minmax(320px,400px) minmax(0,1fr);overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.bill-form{padding:24px;display:flex;flex-direction:column;gap:14px;overflow:auto}
+.bill-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.bill-head h2{margin:2px 0;font-size:20px;line-height:1.25;color:var(--noir)}
+.bill-kicker{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gris-l)}
+.bill-sub{font-size:13px;color:var(--gris-l);overflow-wrap:anywhere}
+.bill-x{border:0;background:none;font-size:26px;line-height:1;color:var(--gris-l);cursor:pointer;padding:0 4px}
+.bill-context{font-size:13px;line-height:1.5;color:var(--gris-f);background:var(--vert-pale);border-radius:8px;padding:10px 12px}
+.bill-types{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--vert-pale);border-radius:9px;padding:4px}
+.bill-type{border:0;background:none;border-radius:7px;padding:9px 8px;font-size:14px;font-weight:700;color:var(--gris-f);cursor:pointer}
+.bill-type.on{background:#fff;color:var(--vert);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.bill-f{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:var(--gris-f)}
+.bill-f[hidden]{display:none}
+.bill-f input,.bill-f select,.bill-f textarea{font:inherit;font-size:14px;font-weight:400;color:var(--noir);border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:#fff;width:100%;box-sizing:border-box}
+.bill-f textarea{resize:vertical}
+.bill-more{border-top:1px solid var(--ligne);padding-top:10px}
+.bill-more summary{font-size:13px;font-weight:700;color:var(--vert);cursor:pointer}
+.bill-more[open] summary{margin-bottom:10px}
+.bill-more .bill-f{margin-bottom:10px}
+.bill-amount{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:13px;color:var(--gris-f);border-top:1px solid var(--ligne);padding-top:12px}
+.bill-amount b{font-size:20px;color:var(--noir);font-variant-numeric:tabular-nums}
+.bill-error{font-size:13px;font-weight:700;color:var(--late);background:#FDF1EF;border-radius:8px;padding:9px 12px}
+.bill-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bill-actions .btn-primary{flex:1;min-height:42px;font-size:14px}
+.bill-note{margin:0;font-size:12px;line-height:1.5;color:var(--gris-l)}
+.bill-preview{background:#E9E8E1;overflow:auto;padding:18px;min-height:440px}
+.bill-preview iframe{display:block;width:794px;height:1123px;border:0;background:#fff;transform-origin:0 0;box-shadow:0 2px 14px rgba(0,0,0,.15)}
+.rp-box{width:min(520px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#fff;border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.rp-list{display:flex;flex-direction:column;gap:6px;max-height:250px;overflow:auto}
+.rp-item{display:flex;flex-direction:column;gap:2px;text-align:left;border:1px solid var(--border);background:#fff;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:14px;color:var(--noir)}
+.rp-item small{font-size:12px;color:var(--gris-l)}
+.rp-item.on{border-color:var(--vert);background:var(--vert-pale)}
+.bank-mini{display:flex;flex-direction:column}
+.bank-mini-row{display:flex;justify-content:space-between;align-items:center;gap:10px;border:0;border-bottom:1px solid var(--ligne);background:none;padding:8px 0;text-align:left;cursor:pointer;font-size:13px;color:var(--noir)}
+.bank-mini-row:last-child{border-bottom:0}
+.bank-mini-row[disabled]{cursor:default}
+.bank-mini-row span:first-child{display:flex;flex-direction:column;min-width:0}
+.bank-mini-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bank-mini-row small{font-size:12px;color:var(--gris-l)}
+@media(max-width:860px){.bill-box{grid-template-columns:1fr}.bill-preview{display:none}.bill-ov{padding:10px;align-items:flex-end}}
 @media(max-width:900px){
   .td-row{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
   .td-what{grid-column:1/2}
@@ -1826,6 +1870,7 @@ async function loadAllData(){
     loadDevis().catch(e=>console.error('Devis:',e));
     loadInvoiceDrafts().catch(e=>console.error('Brouillons:',e));
     loadCommandes().catch(e=>console.error('Commandes:',e));
+    loadBankReceipts().catch(e=>console.error('Encaissements:',e));
     loadRdv().catch(e=>console.error('RDV:',e));
   }catch(e){
     if(e.message==='timeout'){
@@ -5905,6 +5950,56 @@ function computeGeneratorDoc({numOverride=''}={}){
     typeLabel,availability,docNum,today,docHTML};
 }
 
+// Fiche d'enregistrement d'un document, à partir du calcul du générateur.
+function buildGeneratorRecord(G, prospectId){
+  const {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
+    lines,prodId,qty,prod,sousTotalBrut,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
+    typeLabel,availability,docNum} = G;
+  const generatedAt = new Date();
+  const lineItems = getDocLineItemsFromGenerator(lines);
+  const clientName = contact || company;
+
+  const record = {
+    num: docNum,
+    type: type,
+    typeLabel: typeLabel,
+    contact: clientName,
+    clientName: clientName,
+    company: company,
+    contactName: contact,
+    email: email,
+    tel: tel,
+    billingAddress: addr,
+    shippingAddress: livraison,
+    deliveryDept: dept,
+    validity: validite,
+    prodName: 'Chaise Martingale '+(prod?.name||''),
+    prodId: prodId,
+    qty: qty,
+    lineItems: lineItems,
+    subtotalBrutHT: sousTotalBrut,
+    subtotalHT: sousTotalNet,
+    globalDiscountPct: remisePct,
+    globalDiscountAmountHT: remiseMontant,
+    ht: isInvoice ? due.ht : baseHT,
+    tva: isInvoice ? due.tva : tva,
+    ttc: isInvoice ? due.ttc : ttc,
+    ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, ...(dgSourceQuote ? {sourceQuoteNum: dgSourceQuote.num} : {}),
+        ...(type==='FAC' ? {depositPct: due.pct} : {}),
+        ...(type==='FDF' ? {deductions: due.deductions.map((d,i)=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc, ...(dueCur?{ttcCurrency:dueCur.deductions[i].ttc}:{})}))} : {})} : {}),
+    ...getShippingStorageFields(shipping),
+    ...(landedEUR ? {shippingHT: round2(shipHT + landedEUR), shippingDetails: (shipping.details ? shipping.details+' · ' : '')+'dont droits et taxes US '+formatDocMoney(landedEUR)} : {}),
+    ...getVatStorageFields(vatSettings),
+    prospectId: prospectId,
+    availability,
+    ...(isInvoice?{invoiceDetails}:{}),
+    ...(isEnglishQuote?(()=>{const conv=curAmounts;return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: dueCur ? dueCur.ttc : conv.ttc, htCurrency: dueCur ? dueCur.ht : conv.baseHT, ...(dueCur?{orderTTCCurrency: dueCur.orderTTC}:{}), ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
+    createdAt: generatedAt.toISOString(),
+    date: generatedAt.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})
+  };
+  return record;
+}
+
 async function generateAndPrint(){
   if(documentGenerationBusy)return;
   documentGenerationBusy=true;
@@ -5969,48 +6064,7 @@ async function generateAndPrint(){
     renderProspects();
   }
   
-  const generatedAt = new Date();
-  const lineItems = getDocLineItemsFromGenerator(lines);
-  const clientName = contact || company;
-
-  const record = {
-    num: docNum,
-    type: type,
-    typeLabel: typeLabel,
-    contact: clientName,
-    clientName: clientName,
-    company: company,
-    contactName: contact,
-    email: email,
-    tel: tel,
-    billingAddress: addr,
-    shippingAddress: livraison,
-    deliveryDept: dept,
-    validity: validite,
-    prodName: 'Chaise Martingale '+(prod?.name||''),
-    prodId: prodId,
-    qty: qty,
-    lineItems: lineItems,
-    subtotalBrutHT: sousTotalBrut,
-    subtotalHT: sousTotalNet,
-    globalDiscountPct: remisePct,
-    globalDiscountAmountHT: remiseMontant,
-    ht: isInvoice ? due.ht : baseHT,
-    tva: isInvoice ? due.tva : tva,
-    ttc: isInvoice ? due.ttc : ttc,
-    ...(isInvoice ? {orderHT: due.orderHT, orderTVA: due.orderTVA, orderTTC: due.orderTTC, ...(dgSourceQuote ? {sourceQuoteNum: dgSourceQuote.num} : {}),
-        ...(type==='FAC' ? {depositPct: due.pct} : {}),
-        ...(type==='FDF' ? {deductions: due.deductions.map((d,i)=>({num:d.num, date:d.date, ht:d.ht, tva:d.tva, ttc:d.ttc, ...(dueCur?{ttcCurrency:dueCur.deductions[i].ttc}:{})}))} : {})} : {}),
-    ...getShippingStorageFields(shipping),
-    ...(landedEUR ? {shippingHT: round2(shipHT + landedEUR), shippingDetails: (shipping.details ? shipping.details+' · ' : '')+'dont droits et taxes US '+formatDocMoney(landedEUR)} : {}),
-    ...getVatStorageFields(vatSettings),
-    prospectId: prospectId,
-    availability,
-    ...(isInvoice?{invoiceDetails}:{}),
-    ...(isEnglishQuote?(()=>{const conv=curAmounts;return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: dueCur ? dueCur.ttc : conv.ttc, htCurrency: dueCur ? dueCur.ht : conv.baseHT, ...(dueCur?{orderTTCCurrency: dueCur.orderTTC}:{}), ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
-    createdAt: generatedAt.toISOString(),
-    date: generatedAt.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})
-  };
+  const record = buildGeneratorRecord(G, prospectId);
   if(isInvoice){
     // Brouillon : aucun numéro n'est attribué. Le numéro vient au moment d'« Émettre ».
     const wasEditing=!!dgEditingDraft;
@@ -6568,6 +6622,440 @@ function daysSince(v){
   const b = new Date(); b.setHours(0,0,0,0);
   return Math.round((b-a)/86400000);
 }
+// ══════════════════════════════════════════════════════════════
+// ENCAISSEMENTS : virements lus dans Pennylane, rattachés aux clients du CRM
+// (lecture et rapprochement faits côté serveur ; ici, affichage et décisions)
+// ══════════════════════════════════════════════════════════════
+function bankStore(){ return window.__mpBank || (window.__mpBank = {rows:[], loaded:false, loading:false}); }
+
+async function loadBankReceipts(){
+  const st = bankStore();
+  if(!sb || NOT_CONFIGURED || !currentUser || st.loading) return;
+  st.loading = true;
+  try{
+    const {data, error} = await sb.from('bank_receipts')
+      .select('id,date,amount,payer,label,status,match_kind,match_note,prospect_id,document_num,document_type,candidates,applied,pennylane_matched_at')
+      .neq('status','ignore').order('date',{ascending:false}).limit(300);
+    if(error){ console.warn('bank_receipts', error.message); return; }
+    st.rows = data || []; st.loaded = true;
+    try{ renderToday(); }catch(e){}
+    try{ renderCommandes(); }catch(e){}
+  } finally { st.loading = false; }
+}
+
+function receiptsToHandle(){ return bankStore().rows.filter(r=>r.status==='propose' || r.status==='nouveau'); }
+function receiptsForQuote(num){ return bankStore().rows.filter(r=>r.status==='rapproche' && r.document_num===num); }
+function frDay(v){ const t = new Date(v); return isNaN(t) ? '' : t.toLocaleDateString('fr-FR',{day:'numeric',month:'short'}); }
+function receiptDocLabel(r){ return r.document_num ? ((r.document_type && r.document_type!=='DEV') ? 'facture ' : 'devis ')+r.document_num : ''; }
+
+function bankTodayRows(list){
+  const esc = escapeHTML;
+  return list.map(r=>{
+    const p = r.prospect_id ? prospects.find(x=>x.id===r.prospect_id) : null;
+    const target = p ? (p.name||p.contact||'ce client')+(r.document_num ? ', '+receiptDocLabel(r) : '') : '';
+    return `<div class="td-row">
+      <button type="button" class="td-who" onclick="openReceiptPicker('${r.id}')"><b>${esc(r.payer||'Virement reçu')}</b><span>${esc(r.match_note||'')}</span></button>
+      <span class="td-what td-amount">${formatDocMoney(r.amount)}</span>
+      <span class="td-when">${esc(frDay(r.date))}</span>
+      <div class="td-act">${p?`<button type="button" class="btn btn-sm btn-primary" title="${esc('Rattacher à '+target)}" onclick="decideReceipt('${r.id}','confirmer',this)">C’est ${esc(String(p.name||p.contact||'ce client').slice(0,24))}</button>`:''}<button type="button" class="btn btn-sm" onclick="openReceiptPicker('${r.id}')">${p?'Autre client':'Choisir le client'}</button><button type="button" class="btn btn-sm" onclick="decideReceipt('${r.id}','ignorer',this)">Ignorer</button></div>
+    </div>`;
+  }).join('');
+}
+
+function bankSideCard(){
+  const esc = escapeHTML;
+  const st = bankStore();
+  if(!st.loaded) return '';
+  const rows = st.rows.filter(r=>r.status==='rapproche').slice(0,5);
+  return `<div class="td-card"><span class="td-cap">Derniers encaissements rattachés</span>
+    ${rows.length?`<div class="bank-mini">${rows.map(r=>{ const p = prospects.find(x=>x.id===r.prospect_id); return `<button type="button" class="bank-mini-row" ${p?`onclick="openFiche('${esc(p.id)}')"`:'disabled'}><span><b>${esc(p?.name||r.payer||'')}</b><small>${esc(frDay(r.date))}${r.document_num?' · '+esc(receiptDocLabel(r)):''}</small></span><span class="td-amount">${formatDocMoney(r.amount)}</span></button>`; }).join('')}</div>`:'<span class="td-mute">Aucun pour le moment.</span>'}
+    <button type="button" class="td-link" onclick="refreshBank(this)">Relire la banque maintenant</button></div>`;
+}
+
+async function refreshBank(btn){
+  const label = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Lecture en cours…'; }
+  try{
+    const res = await callCrmFunction('pennylane-bank', {});
+    if(res?.ok) toast(res.nouveaux ? (res.nouveaux+' nouvel'+(res.nouveaux>1?'s':'')+' encaissement'+(res.nouveaux>1?'s':'')) : 'Aucun nouvel encaissement');
+    else if(res?.error==='scope_transactions') toast('La clé Pennylane n’a pas encore le droit de lire les transactions.','error');
+    else if(res?.error==='not_configured') toast('Pennylane n’est pas encore branché.','error');
+    else toast('Lecture de la banque impossible pour le moment.','error');
+    await loadBankReceipts();
+    if(res?.rapproches){ loadDevis().catch(()=>{}); loadCommandes().catch(()=>{}); }
+  }catch(e){
+    toast('La lecture automatique de la banque n’est pas encore activée.','error');
+  }finally{
+    if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+async function decideReceipt(id, action, btn, prospectId=null, documentNum=null){
+  if(!sb || !currentUser) return null;
+  if(action==='ignorer' && !confirm('Ignorer cet encaissement ?\n\nIl ne sera rattaché à aucun client.')) return null;
+  if(btn) btn.disabled = true;
+  try{
+    const {data, error} = await sb.rpc('crm_decide_receipt', {p_id:Number(id), p_action:action, p_prospect:prospectId, p_document:documentNum});
+    if(error) throw error;
+    toast(action==='ignorer' ? 'Encaissement ignoré' : (action==='detacher' ? 'Encaissement détaché' : 'Encaissement rattaché ✓'));
+    await loadBankReceipts();
+    if(action!=='ignorer'){ loadDevis().catch(()=>{}); loadCommandes().catch(()=>{}); try{ loadProspects(); }catch(e){} }
+    return data;
+  }catch(e){
+    toast('Encaissement : '+(e.message||e),'error');
+    if(btn && btn.isConnected) btn.disabled = false;
+    return null;
+  }
+}
+
+// Choisir à la main le client (et le document) d'un encaissement
+function openReceiptPicker(id){
+  const r = bankStore().rows.find(x=>String(x.id)===String(id));
+  if(!r) return;
+  document.getElementById('receipt-picker')?.remove();
+  const esc = escapeHTML;
+  const ov = document.createElement('div');
+  ov.id = 'receipt-picker'; ov.className = 'bill-ov';
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+  const lines = String(r.label||'').split('\n').map(x=>x.trim()).filter(Boolean).slice(0,3).join(' · ');
+  ov.innerHTML = `<div class="rp-box" role="dialog" aria-modal="true" aria-labelledby="rp-title">
+    <div class="bill-head"><div><div class="bill-kicker">Encaissement du ${esc(frDay(r.date))}</div><h2 id="rp-title">${esc(r.payer||'Virement reçu')} · ${formatDocMoney(r.amount)}</h2><div class="bill-sub">${esc(lines)}</div></div>
+      <button type="button" class="bill-x" aria-label="Fermer" onclick="document.getElementById('receipt-picker')?.remove()">×</button></div>
+    <label class="bill-f"><span>Client</span><input id="rp-search" type="search" placeholder="Nom du client" autocomplete="off" oninput="renderReceiptPickerList()"></label>
+    <div id="rp-list" class="rp-list"></div>
+    <label class="bill-f" id="rp-doc-box" hidden><span>Document réglé</span><select id="rp-doc"></select></label>
+    <div class="bill-actions"><button type="button" class="btn btn-primary" id="rp-ok" disabled onclick="confirmReceiptPicker(this)">Rattacher</button><button type="button" class="btn" onclick="document.getElementById('receipt-picker')?.remove()">Annuler</button></div>
+    <p class="bill-note">Le CRM retiendra ce payeur pour ses prochains virements.</p>
+  </div>`;
+  document.body.appendChild(ov);
+  window.__mpPicker = {id:r.id, prospectId:null};
+  renderReceiptPickerList();
+  if(r.prospect_id) pickReceiptProspect(r.prospect_id);
+  ov.querySelector('#rp-search')?.focus();
+}
+
+function renderReceiptPickerList(){
+  const st = window.__mpPicker; const box = document.getElementById('rp-list');
+  if(!st || !box) return;
+  const r = bankStore().rows.find(x=>String(x.id)===String(st.id)); if(!r) return;
+  const norm = v => String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const q = norm(document.getElementById('rp-search')?.value).trim();
+  const real = prospects.filter(p=>isUuid(p.id));
+  let list;
+  if(q){
+    list = real.filter(p=>norm(p.name).includes(q) || norm(p.contact).includes(q)).slice(0,8);
+  }else{
+    const ids = [st.prospectId, r.prospect_id, ...(Array.isArray(r.candidates)?r.candidates.map(c=>c.prospect_id):[])].filter(Boolean);
+    list = [...new Set(ids)].map(pid=>real.find(p=>p.id===pid)).filter(Boolean);
+  }
+  box.innerHTML = list.length
+    ? list.map(p=>`<button type="button" class="rp-item${st.prospectId===p.id?' on':''}" aria-pressed="${st.prospectId===p.id}" onclick="pickReceiptProspect('${escapeHTML(p.id)}')"><b>${escapeHTML(p.name||p.contact||'Sans nom')}</b><small>${escapeHTML([p.contact,p.ville,p.statut].filter(Boolean).join(' · '))}</small></button>`).join('')
+    : `<span class="td-mute">${q?'Aucune fiche à ce nom.':'Tape le nom du client pour le retrouver.'}</span>`;
+}
+
+function pickReceiptProspect(pid){
+  const st = window.__mpPicker; if(!st) return;
+  const r = bankStore().rows.find(x=>String(x.id)===String(st.id)); if(!r) return;
+  st.prospectId = pid;
+  renderReceiptPickerList();
+  const docs = uniqueDocs().filter(d=>d.prospectId===pid && ((d.type==='DEV' && ['Envoyé','Accepté','Facturé'].includes(d.statut)) || (d.type!=='DEV' && d.invoiceIssuedAt && d.statut!=='Annulée')));
+  const sel = document.getElementById('rp-doc'), box = document.getElementById('rp-doc-box');
+  if(sel && box){
+    const same = docs.find(d=>Math.abs((+d.ttc||0)-(+r.amount||0))<=0.05);
+    const pre = (r.prospect_id===pid && r.document_num && docs.some(d=>d.num===r.document_num)) ? r.document_num : (same?.num||'');
+    sel.innerHTML = '<option value="">Aucun document : paiement seul</option>'
+      + docs.map(d=>`<option value="${escapeHTML(d.num)}"${d.num===pre?' selected':''}>${escapeHTML((d.type==='DEV'?'Devis ':'Facture ')+d.num+' · '+formatDocMoney(d.ttc)+' · '+(d.statut||''))}</option>`).join('');
+    box.hidden = false;
+  }
+  const ok = document.getElementById('rp-ok'); if(ok) ok.disabled = false;
+}
+
+async function confirmReceiptPicker(btn){
+  const st = window.__mpPicker; if(!st?.prospectId) return;
+  const doc = document.getElementById('rp-doc')?.value || null;
+  const res = await decideReceipt(st.id, 'confirmer', btn, st.prospectId, doc);
+  if(res){ document.getElementById('receipt-picker')?.remove(); window.__mpPicker = null; }
+}
+
+// Au retour sur l'onglet : les encaissements sont relus (au plus toutes les 5 minutes)
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState!=='visible' || !currentUser) return;
+  const st = bankStore(), now = Date.now();
+  if(now-(st.at||0) > 5*60*1000){ st.at = now; loadBankReceipts().catch(()=>{}); }
+});
+
+// ══════════════════════════════════════════════════════════════
+// FACTURER : une seule fenêtre, depuis un devis accepté ou une commande
+// Le calcul et le document viennent du générateur (gardé hors écran) : même facture, moins d'étapes.
+// ══════════════════════════════════════════════════════════════
+function billingStore(){ return window.__mpBilling || (window.__mpBilling = {}); }
+
+// Devis acceptés à facturer : payés (virement rattaché) ou livrés, sans facture définitive ni brouillon
+function quotesToInvoice(){
+  return uniqueDocs().filter(d=>d.type==='DEV' && d.statut==='Accepté').map(d=>{
+    const invoices = getQuoteInvoices(d.num);
+    if(invoices.some(i=>i.type==='FDF') || findDraftForQuote(d.num,'FDF')) return null;
+    const order = commandesList.find(c=>(c.devis_num||c.quote_num)===d.num) || null;
+    const receipts = receiptsForQuote(d.num);
+    const paid = receipts.reduce((s,r)=>s+(+r.amount||0),0);
+    const delivered = !!order && ['Livré','Expédié'].includes(order.statut);
+    if(!paid && !delivered) return null;
+    return {d, order, paid, lastReceipt:receipts[0]||null, delivered};
+  }).filter(Boolean);
+}
+
+function orderQuoteToInvoice(c){
+  const num = c?.devis_num || c?.quote_num;
+  if(!num || !/^DEV-/.test(num)) return null;
+  const q = uniqueDocs().find(d=>d.num===num && d.type==='DEV');
+  if(!q || q.statut!=='Accepté') return null;
+  if(getQuoteInvoices(num).some(i=>i.type==='FDF')) return null;
+  return q;
+}
+
+function proposeInvoiceForOrder(c){
+  const q = orderQuoteToInvoice(c);
+  if(q) openBilling(q.id||q.num, 'FDF', {reason:'Commande livrée : la facture est prête.'});
+}
+
+async function markQuoteInvoiced(num){
+  const q = findQuoteRecord(num);
+  if(!q) return;
+  if(!confirm('Le devis '+num+' a déjà été facturé ailleurs ?\n\nIl passe en « Facturé » et sort de la liste.')) return;
+  q.statut = 'Facturé';
+  saveDevisLocal();
+  try{ updateDocumentStatut(q, 'Facturé'); }catch(e){}
+  renderDevisList();
+  toast('Devis '+num+' marqué facturé');
+}
+
+async function openBilling(quoteId, type='FDF', opts={}){
+  const q = findQuoteRecord(quoteId);
+  if(!q || q.type!=='DEV'){ toast('Devis introuvable','error'); return; }
+  if(q.statut==='Facturé'){ toast('Ce devis est déjà facturé.','error'); return; }
+  if(q.statut==='Refusé'){ toast('Ce devis est refusé.','error'); return; }
+  const draft = findDraftForQuote(q.num, type);
+  if(draft){ toast('Un brouillon existe déjà pour ce devis : il s’ouvre pour modification.'); return editInvoiceDraft(draft.id); }
+  if(q.statut!=='Accepté'){
+    if(!confirm('Le devis '+q.num+' n’est pas encore marqué accepté.\n\nPour le facturer, il passe en « Accepté » et la commande est créée.\n\nContinuer ?')) return;
+    await accepterDevis(q.id||q.num);
+    if(q.statut!=='Accepté') q.statut = 'Accepté';
+  }
+  window.__mpBilling = {quoteKey:q.id||q.num, num:q.num, type, busy:false, ready:false};
+  renderBillingShell(q, opts.reason||'');
+  await billingPrepare(type);
+}
+
+function renderBillingShell(q, reason){
+  document.getElementById('billing-overlay')?.remove();
+  const esc = escapeHTML;
+  const receipts = receiptsForQuote(q.num);
+  const paid = receipts.reduce((s,r)=>s+(+r.amount||0),0);
+  const deposits = getQuoteInvoices(q.num).filter(i=>i.type==='FAC');
+  const pct = (paid>0 && +q.ttc>0) ? Math.round(paid/q.ttc*100) : 50;
+  const context = [
+    reason,
+    paid ? 'Reçu en banque : '+formatDocMoney(paid)+(receipts[0]?' le '+frDay(receipts[0].date).replace(/\.$/,''):'')+'.' : '',
+    deposits.length ? 'Acompte déjà facturé : '+deposits.map(i=>i.num+' ('+formatDocMoney(i.ttc)+')').join(', ')+'.' : ''
+  ].filter(Boolean);
+  const ov = document.createElement('div');
+  ov.id = 'billing-overlay'; ov.className = 'bill-ov';
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeBilling(); });
+  ov.innerHTML = `<div class="bill-box" role="dialog" aria-modal="true" aria-labelledby="bill-title">
+    <div class="bill-form" oninput="billingSchedule()" onchange="billingSchedule()">
+      <div class="bill-head"><div><div class="bill-kicker">Facturer</div><h2 id="bill-title">${esc(getDocClientLabel(q)||'Client')}</h2><div class="bill-sub">Devis ${esc(q.num)} · ${formatDocMoney(q.ttc)} TTC</div></div>
+        <button type="button" class="bill-x" aria-label="Fermer" onclick="closeBilling()">×</button></div>
+      ${context.length?`<div class="bill-context">${context.map(c=>'<div>'+esc(c)+'</div>').join('')}</div>`:''}
+      <div class="bill-types" role="group" aria-label="Type de facture">
+        <button type="button" class="bill-type" data-t="FDF" onclick="billingPrepare('FDF')">Facture</button>
+        <button type="button" class="bill-type" data-t="FAC" onclick="billingPrepare('FAC')">Acompte</button>
+      </div>
+      <label class="bill-f" id="bill-pct-box" hidden><span>Acompte (% de la commande)</span><input id="bill-pct" type="number" min="1" max="99" step="1" value="${pct>=5&&pct<=95?pct:50}"></label>
+      <label class="bill-f" id="bill-opdate-box"><span>Date de livraison</span><input id="bill-opdate" type="date"></label>
+      <label class="bill-f"><span>Échéance</span><select id="bill-due-mode"><option value="reception">À réception</option><option value="expedition">Avant expédition</option><option value="date">Date précise</option></select></label>
+      <label class="bill-f" id="bill-due-date-box" hidden><span>Date d’échéance</span><input id="bill-due-date" type="date"></label>
+      <details class="bill-more" id="bill-more"><summary>Adresse, SIREN, bon de commande</summary>
+        <label class="bill-f"><span>Adresse de facturation</span><textarea id="bill-addr" rows="2"></textarea></label>
+        <label class="bill-f"><span>SIREN client (facultatif)</span><input id="bill-siren" inputmode="numeric" maxlength="11"></label>
+        <label class="bill-f"><span>Bon de commande client (facultatif)</span><input id="bill-po"></label>
+      </details>
+      <div id="bill-amount" class="bill-amount"></div>
+      <div id="bill-error" class="bill-error" role="alert" hidden></div>
+      <div class="bill-actions">
+        <button type="button" class="btn btn-primary" id="bill-emit" onclick="billingEmit()" disabled>Émettre la facture</button>
+        <button type="button" class="btn" onclick="billingSaveDraft(this)">Garder en brouillon</button>
+      </div>
+      <p class="bill-note">Le numéro est attribué à l’émission. La facture est alors figée et part dans Pennylane. Une erreur se corrige par un avoir.</p>
+      <button type="button" class="td-link" onclick="billingOpenFull()">Ouvrir le générateur complet</button>
+    </div>
+    <div class="bill-preview" id="bill-preview"><iframe id="bill-frame" sandbox="allow-same-origin" title="Aperçu de la facture"></iframe></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
+function closeBilling(){
+  document.getElementById('billing-overlay')?.remove();
+  if(document.getElementById('doc-generator-overlay')?.classList.contains('dg-headless')) closeDocGenerator();
+  window.__mpBilling = {};
+}
+
+async function billingPrepare(type){
+  const st = billingStore(); if(!st.num) return;
+  st.type = type;
+  const el = id => document.getElementById(id);
+  document.getElementById('doc-generator-overlay')?.remove();
+  await openInvoiceFromQuote(st.quoteKey, type, {fromDraft:true});
+  const gen = el('doc-generator-overlay');
+  if(!gen || !dgSourceQuote){
+    billingShowError('Ce devis ne se facture pas d’ici (lignes illisibles). Passe par le générateur complet.');
+    return;
+  }
+  gen.classList.add('dg-headless'); gen.setAttribute('aria-hidden','true');
+  document.body.classList.remove('nd-open');
+  const gv = id => el(id)?.value || '';
+  if(!st.ready){
+    st.ready = true;
+    el('bill-addr').value = gv('dg-addr');
+    el('bill-siren').value = gv('dg-client-siren');
+    el('bill-po').value = gv('dg-purchase-order');
+    el('bill-opdate').value = todayParisISO();
+    if(!gv('dg-addr').trim()) el('bill-more').open = true;
+  }
+  el('bill-due-mode').value = gv('dg-due-mode') || 'reception';
+  document.querySelectorAll('#billing-overlay .bill-type').forEach(b=>{ const on = b.dataset.t===type; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  el('bill-pct-box').hidden = type!=='FAC';
+  el('bill-opdate-box').hidden = type!=='FDF';
+  billingSync();
+}
+
+function billingShowError(msg){
+  const err = document.getElementById('bill-error'), emit = document.getElementById('bill-emit');
+  if(err){ err.textContent = msg; err.hidden = false; }
+  if(emit) emit.disabled = true;
+}
+
+function billingSchedule(){
+  clearTimeout(window.__mpBillingTimer);
+  window.__mpBillingTimer = setTimeout(billingSync, 250);
+}
+
+// Reporte les réponses dans le générateur, recalcule, met à jour l'aperçu. Renvoie le calcul ou null.
+function billingSync(){
+  const st = billingStore(); if(!st.num) return null;
+  const el = id => document.getElementById(id);
+  if(!el('billing-overlay') || !el('doc-generator-overlay')) return null;
+  const setg = (id, v) => { const e = el(id); if(e) e.value = v; };
+  setg('dg-addr', el('bill-addr').value);
+  setg('dg-client-siren', el('bill-siren').value.replace(/\s/g,''));
+  setg('dg-purchase-order', el('bill-po').value);
+  setg('dg-due-mode', el('bill-due-mode').value);
+  try{ syncDueModeField(); }catch(e){}
+  setg('dg-due-date', el('bill-due-date').value);
+  el('bill-due-date-box').hidden = el('bill-due-mode').value!=='date';
+  if(st.type==='FAC') setg('dg-deposit-pct', el('bill-pct').value); else setg('dg-operation-date', el('bill-opdate').value);
+  try{ updateDocCalc(); }catch(e){}
+  let G; try{ G = computeGeneratorDoc(); }catch(e){ G = {error:e.message}; }
+  const emit = el('bill-emit'), amount = el('bill-amount'), frame = el('bill-frame');
+  if(G.error){
+    billingShowError(G.error);
+    if(/adresse/i.test(G.error)) el('bill-more').open = true;
+    amount.innerHTML = '';
+    return null;
+  }
+  // Garde-fou : la facture doit reprendre le total du devis (hors devis en devise étrangère, convertis au taux du jour).
+  const quote = findQuoteRecord(st.quoteKey);
+  const foreign = quote?.docCurrency && quote.docCurrency!=='EUR';
+  if(quote && !foreign && Math.abs((+G.due.orderTTC||0)-(+quote.ttc||0)) > 0.05){
+    billingShowError('Le total recalculé ('+formatDocMoney(G.due.orderTTC)+') ne correspond pas au devis ('+formatDocMoney(quote.ttc)+'). Ouvre le générateur complet pour vérifier.');
+    amount.innerHTML = '';
+    return null;
+  }
+  el('bill-error').hidden = true;
+  const ded = (G.due.deductions||[]).reduce((s,d)=>s+(+d.ttc||0),0);
+  amount.innerHTML = `<span>${st.type==='FAC'?'Acompte de '+escapeHTML(String(G.due.pct))+' %':(ded?'Solde, acomptes déduits':'Total de la commande')}</span><b>${formatDocMoney(G.due.ttc)} TTC</b>`;
+  emit.disabled = !!st.busy;
+  emit.textContent = st.busy ? 'Émission…' : 'Émettre la facture';
+  if(frame){
+    frame.onload = () => {
+      try{
+        const box = el('bill-preview'), d = frame.contentDocument;
+        const scale = Math.min(1, (box.clientWidth-36)/794);
+        const h = d.documentElement.scrollHeight;
+        frame.style.transform = 'scale('+scale+')';
+        frame.style.height = h+'px';
+        frame.style.marginBottom = '-'+Math.round(h*(1-scale))+'px';
+      }catch(e){}
+    };
+    frame.srcdoc = draftPreviewHtml(G.docHTML);
+  }
+  return G;
+}
+
+function billingRecord(G){
+  const st = billingStore();
+  const q = findQuoteRecord(st.quoteKey);
+  const record = buildGeneratorRecord(G, q?.prospectId || document.getElementById('dg-prospect-id')?.value || null);
+  const det = record.invoiceDetails || {};
+  const today = todayParisISO();
+  if(det.dueMode!=='date') det.dueDate = today;
+  if(record.type==='FAC') det.operationDate = today;
+  record.invoiceDetails = det;
+  record.validity = det.dueDate;
+  return {record, q};
+}
+
+async function billingEmit(){
+  const st = billingStore();
+  if(!st.num || st.busy || documentGenerationBusy) return;
+  if(readPendingInvoice()){ toast('Une émission précédente n’a pas été confirmée : reprends-la d’abord depuis l’onglet Devis.','error'); return; }
+  const G = billingSync(); if(!G) return;
+  const {record, q} = billingRecord(G);
+  st.busy = true; documentGenerationBusy = true;
+  const emit = document.getElementById('bill-emit');
+  if(emit){ emit.disabled = true; emit.textContent = 'Émission…'; }
+  try{
+    const pending = {requestId:crypto.randomUUID(), userId:currentUser.id, record, html:G.docHTML};
+    localStorage.setItem('mp_pending_invoice', JSON.stringify(pending));
+    const issued = await issueInvoiceOnServer(pending);
+    if(record.type==='FDF' && q){ q.statut = 'Facturé'; saveDevisLocal(); try{ updateDocumentStatut(q, 'Facturé'); }catch(e){} }
+    closeBilling();
+    try{ renderInvoiceDrafts(); renderDevisList(); renderCommandes(); }catch(e){}
+    toast('Facture '+issued.num+' émise ✓');
+    openDocViewer((record.type==='FAC'?'Facture d’acompte ':'Facture ')+issued.num, issued.invoiceHtml);
+  }catch(e){
+    st.busy = false;
+    toast(e.message||String(e),'error');
+    billingSync();
+  }finally{
+    documentGenerationBusy = false;
+  }
+}
+
+async function billingSaveDraft(btn){
+  const st = billingStore(); if(!st.num || st.busy) return;
+  const G = billingSync(); if(!G) return;
+  if(btn) btn.disabled = true;
+  try{
+    const {record} = billingRecord(G);
+    dgEditingDraft = null;
+    await saveInvoiceDraft(record, G.docHTML, captureGeneratorForm());
+    closeBilling();
+    toast('Brouillon enregistré, sans numéro. Il attend dans « Aujourd’hui ».');
+  }catch(e){
+    toast(e.message||String(e),'error');
+    if(btn && btn.isConnected) btn.disabled = false;
+  }
+}
+
+// Besoin d'un réglage absent de cette fenêtre : le générateur complet s'ouvre, déjà rempli.
+function billingOpenFull(){
+  billingSync();
+  const gen = document.getElementById('doc-generator-overlay');
+  document.getElementById('billing-overlay')?.remove();
+  window.__mpBilling = {};
+  if(gen){ gen.classList.remove('dg-headless'); gen.removeAttribute('aria-hidden'); document.body.classList.add('nd-open'); try{ scheduleGeneratorPreview(); }catch(e){} }
+}
+
 function ageLabel(d){
   if(d===null) return '';
   if(d<=0) return 'aujourd’hui';
@@ -6629,12 +7117,16 @@ function renderToday(){
   const unpaid=docs.filter(d=>d.type!=='DEV' && d.invoiceIssuedAt && !['Payée','Annulée'].includes(d.statut) && !d.pennylane?.paid)
     .map(d=>({d, j:daysSince(d.invoiceIssuedAt)})).sort((a,b)=>(b.j||0)-(a.j||0));
 
-  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length;
+  // 6. Encaissements à rattacher, devis payés ou livrés à facturer
+  const receipts=receiptsToHandle();
+  const toBill=quotesToInvoice();
+
+  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(rappels.length+relances.length,'relance'+(rappels.length+relances.length>1?'s':''))+chip(drafts.length,'à émettre')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(rappels.length+relances.length,'relance'+(rappels.length+relances.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -6648,6 +7140,8 @@ function renderToday(){
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
     </div>`).join(''), nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:'');
+  html+=section('Encaissements à rattacher','virements reçus, client à confirmer', bankTodayRows(receipts.slice(0,8)),
+    receipts.length>8?`<div class="td-more" style="cursor:default">${receipts.length-8} autres encaissements à traiter ensuite</div>`:'');
   html+=section('Rappels','prévus aujourd’hui ou en retard', rappels.map(p=>{const d=daysSince(p.rappel_date);return `
     <div class="td-row">
       <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'')}</b><span>${esc(p.rappel_note||p.statut||'')}</span></button>
@@ -6662,7 +7156,13 @@ function renderToday(){
       <span class="td-when ${ageClass(j,7,14)}">J+${j}</span>
       <div class="td-act">${d.prospectId?`<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(d.prospectId)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="openSendDocument('${esc(d.id||d.num)}')">Renvoyer</button>`:''}<button type="button" class="btn btn-sm td-ok" onclick="accepterDevis('${esc(d.id||d.num)}')">Signé</button></div>
     </div>`).join(''), relances.length>8?`<button type="button" class="td-more" onclick="go('devis')">Voir les ${relances.length} devis</button>`:'');
-  html+=section('Factures à émettre','brouillons sans numéro', drafts.map(d=>`
+  html+=section('Factures à émettre','devis payés ou livrés, et brouillons', toBill.map(({d,paid,lastReceipt,delivered})=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>Devis ${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
+      <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
+      <span class="td-when is-warn">${paid?'payé'+(lastReceipt?' le '+esc(frDay(lastReceipt.date)):''):''}${paid&&delivered?' · ':''}${delivered?'livrée':''}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="markQuoteInvoiced('${esc(d.num)}')">Déjà facturée</button><button type="button" class="btn btn-sm btn-primary" onclick="openBilling('${esc(d.id||d.num)}','FDF')">Facturer</button></div>
+    </div>`).join('')+drafts.map(d=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="go('devis')"><b>${esc(d.client||'Client')}</b><span>${d.type==='FAC'?'Facture d’acompte':'Facture'}${d.source_quote_num?' · devis '+esc(d.source_quote_num):''}</span></button>
       <span class="td-what td-amount">${formatDocMoney(d.ttc)} TTC</span>
@@ -6694,6 +7194,7 @@ function renderToday(){
       <div class="td-2"><div><b>${sent}</b><span class="td-mute">devis envoyés</span></div><div><b>${signed}</b><span class="td-mute">devis signés</span></div></div>
     </div>
     ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}
+    ${bankSideCard()}
     <div class="td-card" id="td-activity" hidden></div>`;
   // Dernières modifications (toi, ton équipe, les automatismes)
   renderTeamActivity();
@@ -7170,8 +7671,14 @@ async function loadCommandes(){
   if(!sb||NOT_CONFIGURED) return;
   const {data,error} = await sb.from('orders').select('*, payments(*)').order('created_at',{ascending:false});
   if(error){ console.error('loadCommandes:',error); return; }
-  if(data) commandesList = data;
+  if(data) commandesList = data.map(o=>({
+    ...o,
+    devis_num: o.devis_num || o.quote_num || '',
+    supabase_id: o.id,
+    payments: (o.payments||[]).map(p=>({...p, date: p.date || p.date_paiement || p.created_at}))
+  }));
   saveCmdLocal();
+  try{ renderCommandes(); updateCmdBadge(); renderToday(); }catch(e){}
 }
 
 // ── Called after generating a PDF
@@ -7247,7 +7754,7 @@ function renderDevisList(){
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
           ${canRefuse?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="refuserDevis('${d.id||d.num}')">✗ Refusé</button>`:''}
-          ${isDevis&&['Envoyé','Accepté'].includes(d.statut)?(()=>{const df=findDraftForQuote(d.num,'FDF'), da=findDraftForQuote(d.num,'FAC');return `<button class="btn btn-sm" onclick="invoiceFromQuote('${d.id||d.num}','FAC')">${da?'Brouillon d’acompte':'Facture d’acompte'}</button><button class="btn btn-sm btn-primary" onclick="invoiceFromQuote('${d.id||d.num}','FDF')">${df?'Reprendre la facture':'Facture définitive'}</button>`;})():''}
+          ${isDevis&&['Envoyé','Accepté'].includes(d.statut)?(()=>{const df=findDraftForQuote(d.num,'FDF'), da=findDraftForQuote(d.num,'FAC');return `<button class="btn btn-sm" onclick="openBilling('${d.id||d.num}','FAC')">${da?'Brouillon d’acompte':'Acompte'}</button><button class="btn btn-sm btn-primary" onclick="openBilling('${d.id||d.num}','FDF')">${df?'Reprendre la facture':'Facturer'}</button>`;})():''}
           ${isAccepted?`<button class="btn btn-sm" onclick="go('commandes')">Voir commande</button>`:''}
           ${d.prospectId?`<button class="btn btn-sm" onclick="openFiche('${d.prospectId}')">Fiche</button>`:''}
           ${(d.invoiceIssuedAt||isDevis)?`<button class="btn btn-sm" title="Envoyer au client un lien vers le document" onclick="openSendDocument('${d.id||d.num}')">Envoyer</button>`:''}
@@ -7877,6 +8384,7 @@ function renderCommandes(){
           + '<td style="padding:8px 10px;font-size:11px;color:#888">'+livrLabel+'</td>'
           // Actions
           + '<td style="padding:8px 6px;white-space:nowrap">'
+            + (orderQuoteToInvoice(c) ? '<button onclick="event.stopPropagation();openBilling(&quot;'+escapeHTML(orderQuoteToInvoice(c).num)+'&quot;,&quot;FDF&quot;)" title="Émettre la facture de cette commande" style="border:1px solid #403F21;background:#403F21;border-radius:4px;cursor:pointer;padding:2px 7px;font-size:11px;color:#fff">Facturer</button> ' : '')
             + '<button onclick="event.stopPropagation();ajouterPaiementCmd(&quot;'+c.id+'&quot;)" title="Ajouter un paiement" style="border:1px solid #D4D3B8;background:#F7F5F0;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#403F21">+ €</button> '
             + '<button onclick="event.stopPropagation();changerStatutCmd(&quot;'+c.id+'&quot;)" title="Changer statut" style="border:1px solid #D4D3B8;background:#F7F5F0;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#403F21">✎</button> '
             + '<button onclick="event.stopPropagation();supprimerCommande(&quot;'+c.id+'&quot;)" title="Supprimer" style="border:none;background:none;cursor:pointer;color:#C0392B;font-size:16px;padding:0 2px;line-height:1">×</button>'
@@ -7946,7 +8454,8 @@ function ajouterPaiementCmd(cmdId){
   c.payments.push({montant:+montant, date:new Date().toISOString()});
   saveCmdLocal();
   if(sb && !NOT_CONFIGURED && currentUser && c.supabase_id){
-    sb.from('orders').update({payments:c.payments}).eq('id',c.supabase_id).then(({error})=>{ if(error) console.error(error); });
+    sb.from('payments').insert({user_id:currentUser.id, order_id:c.supabase_id, montant:+montant, mode:'Saisie manuelle', date_paiement:todayParisISO(), statut:'Reçu'})
+      .then(({error})=>{ if(error){ console.error(error); toast('Paiement non enregistré dans la base : '+error.message,'error'); } });
   }
   renderCommandes();
   toast('Paiement de '+montant+' € enregistré');
@@ -7961,9 +8470,12 @@ function changerStatutCmd(cmdId){
   c.statut = next;
   saveCmdLocal();
   if(sb && !NOT_CONFIGURED && currentUser && c.supabase_id){
-    sb.from('orders').update({statut:next}).eq('id',c.supabase_id).then(({error})=>{ if(error) console.error(error); });
+    sb.from('orders').update({statut:next}).eq('id',c.supabase_id).then(({error})=>{ if(error){ console.error(error); toast('Statut non enregistré dans la base : '+error.message,'error'); } });
   }
   renderCommandes();
+  try{ renderToday(); }catch(e){}
+  // Commande livrée : la facture est proposée tout de suite.
+  if(next==='Livré') proposeInvoiceForOrder(c);
 }
 
 function supprimerCommande(cmdId){

@@ -72,10 +72,15 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return rep(405, { ok: false });
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  // Seul le compte CRM de Roméo peut appeler cette fonction
+  // Roméo, ou un membre de son équipe (table crm_members)
   const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const { data: who } = await sb.auth.getUser(jwt);
-  if (who?.user?.id !== USER_ID) return rep(403, { ok: false, error: "forbidden" });
+  let allowed = who?.user?.id === USER_ID;
+  if (!allowed && who?.user?.id) {
+    const { data: member } = await sb.from("crm_members").select("owner_id").eq("user_id", who.user.id).maybeSingle();
+    allowed = member?.owner_id === USER_ID;
+  }
+  if (!allowed) return rep(403, { ok: false, error: "forbidden" });
 
   let body: Record<string, any> = {};
   try { body = JSON.parse(await req.text() || "{}"); } catch { return rep(400, { ok: false, error: "payload" }); }

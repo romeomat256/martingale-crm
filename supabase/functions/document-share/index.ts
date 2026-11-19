@@ -97,10 +97,15 @@ Deno.serve(async (req: Request) => {
     return rep(200, { ok: true });
   }
 
-  // ── CRM : session de Roméo obligatoire
+  // ── CRM : session de Roméo ou d'un membre de son équipe (table crm_members)
   const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const { data: who } = await sb.auth.getUser(jwt);
-  if (who?.user?.id !== USER_ID) return rep(403, { ok: false, error: "forbidden" });
+  let allowed = who?.user?.id === USER_ID;
+  if (!allowed && who?.user?.id) {
+    const { data: member } = await sb.from("crm_members").select("owner_id").eq("user_id", who.user.id).maybeSingle();
+    allowed = member?.owner_id === USER_ID;
+  }
+  if (!allowed) return rep(403, { ok: false, error: "forbidden" });
 
   async function ensureLink(num: string) {
     const { data: ex } = await sb.from("document_links").select("token, expires_at").eq("document_num", num)
