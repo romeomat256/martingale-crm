@@ -1,7 +1,7 @@
 -- Rapprochement bancaire : les encaissements lus dans Pennylane sont rattachés aux devis,
 -- factures et fiches du CRM.
--- Version complète. En production le 19/11/2026 : tables et fonctions (migrations crm_rapprochement_bancaire_tables
--- et crm_rapprochement_bancaire_fonctions).
+-- Version complète, en production le 19/11/2026 (migrations crm_rapprochement_bancaire_tables,
+-- crm_rapprochement_bancaire_fonctions et crm_rapprochement_reconnaissance_payeur).
 
 -- ══════════════════════════════════════════════════════════════
 -- 1. TABLES

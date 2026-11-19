@@ -74,6 +74,9 @@ Deno.serve(async (req: Request) => {
 
   const since = /^\d{4}-\d{2}-\d{2}$/.test(String(body.since || "")) ? String(body.since) : daysAgo(DEFAULT_WINDOW_DAYS);
   const out = { ok: true, since, lus: 0, nouveaux: 0, rapproches: 0, a_confirmer: 0, pennylane: 0, erreurs: [] as string[] };
+  const trace = async (value: unknown) => {
+    await sb.from("crm_sync_state").upsert({ key: "banque_passage", value, updated_at: new Date().toISOString() });
+  };
 
   try {
     // 1. Encaissements dans Pennylane
@@ -84,7 +87,9 @@ Deno.serve(async (req: Request) => {
       const r = await pl(token, `/transactions?limit=100&filter=${filter}${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`);
       if (!r.ok) {
         const scope = r.status === 403 || r.status === 401;
-        return rep(200, { ok: false, error: scope ? "scope_transactions" : "pennylane", status: r.status, detail: JSON.stringify(r.body).slice(0, 300) });
+        const fail = { ok: false, error: scope ? "scope_transactions" : "pennylane", status: r.status, detail: JSON.stringify(r.body).slice(0, 300) };
+        await trace({ at: new Date().toISOString(), ...fail });
+        return rep(200, fail);
       }
       const items: any[] = r.body?.items || r.body?.transactions || [];
       for (const t of items) {
@@ -134,7 +139,7 @@ Deno.serve(async (req: Request) => {
 
     // 4. Dans Pennylane : la transaction est rattachée à la facture réglée
     const { data: toLink } = await sb.from("bank_receipts").select("id, document_num, pennylane_note")
-      .eq("user_id", owner).eq("status", "rapproche").is("pennylane_matched_at", null)
+      .eq("user_id", owner).eq("status", "rapproche").eq("applied", true).is("pennylane_matched_at", null)
       .not("document_num", "is", null).neq("document_type", "DEV").gte("date", daysAgo(120));
     for (const b of toLink || []) {
       const { data: doc } = await sb.from("documents").select("pennylane").eq("user_id", owner).eq("num", b.document_num)
@@ -155,10 +160,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    await sb.from("crm_sync_state").upsert({ key: "banque_passage", value: { at: new Date().toISOString(), ...out, erreurs: out.erreurs.slice(0, 5) }, updated_at: new Date().toISOString() });
+    await trace({ at: new Date().toISOString(), ...out, erreurs: out.erreurs.slice(0, 5) });
     return rep(200, out);
   } catch (e) {
     console.error("pennylane-bank", e);
-    return rep(502, { ok: false, error: "pennylane", detail: String((e as Error).message || e).slice(0, 300) });
+    const detail = String((e as Error).message || e).slice(0, 300);
+    try { await trace({ at: new Date().toISOString(), ok: false, error: "exception", detail }); } catch { /* rien */ }
+    return rep(502, { ok: false, error: "pennylane", detail });
   }
 });

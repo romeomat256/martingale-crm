@@ -1,6 +1,6 @@
 -- Rapprochement bancaire : passage automatique toutes les heures de 7 h à 21 h (heure de Paris en hiver),
 -- CRM fermé et ordinateur éteint.
--- À appliquer après le déploiement de la fonction serveur « pennylane-bank ».
+-- Appliqué en production le 19/11/2026 (migration crm_rapprochement_automatisation), fonction « pennylane-bank » déployée.
 -- Le secret partagé entre la base et la fonction est créé ici et ne sort jamais de la base.
 
 create extension if not exists pg_cron;
