@@ -467,6 +467,14 @@ body.nd-open{overflow:hidden}
 .bank-mini-row span:first-child{display:flex;flex-direction:column;min-width:0}
 .bank-mini-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bank-mini-row small{font-size:12px;color:var(--gris-l)}
+.sync-list{display:flex;flex-direction:column;gap:10px}
+.sync-row{display:flex;align-items:flex-start;gap:10px;font-size:13px}
+.sync-row span{display:flex;flex-direction:column;min-width:0}
+.sync-row small{font-size:12px;color:var(--gris-l);line-height:1.35}
+.sync-dot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:5px;background:var(--vert-moyen)}
+.sync-dot.is-ok{background:var(--vert-ok)}
+.sync-dot.is-warn{background:var(--warn)}
+.sync-btn{width:100%;min-height:40px}
 @media(max-width:860px){.bill-box{grid-template-columns:1fr}.bill-preview{display:none}.bill-ov{padding:10px;align-items:flex-end}}
 @media(max-width:900px){
   .td-row{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
@@ -859,7 +867,7 @@ body.nd-open{overflow:hidden}
       <div class="subtabs" role="tablist"><button type="button" class="on" role="tab" aria-selected="true">Devis et factures <span class="subtab-n" id="devis-count">0 devis</span></button><button type="button" role="tab" aria-selected="false" onclick="go('commandes')">Commandes <span class="nav-badge" id="badge-commandes" style="display:none">0</span></button></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" onclick="syncPennylanePayments()" title="Relire dans Pennylane les factures payées">Paiements Pennylane</button>
+      <button class="btn" data-sync-btn onclick="syncEverything()" title="Pennylane (banque et factures), e-mails, WhatsApp, demandes du site">Tout mettre à jour</button>
       <button class="btn btn-primary" onclick="openDocGenerator(null)">+ Nouveau devis</button>
     </div>
   </div>
@@ -1787,7 +1795,7 @@ function showLogin(){
 function showApp(user){
   document.body.classList.add('app-on');
   window.CrmDocuments?.resumePending();
-  setTimeout(()=>syncPennylanePayments({silent:true}).catch(()=>{}),4000);
+  setTimeout(()=>syncOnOpen().catch(()=>{}),4000);
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('nav').style.display='flex';
   document.getElementById('main').style.display='block';
@@ -6668,26 +6676,7 @@ function bankSideCard(){
   if(!st.loaded) return '';
   const rows = st.rows.filter(r=>r.status==='rapproche').slice(0,5);
   return `<div class="td-card"><span class="td-cap">Derniers encaissements rattachés</span>
-    ${rows.length?`<div class="bank-mini">${rows.map(r=>{ const p = prospects.find(x=>x.id===r.prospect_id); return `<button type="button" class="bank-mini-row" ${p?`onclick="openFiche('${esc(p.id)}')"`:'disabled'}><span><b>${esc(p?.name||r.payer||'')}</b><small>${esc(frDay(r.date))}${r.document_num?' · '+esc(receiptDocLabel(r)):''}</small></span><span class="td-amount">${formatDocMoney(r.amount)}</span></button>`; }).join('')}</div>`:'<span class="td-mute">Aucun pour le moment.</span>'}
-    <button type="button" class="td-link" onclick="refreshBank(this)">Relire la banque maintenant</button></div>`;
-}
-
-async function refreshBank(btn){
-  const label = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = 'Lecture en cours…'; }
-  try{
-    const res = await callCrmFunction('pennylane-bank', {});
-    if(res?.ok) toast(res.nouveaux ? (res.nouveaux+' nouvel'+(res.nouveaux>1?'s':'')+' encaissement'+(res.nouveaux>1?'s':'')) : 'Aucun nouvel encaissement');
-    else if(res?.error==='scope_transactions') toast('La clé Pennylane n’a pas encore le droit de lire les transactions.','error');
-    else if(res?.error==='not_configured') toast('Pennylane n’est pas encore branché.','error');
-    else toast('Lecture de la banque impossible pour le moment.','error');
-    await loadBankReceipts();
-    if(res?.rapproches){ loadDevis().catch(()=>{}); loadCommandes().catch(()=>{}); }
-  }catch(e){
-    toast('La lecture automatique de la banque n’est pas encore activée.','error');
-  }finally{
-    if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = label; }
-  }
+    ${rows.length?`<div class="bank-mini">${rows.map(r=>{ const p = prospects.find(x=>x.id===r.prospect_id); return `<button type="button" class="bank-mini-row" ${p?`onclick="openFiche('${esc(p.id)}')"`:'disabled'}><span><b>${esc(p?.name||r.payer||'')}</b><small>${esc(frDay(r.date))}${r.document_num?' · '+esc(receiptDocLabel(r)):''}</small></span><span class="td-amount">${formatDocMoney(r.amount)}</span></button>`; }).join('')}</div>`:'<span class="td-mute">Aucun pour le moment.</span>'}</div>`;
 }
 
 async function decideReceipt(id, action, btn, prospectId=null, documentNum=null){
@@ -6777,11 +6766,97 @@ async function confirmReceiptPicker(btn){
   if(res){ document.getElementById('receipt-picker')?.remove(); window.__mpPicker = null; }
 }
 
+// ══════════════════════════════════════════════════════════════
+// SYNCHRONISATION : un seul bouton et un seul état pour toutes les sources
+// (Pennylane banque et factures, Gmail, WhatsApp, demandes du site)
+// ══════════════════════════════════════════════════════════════
+function syncStore(){ return window.__mpSync || (window.__mpSync = {status:null, busy:false, at:0}); }
+
+async function loadSyncStatus(){
+  if(!sb || NOT_CONFIGURED || !currentUser) return null;
+  const {data, error} = await sb.rpc('crm_sync_status');
+  if(error){ console.warn('crm_sync_status', error.message); return null; }
+  const st = syncStore(); st.status = data || {}; st.at = Date.now();
+  renderSyncCard();
+  return st.status;
+}
+
+// Tout mettre à jour : Pennylane est relu côté serveur, puis le CRM relit toute la base.
+// Gmail (toutes les 10 minutes) et WhatsApp (tâche Claude) envoient d'eux-mêmes : on relit ce qu'ils ont déposé.
+async function syncEverything({silent=false}={}){
+  const st = syncStore();
+  if(st.busy || !sb || NOT_CONFIGURED || !currentUser) return;
+  st.busy = true; renderSyncCard();
+  const news = [], problems = [];
+  try{
+    let res = null;
+    try{ res = await callCrmFunction('pennylane-bank', {}); }catch(e){ problems.push('Pennylane injoignable'); }
+    if(res){
+      if(res.nouveaux) news.push(res.nouveaux+' encaissement'+(res.nouveaux>1?'s':''));
+      const paid = res.factures_payees || [];
+      if(paid.length) news.push(paid.length+' facture'+(paid.length>1?'s':'')+' payée'+(paid.length>1?'s':''));
+      if(res.error==='scope_transactions') problems.push('banque : droit de lecture à ajouter sur la clé Pennylane');
+      else if(res.error==='not_configured') problems.push('Pennylane n’est pas branché');
+      else if(res.error) problems.push('banque : lecture impossible');
+    }
+    const before = prospects.length;
+    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), reloadTeam()]);
+    if(prospects.length > before) news.push((prospects.length-before)+' nouvelle'+(prospects.length-before>1?'s':'')+' fiche'+(prospects.length-before>1?'s':''));
+    await loadSyncStatus();
+    try{ renderToday(); }catch(e){}
+    if(!silent || news.length){
+      const parts = [...news, ...(silent ? [] : problems)];
+      toast(parts.length ? 'Mise à jour : '+parts.join(' · ') : 'Tout est à jour ✓', (!news.length && problems.length && !silent) ? 'error' : undefined);
+    }
+  } finally {
+    st.busy = false; renderSyncCard();
+  }
+}
+
+function renderSyncCard(){
+  const st = syncStore(), s = st.status;
+  document.querySelectorAll('[data-sync-btn]').forEach(b=>{ b.disabled = st.busy; b.textContent = st.busy ? 'Mise à jour…' : (b.dataset.label || 'Tout mettre à jour'); });
+  const box = document.getElementById('td-sync');
+  if(!box) return;
+  const esc = escapeHTML;
+  const ago = v => v ? relativeTime(v) : '';
+  const days = v => v ? (Date.now()-new Date(v).getTime())/86400000 : Infinity;
+  const row = (state, name, detail) => `<div class="sync-row"><i class="sync-dot is-${state}" aria-hidden="true"></i><span><b>${esc(name)}</b><small>${esc(detail)}</small></span></div>`;
+  let rows = '';
+  if(s){
+    const b = s.banque || null, toHandle = +s.banque_a_traiter || 0;
+    rows += !b ? row('off','Banque (Pennylane)','jamais relue')
+      : b.error==='scope_transactions' ? row('warn','Banque (Pennylane)','droit de lecture des transactions à ajouter sur la clé')
+      : b.ok===false ? row('warn','Banque (Pennylane)','dernière lecture en échec, '+ago(b.passage))
+      : row('ok','Banque (Pennylane)','relue '+ago(b.passage)+(toHandle?' · '+toHandle+' à rattacher':''));
+    const f = s.factures || {};
+    rows += row(+f.en_attente?'warn':'ok','Factures (Pennylane)', (+f.envoyees||0)+' envoyée'+(+f.envoyees>1?'s':'')+(+f.en_attente?' · '+f.en_attente+' pas encore envoyée'+(+f.en_attente>1?'s':''):''));
+    const g = s.gmail || {};
+    rows += row(!g.dernier?'off':(days(g.dernier)>3?'warn':'ok'),'E-mails (Gmail)', g.dernier ? 'dernier mail classé '+ago(g.dernier) : 'aucun mail classé');
+    const w = s.whatsapp || {};
+    rows += row(w.dernier?(days(w.dernier)>3?'warn':'ok'):'off','WhatsApp', w.dernier ? 'dernier résumé '+ago(w.dernier) : 'tâche pas encore lancée');
+    const site = s.site || {};
+    rows += row(site.derniere_demande?'ok':'off','Demandes du site', site.derniere_demande ? 'dernière '+ago(site.derniere_demande) : 'aucune demande reçue');
+  }
+  box.innerHTML = `<span class="td-cap">Synchronisation</span>
+    ${rows ? `<div class="sync-list">${rows}</div>` : '<span class="td-mute">État en cours de lecture…</span>'}
+    <button type="button" class="btn btn-primary sync-btn" data-sync-btn onclick="syncEverything()" ${st.busy?'disabled':''}>${st.busy?'Mise à jour…':'Tout mettre à jour'}</button>
+    <span class="td-mute">${s && s.tache_horaire===false ? 'Le passage automatique est arrêté.' : 'Automatique toutes les heures, de 7 h à 21 h.'}</span>`;
+}
+
+// À l'ouverture : l'état est lu, et une mise à jour part seule si la dernière date de plus de 30 minutes.
+async function syncOnOpen(){
+  const s = await loadSyncStatus();
+  if(!s) return;
+  const last = s.banque?.passage ? new Date(s.banque.passage).getTime() : 0;
+  if(Date.now()-last > 30*60*1000) syncEverything({silent:true});
+}
+
 // Au retour sur l'onglet : les encaissements sont relus (au plus toutes les 5 minutes)
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState!=='visible' || !currentUser) return;
   const st = bankStore(), now = Date.now();
-  if(now-(st.at||0) > 5*60*1000){ st.at = now; loadBankReceipts().catch(()=>{}); }
+  if(now-(st.at||0) > 5*60*1000){ st.at = now; loadBankReceipts().catch(()=>{}); loadSyncStatus().catch(()=>{}); }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -7195,7 +7270,9 @@ function renderToday(){
     </div>
     ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}
     ${bankSideCard()}
+    <div class="td-card" id="td-sync"></div>
     <div class="td-card" id="td-activity" hidden></div>`;
+  renderSyncCard();
   // Dernières modifications (toi, ton équipe, les automatismes)
   renderTeamActivity();
 }

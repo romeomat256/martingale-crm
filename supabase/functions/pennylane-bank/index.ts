@@ -1,12 +1,13 @@
-// Martingale : rapprochement bancaire automatique.
-// Lit les encaissements dans Pennylane, les enregistre dans bank_receipts, les rattache aux devis,
-// factures et fiches du CRM (fonction SQL crm_match_receipt), puis rattache dans Pennylane la
-// transaction à la facture correspondante.
+// Martingale : synchronisation Pennylane (banque et factures), en un seul passage.
+//   1. lit les encaissements dans Pennylane et les enregistre dans bank_receipts ;
+//   2. les rattache aux devis, factures et fiches du CRM (fonction SQL crm_match_receipt) ;
+//   3. rattache dans Pennylane la transaction à la facture réglée ;
+//   4. relit dans Pennylane les factures payées et les marque payées dans le CRM.
 //
 // Appels :
 //   - programmé (pg_cron -> pg_net) avec l'en-tête x-crm-cron ;
-//   - depuis le CRM, par un membre de l'équipe connecté (bouton « Actualiser »).
-// Corps JSON facultatif : { "since": "AAAA-MM-JJ" } pour relire depuis une date.
+//   - depuis le CRM, par un membre de l'équipe connecté (bouton « Tout mettre à jour »).
+// Corps JSON facultatif : { "since": "AAAA-MM-JJ" } pour relire la banque depuis une date.
 // Clé : PENNYLANE_API_TOKEN, avec les droits « transactions » (lecture) et « customer_invoices ».
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -73,7 +74,8 @@ Deno.serve(async (req: Request) => {
   if (!token) return rep(200, { ok: false, error: "not_configured" });
 
   const since = /^\d{4}-\d{2}-\d{2}$/.test(String(body.since || "")) ? String(body.since) : daysAgo(DEFAULT_WINDOW_DAYS);
-  const out = { ok: true, since, lus: 0, nouveaux: 0, rapproches: 0, a_confirmer: 0, pennylane: 0, erreurs: [] as string[] };
+  const out = { ok: true, since, lus: 0, nouveaux: 0, rapproches: 0, a_confirmer: 0, pennylane: 0, factures_payees: [] as string[], erreurs: [] as string[] };
+  let bankError: Record<string, unknown> | null = null;
   const trace = async (value: unknown) => {
     await sb.from("crm_sync_state").upsert({ key: "banque_passage", value, updated_at: new Date().toISOString() });
   };
@@ -87,9 +89,8 @@ Deno.serve(async (req: Request) => {
       const r = await pl(token, `/transactions?limit=100&filter=${filter}${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`);
       if (!r.ok) {
         const scope = r.status === 403 || r.status === 401;
-        const fail = { ok: false, error: scope ? "scope_transactions" : "pennylane", status: r.status, detail: JSON.stringify(r.body).slice(0, 300) };
-        await trace({ at: new Date().toISOString(), ...fail });
-        return rep(200, fail);
+        bankError = { ok: false, error: scope ? "scope_transactions" : "pennylane", status: r.status, detail: JSON.stringify(r.body).slice(0, 300) };
+        break;
       }
       const items: any[] = r.body?.items || r.body?.transactions || [];
       for (const t of items) {
@@ -104,64 +105,80 @@ Deno.serve(async (req: Request) => {
       if (!r.body?.has_more || !cursor) break;
     }
 
-    // 2. Enregistrement : les lignes déjà connues gardent leur état, seul le libellé est rafraîchi tant que rien n'est décidé
-    const ids = incoming.map((t) => t.id);
-    const known = new Map<number, any>();
-    for (let i = 0; i < ids.length; i += 200) {
-      const { data } = await sb.from("bank_receipts").select("id, label, applied, decided_at").in("id", ids.slice(i, i + 200));
-      for (const row of data || []) known.set(Number(row.id), row);
-    }
-    const fresh: number[] = [];
-    for (const t of incoming) {
-      const k = known.get(t.id);
-      if (!k) {
-        const { error } = await sb.from("bank_receipts").insert({ id: t.id, user_id: owner, date: t.date, amount: t.amount, currency: t.currency, label: t.label, source: "api" });
-        if (error) out.erreurs.push(`insert ${t.id} : ${error.message}`.slice(0, 200));
-        else { fresh.push(t.id); out.nouveaux++; }
-      } else if (!k.applied && !k.decided_at && t.label && t.label.length > String(k.label || "").length) {
-        await sb.from("bank_receipts").update({ label: t.label }).eq("id", t.id);
+    if (!bankError) {
+      // 2. Enregistrement : les lignes déjà connues gardent leur état, seul le libellé est rafraîchi tant que rien n'est décidé
+      const ids = incoming.map((t) => t.id);
+      const known = new Map<number, any>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await sb.from("bank_receipts").select("id, label, applied, decided_at").in("id", ids.slice(i, i + 200));
+        for (const row of data || []) known.set(Number(row.id), row);
+      }
+      const fresh: number[] = [];
+      for (const t of incoming) {
+        const k = known.get(t.id);
+        if (!k) {
+          const { error } = await sb.from("bank_receipts").insert({ id: t.id, user_id: owner, date: t.date, amount: t.amount, currency: t.currency, label: t.label, source: "api" });
+          if (error) out.erreurs.push(`insert ${t.id} : ${error.message}`.slice(0, 200));
+          else { fresh.push(t.id); out.nouveaux++; }
+        } else if (!k.applied && !k.decided_at && t.label && t.label.length > String(k.label || "").length) {
+          await sb.from("bank_receipts").update({ label: t.label }).eq("id", t.id);
+        }
+      }
+
+      // 3. Rapprochement : les nouveaux, puis ceux restés sans réponse (un devis a pu être créé depuis)
+      const limitFull = daysAgo(FULL_EFFECT_DAYS);
+      const { data: pending } = await sb.from("bank_receipts").select("id, date")
+        .eq("user_id", owner).in("status", ["nouveau", "propose"]).is("decided_at", null).gte("date", daysAgo(60));
+      const todo = new Map<number, string>();
+      for (const p of pending || []) todo.set(Number(p.id), String(p.date));
+      for (const t of incoming) if (fresh.includes(t.id)) todo.set(t.id, t.date);
+      for (const [id, date] of todo) {
+        const { data: status, error } = await sb.rpc("crm_match_receipt", { p_id: id, p_mode: date >= limitFull ? "complet" : "historique" });
+        if (error) { out.erreurs.push(`match ${id} : ${error.message}`.slice(0, 200)); continue; }
+        if (status === "rapproche") out.rapproches++;
+        else if (status === "propose" || status === "nouveau") out.a_confirmer++;
+      }
+
+      // 4. Dans Pennylane : la transaction est rattachée à la facture réglée
+      const { data: toLink } = await sb.from("bank_receipts").select("id, document_num, pennylane_note")
+        .eq("user_id", owner).eq("status", "rapproche").eq("applied", true).is("pennylane_matched_at", null)
+        .not("document_num", "is", null).neq("document_type", "DEV").gte("date", daysAgo(120));
+      for (const b of toLink || []) {
+        const { data: doc } = await sb.from("documents").select("pennylane").eq("user_id", owner).eq("num", b.document_num)
+          .not("invoice_issued_at", "is", null).maybeSingle();
+        const invoiceId = doc?.pennylane?.invoice_id;
+        if (!invoiceId) continue; // la facture n'est pas encore dans Pennylane : nouvel essai au prochain passage
+        const r = await pl(token, `/customer_invoices/${invoiceId}/matched_transactions`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transaction_id: Number(b.id) }),
+        });
+        if (r.ok) {
+          await sb.from("bank_receipts").update({ pennylane_matched_at: new Date().toISOString(), pennylane_note: null }).eq("id", b.id);
+          out.pennylane++;
+        } else {
+          const note = `Pennylane ${r.status} : ${JSON.stringify(r.body).slice(0, 200)}`;
+          // 422 : en général déjà rattachée dans Pennylane. On note et on n'insiste pas.
+          await sb.from("bank_receipts").update({ pennylane_note: note, ...(r.status === 422 ? { pennylane_matched_at: new Date().toISOString() } : {}) }).eq("id", b.id);
+          if (r.status !== 422) out.erreurs.push(`${b.document_num} : ${note}`.slice(0, 200));
+        }
       }
     }
 
-    // 3. Rapprochement : les nouveaux, puis ceux restés sans réponse (un devis a pu être créé depuis)
-    const limitFull = daysAgo(FULL_EFFECT_DAYS);
-    const { data: pending } = await sb.from("bank_receipts").select("id, date")
-      .eq("user_id", owner).in("status", ["nouveau", "propose"]).is("decided_at", null).gte("date", daysAgo(60));
-    const todo = new Map<number, string>();
-    for (const p of pending || []) todo.set(Number(p.id), String(p.date));
-    for (const t of incoming) if (fresh.includes(t.id)) todo.set(t.id, t.date);
-    for (const [id, date] of todo) {
-      const { data: status, error } = await sb.rpc("crm_match_receipt", { p_id: id, p_mode: date >= limitFull ? "complet" : "historique" });
-      if (error) { out.erreurs.push(`match ${id} : ${error.message}`.slice(0, 200)); continue; }
-      if (status === "rapproche") out.rapproches++;
-      else if (status === "propose" || status === "nouveau") out.a_confirmer++;
-    }
-
-    // 4. Dans Pennylane : la transaction est rattachée à la facture réglée
-    const { data: toLink } = await sb.from("bank_receipts").select("id, document_num, pennylane_note")
-      .eq("user_id", owner).eq("status", "rapproche").eq("applied", true).is("pennylane_matched_at", null)
-      .not("document_num", "is", null).neq("document_type", "DEV").gte("date", daysAgo(120));
-    for (const b of toLink || []) {
-      const { data: doc } = await sb.from("documents").select("pennylane").eq("user_id", owner).eq("num", b.document_num)
-        .not("invoice_issued_at", "is", null).maybeSingle();
-      const invoiceId = doc?.pennylane?.invoice_id;
-      if (!invoiceId) continue; // la facture n'est pas encore dans Pennylane : nouvel essai au prochain passage
-      const r = await pl(token, `/customer_invoices/${invoiceId}/matched_transactions`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transaction_id: Number(b.id) }),
-      });
-      if (r.ok) {
-        await sb.from("bank_receipts").update({ pennylane_matched_at: new Date().toISOString(), pennylane_note: null }).eq("id", b.id);
-        out.pennylane++;
-      } else {
-        const note = `Pennylane ${r.status} : ${JSON.stringify(r.body).slice(0, 200)}`;
-        // 422 : en général déjà rattachée dans Pennylane. On note et on n'insiste pas.
-        await sb.from("bank_receipts").update({ pennylane_note: note, ...(r.status === 422 ? { pennylane_matched_at: new Date().toISOString() } : {}) }).eq("id", b.id);
-        if (r.status !== 422) out.erreurs.push(`${b.document_num} : ${note}`.slice(0, 200));
+    // 5. Factures payées dans Pennylane : marquées payées dans le CRM (même si la lecture bancaire a échoué)
+    const { data: docs } = await sb.from("documents").select("id, num, statut, pennylane")
+      .eq("user_id", owner).not("pennylane", "is", null).not("invoice_issued_at", "is", null);
+    for (const d of docs || []) {
+      if (!d.pennylane?.invoice_id || d.pennylane?.paid || d.statut === "Payée" || d.statut === "Annulée") continue;
+      const r = await pl(token, `/customer_invoices/${d.pennylane.invoice_id}`);
+      if (!r.ok) { out.erreurs.push(`facture ${d.num} : Pennylane ${r.status}`); continue; }
+      if (r.body?.paid === true || r.body?.status === "paid") {
+        await sb.from("documents").update({ statut: "Payée", pennylane: { ...d.pennylane, paid: true, paid_at: new Date().toISOString() } }).eq("id", d.id);
+        out.factures_payees.push(d.num);
       }
     }
 
-    await trace({ at: new Date().toISOString(), ...out, erreurs: out.erreurs.slice(0, 5) });
-    return rep(200, out);
+    const result = { ...out, ...(bankError || {}), erreurs: out.erreurs.slice(0, 5) };
+    await trace({ at: new Date().toISOString(), ...result });
+    return rep(200, result);
   } catch (e) {
     console.error("pennylane-bank", e);
     const detail = String((e as Error).message || e).slice(0, 300);
