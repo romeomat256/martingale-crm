@@ -440,7 +440,7 @@ body.nd-open{overflow:hidden}
 .bill-type{border:0;background:none;border-radius:7px;padding:9px 8px;font-size:14px;font-weight:700;color:var(--gris-f);cursor:pointer}
 .bill-type.on{background:#fff;color:var(--vert);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .bill-f{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:var(--gris-f)}
-.bill-f[hidden]{display:none}
+.bill-f[hidden],.bill-types[hidden]{display:none}
 .bill-f input,.bill-f select,.bill-f textarea{font:inherit;font-size:14px;font-weight:400;color:var(--noir);border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:#fff;width:100%;box-sizing:border-box}
 .bill-f textarea{resize:vertical}
 .bill-more{border-top:1px solid var(--ligne);padding-top:10px}
@@ -6973,6 +6973,57 @@ async function markQuoteInvoiced(num){
   toast('Devis '+num+' marqué facturé');
 }
 
+// ── Facture d'une commande du site (Shopify) : même fenêtre, lignes et montants repris de la commande
+function findOrder(id){ return commandesList.find(c=>c.id===id || c.supabase_id===id || c.devis_num===id) || null; }
+
+// Facture déjà émise pour cette commande : son numéro figure dans le champ « bon de commande » de la facture.
+function orderInvoice(c){
+  const num = c?.devis_num || c?.quote_num;
+  if(!num) return null;
+  const tag = new RegExp(num.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?!\\d)');
+  return uniqueDocs().find(d=>d.type!=='DEV' && d.invoiceIssuedAt && !isArchivedDoc(d) && d.statut!=='Annulée' && tag.test(String(d.invoiceDetails?.purchaseOrder||''))) || null;
+}
+
+async function openBillingForOrder(orderId){
+  const c = findOrder(orderId);
+  if(!c){ toast('Commande introuvable','error'); return; }
+  if(c.statut==='Annulé'){ toast('Cette commande est annulée.','error'); return; }
+  const existing = orderInvoice(c);
+  if(existing){ toast('Cette commande a déjà sa facture : '+existing.num); return openStoredDocument(existing.num); }
+  window.__mpBilling = {orderKey:c.id, num:c.devis_num||c.quote_num, type:'FDF', busy:false, ready:false};
+  renderBillingShell({num:c.devis_num||c.quote_num, ttc:c.total_ttc, label:c.company||c.client_name||c.contact||'Client'},
+    'Commande du site du '+frDay(c.created_at).replace(/\.$/,'')+(c.statut==='Payé'?', déjà payée':'')+'. La facture portera son numéro.');
+  await billingPrepare('FDF');
+}
+
+// Remplit le générateur (hors écran) en « facture directe » à partir de la commande.
+function prepareGeneratorFromOrder(c){
+  const items = normalizeDocLineItems(c.line_items || c.lineItems || []).filter(l=>l.prodId && PRODUCTS.some(p=>p.id===l.prodId));
+  if(!items.length) return false;
+  openDocGenerator(c.prospect_id || null);
+  const direct = document.querySelector('.doc-type-btn[data-type="FDF"][data-direct]');
+  if(!direct) return false;
+  const set = (id,v) => { const e = document.getElementById(id); if(e) e.value = v ?? ''; };
+  set('dg-prospect-id', c.prospect_id || '');
+  set('dg-contact', c.contact_name || '');
+  set('dg-company', c.company || c.client_name || c.contact || '');
+  set('dg-email', c.email || ''); set('dg-tel', c.tel || '');
+  set('dg-addr', c.billing_address || c.shipping_address || '');
+  set('dg-livraison', c.shipping_address || '');
+  set('dg-dept', c.delivery_dept || '');
+  const sub = items.reduce((t,l)=>t + l.unitPriceHT*l.qty*(1-(l.lineDiscountPct||0)/100), 0);
+  const disc = +c.global_discount_amount_ht || 0;
+  set('dg-remise', (sub>0 && disc>0) ? Math.round(disc/sub*10000)/100 : 0);
+  const ship = +c.shipping_ht || 0;
+  const free = document.getElementById('dg-livofferte');
+  if(ship<=0 && free) free.checked = true; else set('dg-ship-manual', String(ship).replace('.',','));
+  dgLignes = items.map((l,i)=>({id:'o-'+i, prodId:l.prodId, qty:+l.qty||1, remise:+l.lineDiscountPct||0, price:(l.unitPriceHT || null)}));
+  renderLignesProduits();
+  selectDocType(direct, 'FDF');
+  updateDocCalc();
+  return true;
+}
+
 async function openBilling(quoteId, type='FDF', opts={}){
   const q = findQuoteRecord(quoteId);
   if(!q || q.type!=='DEV'){ toast('Devis introuvable','error'); return; }
@@ -6993,9 +7044,10 @@ async function openBilling(quoteId, type='FDF', opts={}){
 function renderBillingShell(q, reason){
   document.getElementById('billing-overlay')?.remove();
   const esc = escapeHTML;
-  const receipts = receiptsForQuote(q.num);
+  const isOrder = !!billingStore().orderKey;
+  const receipts = isOrder ? [] : receiptsForQuote(q.num);
   const paid = receipts.reduce((s,r)=>s+(+r.amount||0),0);
-  const deposits = getQuoteInvoices(q.num).filter(i=>i.type==='FAC');
+  const deposits = isOrder ? [] : getQuoteInvoices(q.num).filter(i=>i.type==='FAC');
   const pct = (paid>0 && +q.ttc>0) ? Math.round(paid/q.ttc*100) : 50;
   const context = [
     reason,
@@ -7007,10 +7059,10 @@ function renderBillingShell(q, reason){
   ov.addEventListener('click', e=>{ if(e.target===ov) closeBilling(); });
   ov.innerHTML = `<div class="bill-box" role="dialog" aria-modal="true" aria-labelledby="bill-title">
     <div class="bill-form" oninput="billingSchedule()" onchange="billingSchedule()">
-      <div class="bill-head"><div><div class="bill-kicker">Facturer</div><h2 id="bill-title">${esc(getDocClientLabel(q)||'Client')}</h2><div class="bill-sub">Devis ${esc(q.num)} · ${formatDocMoney(q.ttc)} TTC</div></div>
+      <div class="bill-head"><div><div class="bill-kicker">Facturer</div><h2 id="bill-title">${esc((isOrder?q.label:getDocClientLabel(q))||'Client')}</h2><div class="bill-sub">${isOrder?'Commande':'Devis'} ${esc(q.num)} · ${formatDocMoney(q.ttc)} TTC</div></div>
         <button type="button" class="bill-x" aria-label="Fermer" onclick="closeBilling()">×</button></div>
       ${context.length?`<div class="bill-context">${context.map(c=>'<div>'+esc(c)+'</div>').join('')}</div>`:''}
-      <div class="bill-types" role="group" aria-label="Type de facture">
+      <div class="bill-types" role="group" aria-label="Type de facture"${isOrder?' hidden':''}>
         <button type="button" class="bill-type" data-t="FDF" onclick="billingPrepare('FDF')">Facture</button>
         <button type="button" class="bill-type" data-t="FAC" onclick="billingPrepare('FAC')">Acompte</button>
       </div>
@@ -7048,9 +7100,18 @@ async function billingPrepare(type){
   st.type = type;
   const el = id => document.getElementById(id);
   document.getElementById('doc-generator-overlay')?.remove();
-  await openInvoiceFromQuote(st.quoteKey, type, {fromDraft:true});
+  if(st.orderKey){
+    const order = findOrder(st.orderKey);
+    if(!order || !prepareGeneratorFromOrder(order)){
+      document.getElementById('doc-generator-overlay')?.remove(); document.body.classList.remove('nd-open');
+      billingShowError('Les lignes de cette commande sont illisibles : la facture ne peut pas être préparée ici.');
+      return;
+    }
+  }else{
+    await openInvoiceFromQuote(st.quoteKey, type, {fromDraft:true});
+  }
   const gen = el('doc-generator-overlay');
-  if(!gen || !dgSourceQuote){
+  if(!gen || (!st.orderKey && !dgSourceQuote)){
     billingShowError('Ce devis ne se facture pas d’ici (lignes illisibles). Passe par le générateur complet.');
     return;
   }
@@ -7061,9 +7122,10 @@ async function billingPrepare(type){
     st.ready = true;
     el('bill-addr').value = gv('dg-addr');
     el('bill-siren').value = gv('dg-client-siren');
-    el('bill-po').value = gv('dg-purchase-order');
+    el('bill-po').value = st.orderKey ? 'Commande site '+st.num : gv('dg-purchase-order');
     el('bill-opdate').value = todayParisISO();
-    if(!gv('dg-addr').trim()) el('bill-more').open = true;
+    // Commande du site : l'adresse vient de Shopify, à vérifier avant d'émettre.
+    if(!gv('dg-addr').trim() || st.orderKey) el('bill-more').open = true;
   }
   el('bill-due-mode').value = gv('dg-due-mode') || 'reception';
   document.querySelectorAll('#billing-overlay .bill-type').forEach(b=>{ const on = b.dataset.t===type; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
@@ -7107,10 +7169,11 @@ function billingSync(){
     return null;
   }
   // Garde-fou : la facture doit reprendre le total du devis (hors devis en devise étrangère, convertis au taux du jour).
-  const quote = findQuoteRecord(st.quoteKey);
+  const order = st.orderKey ? findOrder(st.orderKey) : null;
+  const quote = order ? {ttc: order.total_ttc} : findQuoteRecord(st.quoteKey);
   const foreign = quote?.docCurrency && quote.docCurrency!=='EUR';
   if(quote && !foreign && Math.abs((+G.due.orderTTC||0)-(+quote.ttc||0)) > 0.05){
-    billingShowError('Le total recalculé ('+formatDocMoney(G.due.orderTTC)+') ne correspond pas au devis ('+formatDocMoney(quote.ttc)+'). Ouvre le générateur complet pour vérifier.');
+    billingShowError('Le total recalculé ('+formatDocMoney(G.due.orderTTC)+') ne correspond pas '+(order?'à la commande':'au devis')+' ('+formatDocMoney(quote.ttc)+'). Ouvre le générateur complet pour vérifier.');
     amount.innerHTML = '';
     return null;
   }
@@ -7137,15 +7200,16 @@ function billingSync(){
 
 function billingRecord(G){
   const st = billingStore();
-  const q = findQuoteRecord(st.quoteKey);
-  const record = buildGeneratorRecord(G, q?.prospectId || document.getElementById('dg-prospect-id')?.value || null);
+  const order = st.orderKey ? findOrder(st.orderKey) : null;
+  const q = order ? null : findQuoteRecord(st.quoteKey);
+  const record = buildGeneratorRecord(G, (order ? order.prospect_id : q?.prospectId) || document.getElementById('dg-prospect-id')?.value || null);
   const det = record.invoiceDetails || {};
   const today = todayParisISO();
   if(det.dueMode!=='date') det.dueDate = today;
   if(record.type==='FAC') det.operationDate = today;
   record.invoiceDetails = det;
   record.validity = det.dueDate;
-  return {record, q};
+  return {record, q, order};
 }
 
 async function billingEmit(){
@@ -7153,7 +7217,7 @@ async function billingEmit(){
   if(!st.num || st.busy || documentGenerationBusy) return;
   if(readPendingInvoice()){ toast('Une émission précédente n’a pas été confirmée : reprends-la d’abord depuis l’onglet Devis.','error'); return; }
   const G = billingSync(); if(!G) return;
-  const {record, q} = billingRecord(G);
+  const {record, q, order} = billingRecord(G);
   st.busy = true; documentGenerationBusy = true;
   const emit = document.getElementById('bill-emit');
   if(emit){ emit.disabled = true; emit.textContent = 'Émission…'; }
@@ -7162,6 +7226,12 @@ async function billingEmit(){
     localStorage.setItem('mp_pending_invoice', JSON.stringify(pending));
     const issued = await issueInvoiceOnServer(pending);
     if(record.type==='FDF' && q){ q.statut = 'Facturé'; saveDevisLocal(); try{ updateDocumentStatut(q, 'Facturé'); }catch(e){} }
+    // Commande du site déjà réglée : la facture naît payée.
+    if(order && order.statut==='Payé'){
+      [devisList, docHistory].forEach(list=>list.forEach(d=>{ if(d.num===issued.num) d.statut = 'Payée'; }));
+      saveDevisLocal();
+      sb.from('documents').update({statut:'Payée'}).eq('num', issued.num).then(({error})=>{ if(error) console.error('Facture payée :', error); });
+    }
     closeBilling();
     try{ renderInvoiceDrafts(); renderDevisList(); renderCommandes(); }catch(e){}
     toast('Facture '+issued.num+' émise ✓');
@@ -8576,6 +8646,9 @@ function renderCommandes(){
           + '<td style="padding:8px 10px;font-size:11px;color:#888">'+livrLabel+'</td>'
           // Actions
           + '<td style="padding:8px 6px;white-space:nowrap">'
+            + ((c.operation_category==='shopify' && c.statut!=='Annulé') ? (()=>{ const inv = orderInvoice(c); return inv
+                ? '<button onclick="event.stopPropagation();openStoredDocument(&quot;'+escapeHTML(inv.num)+'&quot;)" title="Voir la facture de cette commande" style="border:1px solid #D4D3B8;background:#F7F5F0;border-radius:4px;cursor:pointer;padding:2px 7px;font-size:11px;color:#403F21">'+escapeHTML(inv.num)+'</button> '
+                : '<button onclick="event.stopPropagation();openBillingForOrder(&quot;'+c.id+'&quot;)" title="Émettre la facture de cette commande" style="border:1px solid #403F21;background:#403F21;border-radius:4px;cursor:pointer;padding:2px 7px;font-size:11px;color:#fff">Facturer</button> '; })() : '')
             + (orderQuoteToInvoice(c) ? '<button onclick="event.stopPropagation();openBilling(&quot;'+escapeHTML(orderQuoteToInvoice(c).num)+'&quot;,&quot;FDF&quot;)" title="Émettre la facture de cette commande" style="border:1px solid #403F21;background:#403F21;border-radius:4px;cursor:pointer;padding:2px 7px;font-size:11px;color:#fff">Facturer</button> ' : '')
             + '<button onclick="event.stopPropagation();ajouterPaiementCmd(&quot;'+c.id+'&quot;)" title="Ajouter un paiement" style="border:1px solid #D4D3B8;background:#F7F5F0;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#403F21">+ €</button> '
             + '<button onclick="event.stopPropagation();changerStatutCmd(&quot;'+c.id+'&quot;)" title="Changer statut" style="border:1px solid #D4D3B8;background:#F7F5F0;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#403F21">✎</button> '
@@ -9709,13 +9782,28 @@ function renderHistorique(prospectId){
       };
     });
 
+  const orderEvents = commandesList.filter(c=>c.prospect_id===prospectId).map(c=>{
+    const site = c.operation_category==='shopify';
+    const inv = site ? orderInvoice(c) : null;
+    return {
+      sort: parseDocDateValue(c.created_at),
+      html: `<div class="tl-item">
+        <div class="tl-icon" aria-hidden="true">€</div>
+        <div class="tl-body" style="min-width:0">
+          <div class="tl-text" style="overflow-wrap:anywhere"><span class="badge b-won" style="font-size:9px;margin-right:5px">${site?'COMMANDE SITE':'COMMANDE'}</span>${escapeHTML(c.devis_num||c.quote_num||'')} · ${formatDocMoney(c.total_ttc)}</div>
+          <div class="tl-sub" style="overflow-wrap:anywhere">${escapeHTML([c.prod_name, c.statut, inv?'facture '+inv.num:''].filter(Boolean).join(' · '))}</div>
+        </div>
+        <div class="tl-date">${escapeHTML(new Date(c.created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}))}</div>
+      </div>`
+    };
+  });
   const messageEvents = (prospectMessagesStore()[String(prospectId)] || []).map(messageEvent);
   // La création d'un document déjà affiché ci-dessus n'est pas répétée : son auteur figure sur sa ligne.
   const activityEvents = activity
     .filter(a=>!(a.table_name==='documents' && a.action==='insert' && docNums.has(a.label)))
     .map(activityEvent).filter(Boolean);
 
-  const events = [...noteEvents, ...docEvents, ...messageEvents, ...activityEvents].sort((a,b)=>b.sort-a.sort);
+  const events = [...noteEvents, ...docEvents, ...orderEvents, ...messageEvents, ...activityEvents].sort((a,b)=>b.sort-a.sort);
   if(!events.length){
     list.innerHTML = '<div style="font-size:12px;color:var(--gris-l);text-align:center;padding:16px">Aucun historique enregistré</div>';
     return;
