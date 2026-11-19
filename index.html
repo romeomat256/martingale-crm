@@ -686,6 +686,7 @@ body.nd-open{overflow:hidden}
         <option>Nouveau</option><option>Contacté</option><option>Devis envoyé</option>
         <option>Relance</option><option>En attente chantier</option><option>Gagné</option><option>Perdu</option>
       </select>
+      <select style="width:auto;display:none" id="filter-responsable" onchange="filterProspects()" aria-label="Filtrer par responsable"></select>
       <div style="display:flex;gap:5px;margin-left:auto">
         <span style="font-size:11px;color:var(--gris-l);align-self:center">Tri :</span>
         <button class="sort-btn active" onclick="sort('priorite',this)">Priorité</button>
@@ -733,6 +734,7 @@ body.nd-open{overflow:hidden}
         <option>Nouveau</option><option>Contacté</option><option>Devis envoyé</option>
         <option>Relance</option><option>En attente chantier</option><option>Gagné</option><option>Perdu</option>
       </select>
+      <select id="fiche-responsable-select" onchange="saveFicheResponsable(this.value)" title="Qui suit ce client" aria-label="Responsable de la fiche" style="display:none;font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit"></select>
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentProspect()">Supprimer</button>
     </div>
   </div>
@@ -1030,6 +1032,18 @@ body.nd-open{overflow:hidden}
     </div>
   </div>
   <div class="page-content">
+    <!-- ÉQUIPE -->
+    <div class="card" id="team-card" style="margin-bottom:16px">
+      <div class="card-title">Équipe</div>
+      <div style="font-size:12px;color:var(--gris-l);margin-bottom:12px">Chacun se connecte avec son propre compte. Tout le monde voit les mêmes données, et chaque modification est signée dans l’historique.</div>
+      <div id="team-list"></div>
+      <div id="team-add" style="display:none;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+        <div class="field" style="margin:0;flex:1;min-width:200px"><label>E-mail du compte</label><input type="email" id="team-email" placeholder="prenom@exemple.fr" autocomplete="off"></div>
+        <div class="field" style="margin:0;width:170px"><label>Prénom affiché</label><input type="text" id="team-name" placeholder="Prénom" autocomplete="off"></div>
+        <button type="button" class="btn btn-primary" id="team-add-btn" onclick="addTeamMember()">Ajouter à l’équipe</button>
+      </div>
+      <div id="team-help" style="display:none;font-size:11px;color:var(--gris-l);margin-top:8px">Le compte doit d’abord exister : dans Supabase, rubrique Authentication puis Users, crée l’utilisateur avec son e-mail et un mot de passe. Un membre a les mêmes droits que toi, factures comprises.</div>
+    </div>
     <div class="tabs">
       <div class="tab active" id="ptab-auto" onclick="paramTab('auto')">Automatisations</div>
       <div class="tab" id="ptab-tpl" onclick="paramTab('tpl')">Templates messages</div>
@@ -1551,6 +1565,12 @@ let prospects = [];
 let currentProspectId = null;
 let stockData = {};
 let currentUser = null;
+// Équipe : plusieurs comptes sur les mêmes données. Les données appartiennent au compte
+// propriétaire. currentUser.id vaut l'identifiant du propriétaire (utilisé par toutes les
+// requêtes), currentUser.authId celui du compte réellement connecté.
+let crmAuthUser = null;
+let crmTeam = [];
+let prospectSnapshots = {};
 let currentSort = 'priorite';
 let editingProspectId = null;
 let tempProduits = [];
@@ -1569,20 +1589,46 @@ async function initAuth(){
   }
   const {data:{session}} = await sb.auth.getSession();
   if(session){
-    currentUser = session.user;
+    currentUser = await resolveCrmIdentity(session.user);
     showApp(currentUser);
     await loadAllData();
   } else {
     showLogin();
   }
-  sb.auth.onAuthStateChange(async(event,session)=>{
-    if(session){currentUser=session.user;showApp(currentUser);await loadAllData();}
-    else{showLogin();}
+  sb.auth.onAuthStateChange((event,session)=>{
+    // Différé : lancer des requêtes Supabase directement dans ce rappel peut bloquer la session.
+    setTimeout(async()=>{
+      if(session){
+        // Même compte déjà identifié : on garde son identité d'équipe.
+        if(!(currentUser && crmAuthUser && crmAuthUser.id===session.user.id)){
+          currentUser = await resolveCrmIdentity(session.user);
+        }
+        showApp(currentUser);await loadAllData();
+      }
+      else{showLogin();}
+    },0);
   });
 }
 
+// Retrouve l'équipe du compte connecté et renvoie l'utilisateur tel que le CRM l'utilise.
+async function resolveCrmIdentity(user){
+  crmAuthUser = user;
+  let ownerId = user.id;
+  try{
+    const {data,error} = await sb.from('crm_members').select('user_id,owner_id,display_name,role').order('created_at',{ascending:true});
+    if(error) throw error;
+    crmTeam = data || [];
+    const me = crmTeam.find(m=>m.user_id===user.id);
+    if(me) ownerId = me.owner_id;
+  }catch(e){ console.error('Équipe :', e); crmTeam = []; }
+  return {...user, id: ownerId, authId: user.id};
+}
+function myAuthId(){ return (currentUser && (currentUser.authId || currentUser.id)) || null; }
+function memberName(id){ const m = id ? crmTeam.find(x=>x.user_id===id) : null; return m ? m.display_name : ''; }
+function isTeamAdmin(){ const m = crmTeam.find(x=>x.user_id===myAuthId()); return !!m && m.role==='admin'; }
+
 function showLogin(){
-  currentUser=null;
+  currentUser=null;crmAuthUser=null;crmTeam=[];
   document.body.classList.remove('app-on');
   window.CrmDocuments?.reset();
   document.getElementById('login-screen').classList.remove('hidden');
@@ -1599,11 +1645,12 @@ function showApp(user){
   document.getElementById('nav').style.display='flex';
   document.getElementById('main').style.display='block';
   document.getElementById('conn-status').style.display='flex';
-  const name=user.user_metadata?.full_name||user.email?.split('@')[0]||'Roméo';
+  const name=memberName(user.authId||user.id)||user.user_metadata?.full_name||user.email?.split('@')[0]||'Roméo';
   const el1=document.getElementById('nav-user-name');
   const el2=document.getElementById('nav-user-email');
   if(el1)el1.textContent=name;
   if(el2)el2.textContent=user.email||'';
+  try{ renderTeamControls(); renderTeamCard(); }catch(e){ console.error('Équipe :', e); }
 }
 
 async function doLogin(){
@@ -1697,6 +1744,10 @@ async function loadProspects(){
   const localMap = {};
   localProspects.forEach(p=>{ if(p.id) localMap[p.id]=p; });
   
+  // État connu de la base pour chaque fiche : permet de n'envoyer ensuite que les champs modifiés.
+  prospectSnapshots = {};
+  (data||[]).forEach(row=>{ prospectSnapshots[row.id] = prospectSyncFields(row); });
+
   prospects = (data||[]).map(p => {
     const local = localMap[p.id] || {};
     return {
@@ -1778,21 +1829,60 @@ async function upsertProspect(p){
     // New prospect — INSERT and get real UUID back
     fields.notes = p.notes || null;
     fields.date_created = p.date_created||new Date().toISOString();
-    sb.from('prospects').insert(fields).select('id').single()
+    sb.from('prospects').insert(fields).select('id,responsable_id').single()
       .then(({data,error})=>{
         if(error){ console.error('Prospect insert:',error); return; }
         // Replace temp id with real UUID everywhere
         const idx = prospects.findIndex(x=>x.id===p.id);
-        if(idx>=0){ prospects[idx].id = data.id; p.id = data.id; }
+        if(idx>=0){ prospects[idx].id = data.id; p.id = data.id; prospects[idx].responsable_id = data.responsable_id || null; }
+        prospectSnapshots[data.id] = prospectSyncFields(fields);
         saveLocal();
       });
   } else {
     // Les notes sont ajoutées séparément pour préserver les demandes Shopify.
-    sb.from('prospects').update(fields).eq('id', p.id).eq('user_id', currentUser.id)
+    // On n'envoie que les champs réellement modifiés depuis le dernier chargement : à plusieurs,
+    // une fiche restée ouverte ne doit pas écraser ce qu'un collègue vient de changer ailleurs.
+    const snapshot = prospectSnapshots[p.id];
+    let changes = fields;
+    if(snapshot){
+      changes = {date_updated: fields.date_updated};
+      Object.keys(fields).forEach(k=>{
+        if(k==='user_id' || k==='date_updated') return;
+        if(JSON.stringify(fields[k]) !== JSON.stringify(snapshot[k])) changes[k] = fields[k];
+      });
+    }
+    sb.from('prospects').update(changes).eq('id', p.id).eq('user_id', currentUser.id)
       .then(({error})=>{
-        if(error) console.error('Prospect update (id='+p.id+'):', error);
+        if(error){ console.error('Prospect update (id='+p.id+'):', error); return; }
+        prospectSnapshots[p.id] = prospectSyncFields(fields);
       });
   }
+}
+
+// Les champs d'une fiche tels qu'ils sont envoyés à la base (sert à repérer ce qui a changé).
+function prospectSyncFields(p){
+  return {
+    name: p.name,
+    contact: p.contact||null,
+    tel: p.tel||null,
+    email: p.email||null,
+    ville: p.ville||null,
+    dept: p.dept||null,
+    type: p.type||null,
+    profil: p.profil||null,
+    etablissements: p.etablissements||0,
+    source: p.source||null,
+    utm: p.utm||null,
+    produits: p.produits||[],
+    qty: p.qty||0,
+    budget: p.budget||null,
+    score: p.score||0,
+    statut: p.statut||'Nouveau',
+    rappel: p.rappel||null,
+    rappel_date: p.rappel_date||null,
+    rappel_note: p.rappel_note||null,
+    groupe_wa: p.groupe_wa||false
+  };
 }
 
 
@@ -1963,6 +2053,11 @@ function renderProspects(){
   if(profil)list=list.filter(p=>p.profil===profil);
   if(source)list=list.filter(p=>p.source===source);
   if(statut)list=list.filter(p=>p.statut===statut);
+  const resp=(document.getElementById('filter-responsable')||{}).value||'';
+  if(resp==='me')list=list.filter(p=>p.responsable_id===myAuthId());
+  else if(resp==='none')list=list.filter(p=>!memberName(p.responsable_id));
+  else if(resp)list=list.filter(p=>p.responsable_id===resp);
+  const showResp=crmTeam.length>1;
   if(currentSort==='alpha')list.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   else if(currentSort==='commande')list.sort((a,b)=>b.qty-a.qty);
   else if(currentSort==='recent')list.sort((a,b)=>getProspectActivity(b)-getProspectActivity(a));
@@ -1977,7 +2072,7 @@ function renderProspects(){
     const srcCol=SOURCE_COLORS[p.source]||'#999';
     const profilShort=p.profil==='Architecte d\'intérieur'?'Archi':p.profil==='Restaurateur premium'?'Premium':p.profil?'Resto':'—';
     return `<tr onclick="openFiche('${p.id}')">
-      <td style="font-weight:600;overflow-wrap:anywhere">${escapeHTML(p.name)}</td>
+      <td style="font-weight:600;overflow-wrap:anywhere">${escapeHTML(p.name)}${showResp?`<div style="font-size:10px;font-weight:400;color:var(--gris-l)">${escapeHTML(memberName(p.responsable_id)||'Non attribué')}</div>`:''}</td>
       <td><span class="badge ${PROFIL_CLASS[p.profil]||'b-res'}">${profilShort}</span></td>
       <td><span class="src"><span class="src-dot" style="background:${srcCol}"></span>${escapeHTML(p.source)}</span></td>
       <td style="max-width:220px;white-space:normal;overflow-wrap:anywhere">${(p.produits||[]).map(renderProspectProduct).join(', ')||'—'}</td>
@@ -6387,7 +6482,10 @@ function renderToday(){
       <div><div class="td-big">${formatDocMoney(billed).replace(',00','')}</div><span class="td-mute">facturé HT</span></div>
       <div class="td-2"><div><b>${sent}</b><span class="td-mute">devis envoyés</span></div><div><b>${signed}</b><span class="td-mute">devis signés</span></div></div>
     </div>
-    ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}`;
+    ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}
+    <div class="td-card" id="td-activity" hidden></div>`;
+  // Dernières modifications (toi, ton équipe, les automatismes)
+  renderTeamActivity();
 }
 
 function renderDashboard(){
@@ -6599,6 +6697,13 @@ function populateFiche(id){
   // Statut select
   const statSel = el('fiche-statut-select');
   if(statSel) statSel.value = p.statut||'Nouveau';
+
+  // Responsable de la fiche (affiché dès qu'une équipe existe)
+  const respSel = el('fiche-responsable-select');
+  if(respSel){
+    respSel.innerHTML = '<option value="">Non attribué</option>'+crmTeam.map(m=>`<option value="${escapeHTML(m.user_id)}"${m.user_id===p.responsable_id?' selected':''}>Suivi par ${escapeHTML(m.display_name)}</option>`).join('');
+    respSel.style.display = crmTeam.length ? '' : 'none';
+  }
   
   // Info grid — fully dynamic
   const grid = el('fiche-info-grid');
@@ -6660,6 +6765,8 @@ function populateFiche(id){
   renderHistorique(id);
   // Échanges Gmail / WhatsApp : chargés depuis la base, puis ajoutés à l'historique
   loadProspectMessages(id);
+  // Journal : qui a modifié quoi sur cette fiche
+  loadProspectActivity(id);
 
   // Commercial summary
   const summary = el('fiche-commercial-summary');
@@ -8352,6 +8459,245 @@ function messageEvent(m){
   };
 }
 
+// ══════════════════════════════════════════════════════════════
+// ÉQUIPE : responsable d'une fiche, journal des modifications, gestion des membres
+// Le journal (table crm_activity) est rempli par la base à chaque écriture.
+// ══════════════════════════════════════════════════════════════
+function prospectActivityStore(){
+  return window.mpProspectActivity || (window.mpProspectActivity = {});
+}
+
+async function loadProspectActivity(prospectId){
+  const pid = String(prospectId || '');
+  if(!sb || NOT_CONFIGURED || !currentUser || !pid || pid.startsWith('temp-') || pid.startsWith('local-')) return;
+  try{
+    const {data,error} = await sb.from('crm_activity')
+      .select('id,at,actor_id,actor_name,table_name,action,label,changes')
+      .eq('prospect_id', pid)
+      .order('at',{ascending:false})
+      .limit(150);
+    if(error){ console.error('Journal :', error); return; }
+    prospectActivityStore()[pid] = data || [];
+    if(currentProspectId === prospectId) renderHistorique(prospectId);
+  }catch(e){ console.error('Journal :', e); }
+}
+
+function activityFieldName(key){
+  const names = {statut:'Statut', qty:'Quantité', name:'Nom', contact:'Contact', tel:'Téléphone', email:'E-mail',
+    ville:'Ville', dept:'Département', type:'Type', profil:'Profil', source:'Source', budget:'Budget', score:'Score',
+    rappel:'Rappel', rappel_date:'Date de rappel', rappel_note:'Note de rappel', notes:'Notes',
+    responsable_id:'Responsable', produits:'Produits', etablissements:'Établissements', groupe_wa:'Groupe WhatsApp',
+    utm:'Page d’origine', ttc:'Total TTC', ht:'Total HT', tva:'TVA', total_ttc:'Total TTC', total_ht:'Total HT',
+    num:'Numéro', line_items:'Lignes', shipping_ht:'Livraison HT', pennylane:'Pennylane', doc_meta:'Devise et disponibilité',
+    rolls:'Stock', date_disponible:'Date de disponibilité', price:'Prix', actif:'Actif', montant:'Montant'};
+  return names[key] || key;
+}
+
+function activityValue(key, value){
+  if(key === 'responsable_id') return memberName(value) || 'non attribué';
+  if(value === null || value === undefined || value === '') return 'vide';
+  if(typeof value === 'boolean') return value ? 'oui' : 'non';
+  if(typeof value === 'object') return 'modifié';
+  const s = String(value);
+  return s.length > 80 ? s.slice(0,80)+'…' : s;
+}
+
+function activityDetails(a){
+  const changes = (a.changes && typeof a.changes === 'object' && !Array.isArray(a.changes)) ? a.changes : {};
+  return Object.keys(changes).map(k=>{
+    const pair = Array.isArray(changes[k]) ? changes[k] : [null, changes[k]];
+    if(['notes','line_items','produits','doc_meta','pennylane'].includes(k)) return activityFieldName(k)+' : modifié';
+    return activityFieldName(k)+' : '+activityValue(k,pair[0])+' → '+activityValue(k,pair[1]);
+  });
+}
+
+function activitySubject(a, withName){
+  const label = a.label ? ' '+a.label : '';
+  if(a.table_name === 'prospects') return 'la fiche'+(withName ? label : '');
+  if(a.table_name === 'documents') return (/^DEV/i.test(a.label||'') ? 'le devis' : 'la facture')+label;
+  if(a.table_name === 'orders') return 'la commande'+label;
+  if(a.table_name === 'invoice_drafts') return 'un brouillon de facture'+label;
+  if(a.table_name === 'rdv') return 'le rendez-vous'+label;
+  if(a.table_name === 'payments') return 'un paiement';
+  if(a.table_name === 'stock') return 'le stock'+label;
+  if(a.table_name === 'products') return 'le produit'+label;
+  if(a.table_name === 'conteneurs') return 'le conteneur'+label;
+  return a.table_name+label;
+}
+
+function activityVerb(a){ return a.action === 'insert' ? 'a créé' : a.action === 'delete' ? 'a supprimé' : 'a modifié'; }
+
+function activityEvent(a){
+  const when = parseDocDateValue(a.at);
+  const who = a.actor_name || 'Automatique';
+  const details = activityDetails(a);
+  const dateLabel = when ? new Date(when).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+  return {
+    sort: when,
+    html: `<div class="tl-item">
+      <div class="tl-icon ic-auto" title="${escapeHTML(who)}">${escapeHTML(who.charAt(0).toUpperCase())}</div>
+      <div class="tl-body" style="min-width:0">
+        <div class="tl-text" style="overflow-wrap:anywhere"><b>${escapeHTML(who)}</b> ${escapeHTML(activityVerb(a)+' '+activitySubject(a,false))}</div>
+        ${details.length?`<div class="tl-sub" style="overflow-wrap:anywhere">${escapeHTML(details.join(' · '))}</div>`:''}
+      </div>
+      <div class="tl-date">${escapeHTML(dateLabel)}</div>
+    </div>`
+  };
+}
+
+function relativeTime(value){
+  const t = parseDocDateValue(value);
+  if(!t) return '';
+  const min = Math.max(0, Math.round((Date.now()-t)/60000));
+  if(min < 1) return 'à l’instant';
+  if(min < 60) return 'il y a '+min+' min';
+  const h = Math.round(min/60);
+  if(h < 24) return 'il y a '+h+' h';
+  return 'il y a '+Math.round(h/24)+' j';
+}
+
+// Écran « Aujourd'hui » : les dernières modifications, toutes origines confondues.
+async function renderTeamActivity(){
+  if(!document.getElementById('td-activity') || !sb || NOT_CONFIGURED || !currentUser) return;
+  const store = window.mpTeamActivity || (window.mpTeamActivity = {at:0, rows:null});
+  if(!store.rows || Date.now()-store.at > 30000){
+    store.at = Date.now();
+    try{
+      const {data,error} = await sb.from('crm_activity')
+        .select('id,at,actor_name,table_name,action,label,prospect_id,changes')
+        .order('at',{ascending:false}).limit(8);
+      if(error) throw error;
+      store.rows = data || [];
+    }catch(e){ console.error('Activité :', e); store.rows = store.rows || []; }
+  }
+  const box = document.getElementById('td-activity');
+  if(!box) return;
+  if(!store.rows.length){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<span class="td-cap">Dernières modifications</span>'+store.rows.map(a=>{
+    const text = `<b>${escapeHTML(a.actor_name||'Automatique')}</b> ${escapeHTML(activityVerb(a)+' '+activitySubject(a,true))}<br><span class="td-mute">${escapeHTML(relativeTime(a.at))}</span>`;
+    const known = a.prospect_id && prospects.some(p=>p.id===a.prospect_id);
+    const style = 'display:block;width:100%;text-align:left;font-size:12px;line-height:1.4;padding:6px 0;border:0;border-top:1px solid var(--border);background:none;font-family:inherit;color:inherit;overflow-wrap:anywhere';
+    return known
+      ? `<button type="button" style="${style};cursor:pointer" onclick="openFiche('${escapeHTML(a.prospect_id)}')">${text}</button>`
+      : `<div style="${style}">${text}</div>`;
+  }).join('');
+}
+
+async function saveFicheResponsable(value){
+  const p = prospects.find(x=>x.id===currentProspectId);
+  if(!p) return;
+  const id = String(p.id||'');
+  if(!sb || NOT_CONFIGURED || !currentUser || id.startsWith('temp-') || id.startsWith('local-')){
+    toast('Fiche pas encore enregistrée : réessaie dans un instant','error');
+    populateFiche(p.id);
+    return;
+  }
+  const previous = p.responsable_id || null;
+  const next = value || null;
+  p.responsable_id = next;
+  saveLocal();
+  const {error} = await sb.from('prospects').update({responsable_id: next}).eq('id', p.id).eq('user_id', currentUser.id);
+  if(error){
+    p.responsable_id = previous;
+    saveLocal();
+    populateFiche(p.id);
+    toast('Responsable non enregistré : '+error.message,'error');
+    return;
+  }
+  toast(next ? 'Fiche suivie par '+memberName(next) : 'Fiche non attribuée');
+  renderProspects();
+  loadProspectActivity(p.id);
+}
+
+// Filtre « Mes clients » de la liste : visible dès qu'il y a deux membres.
+function renderTeamControls(){
+  const sel = document.getElementById('filter-responsable');
+  if(!sel) return;
+  const current = sel.value;
+  const me = myAuthId();
+  sel.innerHTML = '<option value="">Tous les responsables</option><option value="me">Mes clients</option><option value="none">Non attribués</option>'
+    + crmTeam.filter(m=>m.user_id!==me).map(m=>`<option value="${escapeHTML(m.user_id)}">Clients de ${escapeHTML(m.display_name)}</option>`).join('');
+  sel.value = Array.from(sel.options).some(o=>o.value===current) ? current : '';
+  sel.style.display = crmTeam.length > 1 ? '' : 'none';
+}
+
+function renderTeamCard(){
+  const list = document.getElementById('team-list');
+  if(!list) return;
+  const admin = isTeamAdmin();
+  const me = myAuthId();
+  list.innerHTML = crmTeam.length ? crmTeam.map(m=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div class="tl-icon ic-auto">${escapeHTML(String(m.display_name||'?').charAt(0).toUpperCase())}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;overflow-wrap:anywhere">${escapeHTML(m.display_name)}${m.user_id===me?' <span style="font-weight:400;color:var(--gris-l)">(toi)</span>':''}</div>
+        <div style="font-size:11px;color:var(--gris-l)">${m.user_id===m.owner_id?'Propriétaire du CRM':'Membre, mêmes droits'}</div>
+      </div>
+      ${admin && m.user_id!==m.owner_id ? `<button type="button" class="btn btn-sm" onclick="removeTeamMember('${escapeHTML(m.user_id)}')">Retirer</button>` : ''}
+    </div>`).join('') : '<div style="font-size:12px;color:var(--gris-l)">Ce compte ne fait partie d’aucune équipe.</div>';
+  const add = document.getElementById('team-add');
+  const help = document.getElementById('team-help');
+  if(add) add.style.display = admin ? 'flex' : 'none';
+  if(help) help.style.display = admin ? 'block' : 'none';
+}
+
+async function reloadTeam(){
+  if(!sb || NOT_CONFIGURED || !crmAuthUser) return;
+  const {data,error} = await sb.from('crm_members').select('user_id,owner_id,display_name,role').order('created_at',{ascending:true});
+  if(error){ console.error('Équipe :', error); return; }
+  crmTeam = data || [];
+  renderTeamControls();
+  renderTeamCard();
+  renderProspects();
+}
+
+async function addTeamMember(){
+  const emailEl = document.getElementById('team-email');
+  const nameEl = document.getElementById('team-name');
+  const email = (emailEl && emailEl.value || '').trim();
+  const name = (nameEl && nameEl.value || '').trim();
+  if(!email || !name){ toast('E-mail et prénom requis','error'); return; }
+  const btn = document.getElementById('team-add-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const {error} = await sb.rpc('crm_add_member',{p_email:email, p_name:name});
+    if(error) throw error;
+    emailEl.value = ''; nameEl.value = '';
+    await reloadTeam();
+    toast(name+' fait maintenant partie de l’équipe');
+  }catch(e){
+    toast(e.message || String(e),'error');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function removeTeamMember(userId){
+  const name = memberName(userId) || 'ce membre';
+  if(!confirm('Retirer '+name+' de l’équipe ? Son compte ne verra plus les données, et ses fiches te reviennent.')) return;
+  try{
+    const {error} = await sb.rpc('crm_remove_member',{p_user:userId});
+    if(error) throw error;
+    await reloadTeam();
+    await loadProspects();
+    renderProspects();
+    toast(name+' ne fait plus partie de l’équipe');
+  }catch(e){
+    toast(e.message || String(e),'error');
+  }
+}
+
+// À plusieurs : quand on revient sur l'onglet, la liste est relue pour voir le travail de l'autre.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState !== 'visible' || !sb || NOT_CONFIGURED || !currentUser || crmTeam.length < 2) return;
+  const store = window.mpTeamRefresh || (window.mpTeamRefresh = {at:0});
+  if(Date.now()-store.at < 60000) return;
+  store.at = Date.now();
+  loadProspects().then(()=>{ renderProspects(); updateBadge(); renderDashboard(); })
+    .catch(e=>console.error('Actualisation :', e));
+});
+
 function renderHistorique(prospectId){
   const list = document.getElementById('fiche-historique-list');
   if(!list) return;
@@ -8402,8 +8748,9 @@ function renderHistorique(prospectId){
     });
 
   const messageEvents = (prospectMessagesStore()[String(prospectId)] || []).map(messageEvent);
+  const activityEvents = (prospectActivityStore()[String(prospectId)] || []).map(activityEvent).filter(Boolean);
 
-  const events = [...noteEvents, ...docEvents, ...messageEvents].sort((a,b)=>b.sort-a.sort);
+  const events = [...noteEvents, ...docEvents, ...messageEvents, ...activityEvents].sort((a,b)=>b.sort-a.sort);
   if(!events.length){
     list.innerHTML = '<div style="font-size:12px;color:var(--gris-l);text-align:center;padding:16px">Aucun historique enregistré</div>';
     return;
