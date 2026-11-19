@@ -17,6 +17,11 @@
  *    (écran « application non validée » : Paramètres avancés > Accéder au projet).
  * 5. Pour reprendre les six derniers mois, exécute ensuite « reprendreHistorique ».
  *
+ * PLUSIEURS BOÎTES (romeo@, contact@...)
+ * Refais les étapes 1 à 5 dans chaque compte Google, avec le même fichier et la même clé.
+ * Un mail reçu dans deux boîtes n'est enregistré qu'une fois.
+ * Si l'adresse est un simple alias qui arrive dans une boîte déjà installée, il n'y a rien à faire.
+ *
  * ENSUITE, TOUT EST AUTOMATIQUE
  * - toutes les 10 minutes : les mails des 2 derniers jours
  * - chaque nuit : les 30 derniers jours (rattrape les fiches créées entre-temps)
@@ -64,8 +69,9 @@ function envoyerPeriode_(jours) {
   try {
     const debut = Date.now();
     const moi = mesAdresses_();
+    const domaines = mesDomaines_(moi);
     const contacts = appelCrm_('get', null);
-    const emails = (contacts.emails || []).filter(function (e) { return moi.indexOf(e) === -1; });
+    const emails = (contacts.emails || []).filter(function (e) { return !estMoi_(e, moi, domaines); });
     const bilan = { jours: jours, contacts: emails.length, lus: 0, envoyes: 0, enregistres: 0, interrompu: false };
     if (!emails.length) return bilan;
 
@@ -81,7 +87,7 @@ function envoyerPeriode_(jours) {
       bilan.envoyes += lot.length;
       bilan.enregistres += res.stored || 0;
       const marques = {};
-      lot.forEach(function (m) { marques['m_' + m.external_id] = '1'; });
+      lot.forEach(function (m) { marques['m_' + m.gmail_id] = '1'; });
       cache.putAll(marques, 21600); // 6 h : évite de renvoyer les mêmes mails à chaque passage
       lot = [];
     };
@@ -104,9 +110,12 @@ function envoyerPeriode_(jours) {
             const a = [msg.getTo(), msg.getCc()].filter(function (v) { return v; }).join(', ');
             if (!adresses_(de + ', ' + a).some(function (x) { return connus[x]; })) return;
             bilan.lus++;
-            const envoyeParMoi = adresses_(de).some(function (x) { return moi.indexOf(x) !== -1; });
+            const envoyeParMoi = adresses_(de).some(function (x) { return estMoi_(x, moi, domaines); });
             lot.push({
-              external_id: id,
+              // Identifiant universel du mail : le même dans toutes les boîtes, donc pas de doublon
+              // quand un client écrit à deux adresses Martingale à la fois.
+              external_id: identifiantMail_(msg) || id,
+              gmail_id: id,
               thread_id: fil.getId(),
               direction: envoyeParMoi ? 'out' : 'in',
               from: de,
@@ -151,6 +160,31 @@ function adresses_(texte) {
 function mesAdresses_() {
   const liste = [Session.getEffectiveUser().getEmail()].concat(GmailApp.getAliases());
   return liste.filter(function (v) { return v; }).map(function (v) { return v.toLowerCase(); });
+}
+
+/** Domaines de l'entreprise (martingaleparis.fr) : un mail parti de n'importe quelle adresse du domaine est « envoyé ». */
+const MESSAGERIES_PUBLIQUES = ['gmail.com', 'googlemail.com', 'outlook.com', 'outlook.fr', 'hotmail.com', 'hotmail.fr',
+  'live.fr', 'live.com', 'yahoo.com', 'yahoo.fr', 'icloud.com', 'me.com', 'orange.fr', 'wanadoo.fr', 'free.fr',
+  'sfr.fr', 'laposte.net', 'bbox.fr', 'proton.me', 'protonmail.com'];
+function mesDomaines_(moi) {
+  const domaines = [];
+  moi.forEach(function (adresse) {
+    const d = adresse.split('@')[1];
+    if (d && MESSAGERIES_PUBLIQUES.indexOf(d) === -1 && domaines.indexOf(d) === -1) domaines.push(d);
+  });
+  return domaines;
+}
+function estMoi_(adresse, moi, domaines) {
+  return moi.indexOf(adresse) !== -1 || domaines.indexOf(String(adresse).split('@')[1]) !== -1;
+}
+
+/** En-tête Message-ID du mail, identique dans toutes les boîtes qui le reçoivent. */
+function identifiantMail_(msg) {
+  try {
+    return String(msg.getHeader('Message-ID') || '').trim().slice(0, 200);
+  } catch (e) {
+    return '';
+  }
 }
 
 function appelCrm_(methode, donnees) {
