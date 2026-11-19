@@ -128,6 +128,20 @@ textarea{resize:vertical;line-height:1.6}
 .tl-text{font-size:12px;color:var(--noir)}
 .tl-sub{font-size:11px;color:var(--gris-l);margin-top:1px}
 .tl-date{font-size:10px;color:var(--gris-l);flex-shrink:0}
+/* Historique : devis et factures cliquables, avec miniature du document */
+.tl-doc{cursor:pointer;border-radius:8px;transition:background .15s}
+.tl-doc:hover,.tl-doc:focus-visible{background:#F7F6F0;outline:none}
+.ic-doc{background:#EEF0E4;color:#4D5038}.ic-doc.is-invoice{background:#FDF2E3;color:#9C5B0B}
+.doc-thumb{position:relative;width:132px;height:187px;margin-top:8px;border:1px solid var(--border);border-radius:6px;background:#fff;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.doc-thumb iframe{position:absolute;top:0;left:0;width:794px;height:1123px;border:0;transform:scale(.16625);transform-origin:0 0;pointer-events:none;background:#fff}
+.doc-thumb-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;font-size:10px;color:var(--gris-l);line-height:1.3}
+.doc-thumb::after{content:'Ouvrir';position:absolute;right:6px;bottom:6px;font-size:10px;font-weight:600;background:rgba(77,80,56,.92);color:#fff;border-radius:10px;padding:2px 8px;opacity:0;transition:opacity .15s}
+.tl-doc:hover .doc-thumb::after,.tl-doc:focus-visible .doc-thumb::after{opacity:1}
+.doc-viewer{position:fixed;inset:0;z-index:5000;background:rgba(30,32,22,.6);display:flex;flex-direction:column;align-items:center;padding:20px}
+.doc-viewer-bar{width:min(900px,100%);display:flex;align-items:center;gap:8px;background:#fff;border-radius:10px 10px 0 0;padding:10px 14px;font-size:13px;min-width:0}
+.doc-viewer-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.doc-viewer-body{width:min(900px,100%);flex:1;min-height:0;background:#E9E8E1;border-radius:0 0 10px 10px;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:16px}
+.doc-viewer-body iframe{width:794px;max-width:100%;height:2300px;flex-shrink:0;border:0;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.15)}
 .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:18px;flex-wrap:wrap}
 .tab{padding:9px 16px;font-size:12px;font-weight:500;color:var(--gris-l);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
 .tab:hover{color:var(--noir)}
@@ -501,7 +515,7 @@ body.nd-open{overflow:hidden}
 </nav>
 
 <!-- CONNECTION STATUS -->
-<div id="conn-status" style="display:none">
+<div id="conn-status" style="display:none;cursor:pointer" onclick="showSyncErrors()" title="Cliquer pour vérifier que tout est enregistré dans la base">
   <div class="conn-dot online" id="conn-dot"></div>
   <span id="conn-label">Connecté</span>
 </div>
@@ -1148,8 +1162,97 @@ const SUPABASE_KEY = 'sb_publishable_9M1fD8mUnLJjLu68hMd5zA_0QNi15ck';   // comm
 const NOT_CONFIGURED = SUPABASE_URL.includes('COLLE_');
 let sb = null;
 if(!NOT_CONFIGURED){
-  try{ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }
+  try{ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {global:{fetch: crmFetch}}); }
   catch(e){ console.warn('Supabase init failed',e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ÉCRITURES EN BASE : aucun échec silencieux
+// Toute écriture refusée par Supabase, ou perdue faute de réseau, est signalée à l'écran
+// et reste comptée dans l'indicateur de connexion.
+// ══════════════════════════════════════════════════════════════
+function crmFetch(input, init){
+  const url = typeof input === 'string' ? input : ((input && input.url) || '');
+  const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+  const isWrite = url.indexOf('/rest/v1/') !== -1 && url.indexOf('/rest/v1/rpc/') === -1 && method !== 'GET' && method !== 'HEAD';
+  return fetch(input, init).then(res=>{
+    if(isWrite && !res.ok){
+      res.clone().text().then(body=>reportSyncError(url, res.status, body)).catch(()=>reportSyncError(url, res.status, ''));
+    }
+    return res;
+  }, err=>{
+    if(isWrite) reportSyncError(url, 0, String((err && err.message) || err));
+    throw err;
+  });
+}
+
+function syncErrorStore(){
+  return window.mpSyncErrors || (window.mpSyncErrors = {list:[], lastToast:0});
+}
+
+function reportSyncError(url, status, body){
+  let message = String(body || '').slice(0, 300), code = '';
+  try{ const j = JSON.parse(body); message = j.message || j.error || message; code = j.code || ''; }catch(e){}
+  // Colonne inconnue : l'application réessaie d'elle-même avec une version réduite.
+  if(code === 'PGRST204' || code === '42703') return;
+  const m = String(url).match(/\/rest\/v1\/([a-z_]+)/);
+  const table = m ? m[1] : '';
+  const labels = {prospects:'fiche client', documents:'document', orders:'commande', rdv:'rendez-vous', stock:'stock',
+    products:'catalogue', doc_counters:'numérotation', document_html:'copie du devis', invoice_drafts:'brouillon de facture',
+    conteneurs:'conteneur', payments:'paiement', messages:'échange', document_links:'lien client'};
+  const what = labels[table] || table || 'donnée';
+  const text = status === 0
+    ? 'Pas de connexion : modification non enregistrée dans la base ('+what+').'
+    : 'Non enregistré dans la base ('+what+') : '+message;
+  const store = syncErrorStore();
+  store.list.unshift({at:new Date().toISOString(), table, status, message:text});
+  if(store.list.length > 30) store.list.length = 30;
+  console.error('Écriture refusée :', table, status, message);
+  if(Date.now()-store.lastToast > 3000){
+    store.lastToast = Date.now();
+    try{ toast(text,'error'); }catch(e){}
+  }
+  try{ renderSyncAlert(); }catch(e){}
+}
+
+function renderSyncAlert(){
+  const s = window.mpConnStatus || {state:'online', label:'Connecté'};
+  setConnStatus(s.state, s.label);
+}
+
+// Clic sur l'indicateur de connexion : dit ce qui n'est pas dans la base.
+function showSyncErrors(){
+  const errors = syncErrorStore().list;
+  const local = window.mpLocalOnlyDocs || 0;
+  if(!errors.length && !local){ toast('Tout est enregistré dans la base'); return; }
+  const parts = [];
+  if(errors.length) parts.push(errors.length+' écriture'+(errors.length>1?'s':'')+' refusée'+(errors.length>1?'s':'')+'. Dernière : '+errors[0].message);
+  if(local) parts.push(local+' document'+(local>1?'s':'')+' seulement sur cet ordinateur');
+  toast(parts.join(' · '),'error');
+}
+
+function isUuid(v){
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v||''));
+}
+
+// Identifiants provisoires (temp-…) et l'identifiant réel que la base leur a donné.
+function tempIdStore(){
+  return window.mpTempIds || (window.mpTempIds = {});
+}
+
+// Identifiant de fiche utilisable en base : le vrai identifiant, sinon celui obtenu depuis
+// un identifiant provisoire, sinon la fiche du même nom, sinon rien.
+function resolveProspectUuid(id, names){
+  if(isUuid(id)) return id;
+  if(!id) return null;
+  const mapped = tempIdStore()[id];
+  if(isUuid(mapped)) return mapped;
+  const wanted = (names || []).map(n=>String(n||'').trim().toLowerCase()).filter(Boolean);
+  if(wanted.length){
+    const hit = prospects.find(p=>isUuid(p.id) && wanted.includes(String(p.name||'').trim().toLowerCase()));
+    if(hit) return hit.id;
+  }
+  return null;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1758,6 +1861,16 @@ async function loadProspects(){
       notes: p.notes === undefined ? (local.notes || null) : p.notes,
     };
   });
+
+  // Fiches restées sur cet ordinateur : leur création n'est jamais arrivée à la base
+  // (coupure réseau, page fermée trop tôt). On les renvoie, sauf si une fiche du même nom existe déjà.
+  const dbNames = new Set((data||[]).map(p=>String(p.name||'').trim().toLowerCase()));
+  const stranded = localProspects.filter(p=>p && p.name && /^(temp-|local-)/.test(String(p.id||''))
+    && !dbNames.has(String(p.name).trim().toLowerCase()));
+  stranded.slice(0,20).forEach(p=>{
+    prospects.unshift(p);
+    upsertProspect(p).catch(e=>console.error('Fiche locale non envoyée :', e));
+  });
   saveLocal();
 }
 
@@ -1829,12 +1942,16 @@ async function upsertProspect(p){
     // New prospect — INSERT and get real UUID back
     fields.notes = p.notes || null;
     fields.date_created = p.date_created||new Date().toISOString();
-    sb.from('prospects').insert(fields).select('id,responsable_id').single()
+    // La promesse est renvoyée : qui a besoin du vrai identifiant (un devis, par exemple) peut l'attendre.
+    return sb.from('prospects').insert(fields).select('id,responsable_id').single()
       .then(({data,error})=>{
         if(error){ console.error('Prospect insert:',error); return; }
         // Replace temp id with real UUID everywhere
+        const tempId = p.id;
         const idx = prospects.findIndex(x=>x.id===p.id);
-        if(idx>=0){ prospects[idx].id = data.id; p.id = data.id; prospects[idx].responsable_id = data.responsable_id || null; }
+        if(tempId) tempIdStore()[tempId] = data.id;
+        p.id = data.id;
+        if(idx>=0){ prospects[idx].id = data.id; prospects[idx].responsable_id = data.responsable_id || null; }
         prospectSnapshots[data.id] = prospectSyncFields(fields);
         saveLocal();
       });
@@ -1851,7 +1968,7 @@ async function upsertProspect(p){
         if(JSON.stringify(fields[k]) !== JSON.stringify(snapshot[k])) changes[k] = fields[k];
       });
     }
-    sb.from('prospects').update(changes).eq('id', p.id).eq('user_id', currentUser.id)
+    return sb.from('prospects').update(changes).eq('id', p.id).eq('user_id', currentUser.id)
       .then(({error})=>{
         if(error){ console.error('Prospect update (id='+p.id+'):', error); return; }
         prospectSnapshots[p.id] = prospectSyncFields(fields);
@@ -2756,7 +2873,15 @@ function toggleLiv(el){const done=el.classList.contains('done');el.classList.tog
 
 function setConnStatus(state,label){
   const dot=document.getElementById('conn-dot');const lb=document.getElementById('conn-label');
-  if(dot){dot.className='conn-dot '+state;}if(lb)lb.textContent=label;
+  window.mpConnStatus={state,label};
+  // Ce qui n'est pas dans la base reste affiché tant que la page est ouverte.
+  const refused=(window.mpSyncErrors&&window.mpSyncErrors.list.length)||0;
+  const local=window.mpLocalOnlyDocs||0;
+  const notes=[];
+  if(refused)notes.push(refused+' écriture'+(refused>1?'s':'')+' refusée'+(refused>1?'s':''));
+  if(local)notes.push(local+' document'+(local>1?'s':'')+' hors base');
+  if(dot){dot.className='conn-dot '+(notes.length?'offline':state);}
+  if(lb)lb.textContent=notes.length?label+' · '+notes.join(' · '):label;
 }
 
 let toastTimer;
@@ -2764,7 +2889,8 @@ function toast(msg,type='success'){
   const el=document.getElementById('toast');if(!el)return;
   el.textContent=msg;el.className='show';
   if(type==='error')el.style.background='var(--rouge)';else el.style.background='var(--noir)';
-  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2500);
+  // Une erreur reste affichée plus longtemps qu'une confirmation.
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),type==='error'?7000:2500);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4987,6 +5113,7 @@ async function syncPennylanePayments({silent=false}={}){
 
 // HTML du devis gardé sur le serveur, pour le lien envoyé au client
 async function saveQuoteHtml(num, html){
+  if(num && html) docHtmlStore()[num] = html; // disponible tout de suite pour l'aperçu dans l'historique
   if(!sb||!currentUser||!num||!html) return;
   const {error}=await sb.from('document_html').upsert({num, html, user_id:currentUser.id, updated_at:new Date().toISOString()});
   if(error) console.warn('document_html',error.message);
@@ -5821,7 +5948,9 @@ async function generateAndPrint(){
         date_created: new Date().toISOString()
       };
       prospects.unshift(newP);
-      upsertProspect(newP);
+      // On attend l'identifiant donné par la base : le devis doit être rattaché à une vraie fiche.
+      // Sans cela, la base refusait le devis et il ne restait que dans le navigateur.
+      try{ await upsertProspect(newP); }catch(e){ console.error('Fiche non créée :', e); }
       prospectId = newP.id;
       toast('Prospect "'+newP.name+'" créé automatiquement');
     } else {
@@ -5892,10 +6021,14 @@ async function generateAndPrint(){
     toast(wasEditing?'Brouillon mis à jour. Clique sur Émettre quand il est prêt.':'Brouillon enregistré, sans numéro. Clique sur Émettre quand il est prêt.');
     return;
   }else{
-    await saveDocToHistory(record);
+    const savedInBase = await saveDocToHistory(record);
     saveQuoteHtml(record.num, docHTML);
     window.CrmDocuments?.quote(record,docHTML);
     printDocumentAndReturn(printWin,docHTML);
+    if(savedInBase === false){
+      toast('Devis '+record.num+' généré, mais la base ne l’a pas enregistré. Il reste sur cet ordinateur et sera renvoyé à la prochaine ouverture.','error');
+      return;
+    }
   }
   toast('Document généré ✓ Retour au menu Devis');
   } catch(err) {
@@ -5938,30 +6071,108 @@ async function saveDocToHistory(doc,{alreadyPersisted=false}={}){
   // Register in devis list (all document types)
   registerDevis(record);
   
-  // Sync to Supabase in background
+  // Enregistrement dans la base : on attend la réponse, et l'appelant sait si elle a accepté.
   if(!alreadyPersisted && sb && !NOT_CONFIGURED && currentUser){
-    const basePayload = {
-      user_id: currentUser.id,
-      num: record.num,
-      type: record.type,
-      type_label: record.typeLabel,
-      contact: getDocClientLabel(record),
-      prod_name: getDocProductSummary(record),
-      prod_id: record.prodId||null,
-      qty: record.qty,
-      ttc: record.ttc,
-      prospect_id: record.prospectId||null
-    };
-    const vatPayload = {
-      ...basePayload,
-      ...getDocDetailSupabaseFields(record),
-      ht: record.ht ?? null,
-      tva: record.tva ?? null,
-      ...getShippingSupabaseFields(record),
-      ...getVatSupabaseFields(getVatSettingsFromStored(record)),
-      doc_meta: getDocMetaFields(record)
-    };
-    insertSupabaseWithFallback('documents', vatPayload, basePayload, 'Doc history sync');
+    return await insertDocumentRecord(record);
+  }
+  return true;
+}
+
+// Enregistre un devis dans la table documents. Renvoie true si la base l'a accepté.
+async function insertDocumentRecord(record, {createdAt=null}={}){
+  if(!sb || NOT_CONFIGURED || !currentUser) return false;
+  // Le lien vers la fiche doit être un vrai identifiant : un identifiant provisoire fait refuser tout le devis.
+  const prospectUuid = resolveProspectUuid(record.prospectId, [record.company, record.contactName, record.clientName, record.contact]);
+  const basePayload = {
+    user_id: currentUser.id,
+    num: record.num,
+    type: record.type,
+    type_label: record.typeLabel,
+    contact: getDocClientLabel(record),
+    prod_name: getDocProductSummary(record),
+    prod_id: record.prodId||null,
+    qty: record.qty,
+    ttc: record.ttc,
+    prospect_id: prospectUuid
+  };
+  // Devis retrouvé sur l'ordinateur : il garde sa date et son statut d'origine.
+  const createdMs = createdAt ? parseDocDateValue(createdAt) : 0;
+  if(createdMs) basePayload.created_at = new Date(createdMs).toISOString();
+  if(record.statut && record.statut !== 'Envoyé') basePayload.statut = record.statut;
+  const fullPayload = {
+    ...basePayload,
+    ...getDocDetailSupabaseFields(record),
+    ht: record.ht ?? null,
+    tva: record.tva ?? null,
+    ...getShippingSupabaseFields(record),
+    ...getVatSupabaseFields(getVatSettingsFromStored(record)),
+    doc_meta: getDocMetaFields(record)
+  };
+  try{
+    let {data,error} = await sb.from('documents').insert(fullPayload).select('id').single();
+    if(error && isSupabaseSchemaError(error)){
+      ({data,error} = await sb.from('documents').insert(basePayload).select('id').single());
+    }
+    if(error){ console.error('Document non enregistré ('+record.num+') :', error); return false; }
+    // L'identifiant donné par la base remplace l'identifiant provisoire partout.
+    [devisList, docHistory].forEach(list=>list.forEach(d=>{
+      if(d.num === record.num){ d.id = data.id; if(prospectUuid) d.prospectId = prospectUuid; }
+    }));
+    saveDevisLocal();
+    try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+    return true;
+  }catch(e){
+    console.error('Document non enregistré ('+record.num+') :', e);
+    return false;
+  }
+}
+
+// Change le statut d'un devis dans la base, qu'il porte déjà son identifiant de base ou non.
+function updateDocumentStatut(d, statut){
+  if(!sb || NOT_CONFIGURED || !currentUser || !d) return;
+  let query = sb.from('documents').update({statut});
+  if(isUuid(d.id)) query = query.eq('id', d.id);
+  else if(d.num) query = query.eq('num', d.num).eq('type', d.type||'DEV').eq('user_id', currentUser.id);
+  else return;
+  query.then(({error})=>{ if(error) console.error('Statut du document :', error); });
+}
+
+// Numéros des documents supprimés sur cet ordinateur : ils ne doivent jamais être renvoyés à la base.
+function deletedDocNums(){
+  try{ return JSON.parse(localStorage.getItem('mp_deleted_docs')||'[]') || []; }catch(e){ return []; }
+}
+function rememberDeletedDoc(num){
+  if(!num) return;
+  const list = deletedDocNums();
+  if(list.includes(num)) return;
+  list.push(num);
+  try{ localStorage.setItem('mp_deleted_docs', JSON.stringify(list.slice(-300))); }catch(e){}
+}
+
+// Renvoie à la base les devis restés sur cet ordinateur : ceux qu'elle n'a jamais reçus.
+// Un document déjà enregistré puis supprimé ailleurs porte un identifiant de la base : il n'est pas renvoyé.
+async function syncLocalDocuments(dbNums){
+  if(!sb || NOT_CONFIGURED || !currentUser || window.mpDocSyncBusy) return;
+  window.mpDocSyncBusy = true;
+  try{
+    const gone = new Set(deletedDocNums());
+    const pending = devisList.filter(d=>d && d.num && !dbNums.has(d.num) && !isUuid(d.id) && !gone.has(d.num));
+    const quotes = pending.filter(d=>(d.type||'DEV') === 'DEV' && !d.invoiceIssuedAt);
+    let saved = 0;
+    for(const d of quotes.slice(0,50)){
+      const ok = await insertDocumentRecord(normalizeDocumentRecord(d), {createdAt: d.createdAt || d.date});
+      if(ok){ saved++; dbNums.add(d.num); }
+    }
+    window.mpLocalOnlyDocs = pending.length - saved;
+    if(saved){
+      toast(saved > 1 ? saved+' devis restés sur cet ordinateur sont maintenant enregistrés dans la base'
+                      : '1 devis resté sur cet ordinateur est maintenant enregistré dans la base');
+      renderDevisList();
+      try{ renderToday(); }catch(e){}
+    }
+    renderSyncAlert();
+  }finally{
+    window.mpDocSyncBusy = false;
   }
 }
 
@@ -6870,6 +7081,12 @@ function saveCmdLocal(){ localStorage.setItem('mp_commandes', JSON.stringify(com
 
 // ── Load from Supabase
 async function loadDevis(){
+  // Les documents supprimés sur cet ordinateur ne reviennent pas par le cache.
+  const deletedHere = new Set(deletedDocNums());
+  if(deletedHere.size){
+    devisList = devisList.filter(d=>!deletedHere.has(d.num));
+    docHistory = docHistory.filter(d=>!deletedHere.has(d.num));
+  }
   // First: populate from localStorage docHistory
   docHistory.map(normalizeDocumentRecord).forEach(d=>{
     if(!devisList.find(x=>x.num===d.num)){
@@ -6921,7 +7138,15 @@ async function loadDevis(){
   
   const {data,error} = await sb.from('documents').select('*').order('created_at',{ascending:false});
   if(error){ console.error('loadDevis:',error); return; }
-  
+
+  // La base fait foi. Un document déjà enregistré (identifiant de la base) qui n'y figure plus
+  // a été supprimé ailleurs : il disparaît aussi d'ici. Les documents jamais enregistrés sont gardés.
+  const dbNums = new Set((data||[]).map(d=>d.num));
+  if((data||[]).length > 0 && (data||[]).length < 1000){
+    devisList = devisList.filter(d=>!isUuid(d.id) || dbNums.has(d.num));
+    docHistory = docHistory.filter(d=>!isUuid(d.id) || dbNums.has(d.num));
+  }
+
   // Merge Supabase docs
   (data||[]).forEach(d=>{
     const existing = devisList.findIndex(x=>x.num===d.num);
@@ -6936,6 +7161,9 @@ async function loadDevis(){
   devisList.sort((a,b)=>parseDocDateValue(b.createdAt || b.date)-parseDocDateValue(a.createdAt || a.date));
   saveDevisLocal();
   renderDevisList();
+
+  // Les devis restés sur cet ordinateur partent maintenant dans la base.
+  syncLocalDocuments(dbNums).catch(e=>console.error('Envoi des devis locaux :', e));
 }
 
 async function loadCommandes(){
@@ -7062,10 +7290,7 @@ async function accepterDevis(id){
   saveDevisLocal();
   
   // Update in Supabase documents table
-  if(sb && !NOT_CONFIGURED && d.id && !d.id.startsWith('local-')){
-    sb.from('documents').update({statut:'Accepté'}).eq('id',d.id)
-      .then(({error})=>{ if(error) console.error(error); });
-  }
+  updateDocumentStatut(d, 'Accepté');
   
   // Update prospect statut → Gagné
   if(d.prospectId){
@@ -7110,10 +7335,7 @@ async function refuserDevis(id){
   if(!d) return;
   d.statut = 'Refusé';
   saveDevisLocal();
-  if(sb && !NOT_CONFIGURED && d.id && !d.id.startsWith('local-')){
-    sb.from('documents').update({statut:'Refusé'}).eq('id',d.id)
-      .then(({error})=>{ if(error) console.error(error); });
-  }
+  updateDocumentStatut(d, 'Refusé');
   // Update prospect
   if(d.prospectId){
     const p = prospects.find(x=>x.id===d.prospectId);
@@ -7172,7 +7394,7 @@ async function creerCommande(devis){
     const basePayload = {
       user_id: currentUser.id,
       quote_num: cmd.devis_num,
-      prospect_id: cmd.prospect_id,
+      prospect_id: resolveProspectUuid(cmd.prospect_id, [cmd.company, cmd.clientName, cmd.contact]),
       contact: cmd.contact,
       prod_name: cmd.prod_name,
       qty: cmd.qty,
@@ -8085,7 +8307,7 @@ function openNewRdv(){
           titre: rdv.titre,
           date_rdv: rdv.date_rdv,
           heure: rdv.heure||null,
-          prospect_id: rdv.prospect_id||null,
+          prospect_id: resolveProspectUuid(rdv.prospect_id, []),
           notes: rdv.notes||null,
           user_id: currentUser.id
         })
@@ -8258,11 +8480,25 @@ async function deleteDevis(id, rowEl){
     toast('Une facture émise ne se supprime pas. Faire établir un avoir en cas de correction.','error');return;
   }
   if(!confirm('Supprimer ce document définitivement ?')) return;
-  devisList = devisList.filter(d=>(d.id!==id && d.num!==id));
+  const target = devisList.find(d=>d.id===id||d.num===id) || docHistory.find(d=>d.id===id||d.num===id);
+  const num = target ? target.num : null;
+  const realId = isUuid(id) ? id : (target && isUuid(target.id) ? target.id : null);
+  // Retiré des deux listes locales, sinon il réapparaît au prochain chargement.
+  const keep = d=>(d.id!==id && d.num!==id && (!num || d.num!==num));
+  devisList = devisList.filter(keep);
+  docHistory = docHistory.filter(keep);
   localStorage.setItem('mp_devis', JSON.stringify(devisList,documentCacheReplacer));
-  if(sb && !NOT_CONFIGURED && id && !id.startsWith('local-')){
-    sb.from('documents').delete().eq('id', id)
-      .then(({error})=>{ if(error) console.error(error); });
+  try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+  rememberDeletedDoc(num);
+  if(sb && !NOT_CONFIGURED && currentUser){
+    if(realId){
+      sb.from('documents').delete().eq('id', realId)
+        .then(({error})=>{ if(error) console.error(error); });
+    }else if(num){
+      // Jamais enregistré avec un identifiant connu : suppression par numéro, devis uniquement.
+      sb.from('documents').delete().eq('num', num).eq('type', 'DEV').eq('user_id', currentUser.id)
+        .then(({error})=>{ if(error) console.error(error); });
+    }
   }
   if(rowEl) rowEl.remove();
   else renderDevisList();
@@ -8722,33 +8958,49 @@ function renderHistorique(prospectId){
     };
   });
 
-  const docEvents = devisList
-    .filter(d=>d.prospectId===prospectId)
+  // Devis et factures : une icône à la date où ils ont été générés, un aperçu miniature,
+  // et un clic pour ouvrir le document.
+  const activity = prospectActivityStore()[String(prospectId)] || [];
+  const docCreators = {};
+  activity.forEach(a=>{ if(a.table_name==='documents' && a.action==='insert' && a.label) docCreators[a.label] = a.actor_name || ''; });
+  const fileIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/></svg>';
+  const fiche_docs = devisList.filter(d=>d.prospectId===prospectId);
+  const docNums = new Set(fiche_docs.map(d=>d.num));
+  const docEvents = fiche_docs
     .map(raw=>{
       const d = normalizeDocumentRecord(raw);
       const vatSettings = getVatSettingsFromStored(d);
-      const typeCls = d.type==='DEV' ? 'b-devis' : (d.type==='FAC' ? 'b-relance' : 'b-won');
+      const isQuote = (d.type||'DEV')==='DEV';
+      const typeCls = isQuote ? 'b-devis' : (d.type==='FAC' ? 'b-relance' : 'b-won');
+      const creator = docCreators[d.num];
       const details = [
         getDocProductSummary(d),
         d.shippingHT !== null && d.shippingHT !== undefined ? 'Livraison '+formatDocMoney(d.shippingHT)+' HT' : '',
         vatSettings.isVatExempt ? 'TVA 0%' : 'TVA 20%',
-        d.statut || 'Envoyé'
+        d.statut || 'Envoyé',
+        creator ? 'par '+creator : ''
       ].filter(Boolean).join(' · ');
+      const num = String(d.num||'');
+      const open = num ? `openStoredDocument('${escapeHTML(num.replace(/['\\]/g,''))}')` : '';
       return {
         sort: parseDocDateValue(d.createdAt || d.date),
-        html: `<div class="tl-item">
-          <div class="tl-icon ic-auto">${d.type||'D'}</div>
-          <div class="tl-body">
-            <div class="tl-text"><span class="badge ${typeCls}" style="font-size:9px;margin-right:5px">${d.typeLabel||d.type||'DOC'}</span>${d.num||'—'} · ${formatDocMoney(d.ttc)}</div>
-            <div class="tl-sub">${details}</div>
+        html: `<div class="tl-item tl-doc" ${open?`role="button" tabindex="0" title="Ouvrir ${isQuote?'le devis':'la facture'}" onclick="${open}" onkeydown="if(event.key==='Enter'){${open}}"`:''}>
+          <div class="tl-icon ic-doc${isQuote?'':' is-invoice'}">${fileIcon}</div>
+          <div class="tl-body" style="min-width:0">
+            <div class="tl-text" style="overflow-wrap:anywhere"><span class="badge ${typeCls}" style="font-size:9px;margin-right:5px">${escapeHTML(d.typeLabel||d.type||'DOC')}</span>${escapeHTML(num||'—')} · ${formatDocMoney(d.ttc)}</div>
+            <div class="tl-sub" style="overflow-wrap:anywhere">${escapeHTML(details)}</div>
+            ${num?`<div class="doc-thumb" data-doc-num="${escapeHTML(num)}" aria-hidden="true"><span class="doc-thumb-note">Aperçu…</span></div>`:''}
           </div>
-          <div class="tl-date">${d.date||''}</div>
+          <div class="tl-date">${escapeHTML(d.date||'')}</div>
         </div>`
       };
     });
 
   const messageEvents = (prospectMessagesStore()[String(prospectId)] || []).map(messageEvent);
-  const activityEvents = (prospectActivityStore()[String(prospectId)] || []).map(activityEvent).filter(Boolean);
+  // La création d'un document déjà affiché ci-dessus n'est pas répétée : son auteur figure sur sa ligne.
+  const activityEvents = activity
+    .filter(a=>!(a.table_name==='documents' && a.action==='insert' && docNums.has(a.label)))
+    .map(activityEvent).filter(Boolean);
 
   const events = [...noteEvents, ...docEvents, ...messageEvents, ...activityEvents].sort((a,b)=>b.sort-a.sort);
   if(!events.length){
@@ -8756,6 +9008,105 @@ function renderHistorique(prospectId){
     return;
   }
   list.innerHTML = events.map(e=>e.html).join('');
+  hydrateDocThumbs(list);
+}
+
+// ══════════════════════════════════════════════════════════════
+// APERÇU ET OUVERTURE DES DOCUMENTS ENREGISTRÉS
+// La copie d'un devis est dans document_html, celle d'une facture émise dans sa fiche documents.
+// ══════════════════════════════════════════════════════════════
+function docHtmlStore(){
+  return window.mpDocHtml || (window.mpDocHtml = {});
+}
+
+// Charge les copies manquantes. Une copie absente est mémorisée comme '' pour ne pas la redemander.
+async function fetchDocHtml(nums){
+  const store = docHtmlStore();
+  const missing = Array.from(new Set((nums||[]).filter(n=>n && !(n in store))));
+  if(!missing.length || !sb || NOT_CONFIGURED || !currentUser) return;
+  try{
+    const [quotes, invoices] = await Promise.all([
+      sb.from('document_html').select('num,html').in('num', missing),
+      sb.from('documents').select('num,invoice_html:invoice_snapshot->>invoiceHtml').in('num', missing).not('invoice_issued_at','is',null)
+    ]);
+    if(quotes.error) throw quotes.error;
+    if(invoices.error) throw invoices.error;
+    missing.forEach(n=>{ store[n] = ''; });
+    (invoices.data||[]).forEach(r=>{ if(r.invoice_html) store[r.num] = r.invoice_html; });
+    (quotes.data||[]).forEach(r=>{ if(r.html) store[r.num] = r.html; });
+  }catch(e){ console.error('Copie des documents :', e); }
+}
+
+// Remplit les miniatures de l'historique : le document entier, affiché en petit.
+async function hydrateDocThumbs(container){
+  const boxes = Array.from(container.querySelectorAll('.doc-thumb[data-doc-num]'));
+  if(!boxes.length) return;
+  const paint = ()=>boxes.forEach(box=>{
+    if(!box.isConnected) return;
+    const html = docHtmlStore()[box.dataset.docNum];
+    if(html){
+      if(box.querySelector('iframe')) return;
+      box.innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox','');          // aucun script dans l'aperçu
+      frame.setAttribute('tabindex','-1');
+      frame.setAttribute('scrolling','no');
+      frame.setAttribute('title','Aperçu du document');
+      frame.srcdoc = html;
+      box.appendChild(frame);
+    }else if(html === ''){
+      box.innerHTML = '<span class="doc-thumb-note">Copie non conservée</span>';
+    }
+  });
+  paint();
+  const nums = boxes.map(b=>b.dataset.docNum);
+  if(nums.some(n=>!(n in docHtmlStore()))){
+    await fetchDocHtml(nums);
+    paint();
+  }
+}
+
+async function openStoredDocument(num){
+  const rec = devisList.find(d=>d.num===num) || docHistory.find(d=>d.num===num);
+  await fetchDocHtml([num]);
+  const html = docHtmlStore()[num] || (rec && rec.invoiceHtml) || '';
+  if(!html){
+    toast('La copie de ce document n’a pas été conservée. Seuls les documents créés depuis la mi-octobre ont une copie.','error');
+    return;
+  }
+  const client = rec ? getDocClientLabel(rec) : '';
+  openDocViewer(((rec && (rec.typeLabel || rec.type)) || 'Document')+' '+num+(client ? ' · '+client : ''), html);
+}
+
+function closeDocViewer(){
+  const old = document.getElementById('doc-viewer');
+  if(old) old.remove();
+  document.removeEventListener('keydown', docViewerKey);
+}
+function docViewerKey(e){ if(e.key === 'Escape') closeDocViewer(); }
+
+function openDocViewer(title, html){
+  closeDocViewer();
+  const overlay = document.createElement('div');
+  overlay.id = 'doc-viewer';
+  overlay.className = 'doc-viewer';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.innerHTML = `<div class="doc-viewer-bar"><b class="doc-viewer-title"></b><span style="flex:1"></span>
+      <button type="button" class="btn btn-sm btn-primary" data-act="print">Imprimer ou PDF</button>
+      <button type="button" class="btn btn-sm" data-act="close">Fermer</button></div>
+    <div class="doc-viewer-body"><iframe sandbox="allow-same-origin allow-modals" title="Document"></iframe></div>`;
+  overlay.querySelector('.doc-viewer-title').textContent = title;
+  const frame = overlay.querySelector('iframe');
+  frame.srcdoc = html;
+  overlay.addEventListener('click', e=>{ if(e.target === overlay) closeDocViewer(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', closeDocViewer);
+  overlay.querySelector('[data-act="print"]').addEventListener('click', ()=>{
+    try{ frame.contentWindow.focus(); frame.contentWindow.print(); }
+    catch(e){ toast('Impression impossible depuis cet aperçu','error'); }
+  });
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', docViewerKey);
 }
 
 
@@ -9117,7 +9468,7 @@ function ouvrirNouvelleCommande(){
       const basePayload = {
         user_id: currentUser.id,
         quote_num: cmd.devis_num,
-        prospect_id: cmd.prospect_id,
+        prospect_id: resolveProspectUuid(cmd.prospect_id, [cmd.company, cmd.clientName, cmd.contact]),
         contact: cmd.contact,
         prod_name: cmd.prod_name,
         qty: cmd.qty,
