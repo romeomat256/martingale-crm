@@ -8964,7 +8964,15 @@ function renderHistorique(prospectId){
   const docCreators = {};
   activity.forEach(a=>{ if(a.table_name==='documents' && a.action==='insert' && a.label) docCreators[a.label] = a.actor_name || ''; });
   const fileIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/></svg>';
-  const fiche_docs = devisList.filter(d=>d.prospectId===prospectId);
+  // Un document sans fiche rattachée (ou rattaché à une fiche disparue) est montré sur la fiche
+  // qui porte le même nom de client : une facture émise ne peut plus être modifiée pour la rattacher.
+  const sameName = v=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase();
+  const ficheName = sameName(p.name);
+  const fiche_docs = devisList.filter(d=>{
+    if(d.prospectId === prospectId) return true;
+    if(d.prospectId && prospects.some(x=>x.id===d.prospectId)) return false;
+    return !!ficheName && [d.company, d.clientName, d.contact].some(n=>sameName(n) === ficheName);
+  });
   const docNums = new Set(fiche_docs.map(d=>d.num));
   const docEvents = fiche_docs
     .map(raw=>{
