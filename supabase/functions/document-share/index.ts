@@ -11,7 +11,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const USER_ID = "e0ea9ee1-90e8-4162-9e80-d264b7f993fb";
 const VIEW_URL = Deno.env.get("PUBLIC_DOC_URL") || "https://martingale-crm.vercel.app/document.html";
-const REPLY_TO = "romeo@martingaleparis.fr";
+// Adresse de réponse et de copie des envois : gardée dans les secrets Supabase (MAIL_REPLY_TO), pas dans le code.
+// À renseigner AVANT de déployer cette version, sinon les mails partent sans adresse de réponse ni copie.
+const REPLY_TO = (Deno.env.get("MAIL_REPLY_TO") || "").trim();
 
 function cors(origin: string | null): Record<string, string> {
   const ok = origin && (/^https:\/\/martingale-crm[a-z0-9-]*\.vercel\.app$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin));
@@ -148,7 +150,7 @@ ${esc(message).replace(/\n/g, "<br>")}
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: Deno.env.get("MAIL_FROM") || "Martingale Paris <devis@martingaleparis.fr>",
-        to: [to], reply_to: REPLY_TO, bcc: [REPLY_TO], subject, html,
+        to: [to], ...(REPLY_TO ? { reply_to: REPLY_TO, bcc: [REPLY_TO] } : {}), subject, html,
         text: `${message}\n\n${url}`,
       }),
     });
