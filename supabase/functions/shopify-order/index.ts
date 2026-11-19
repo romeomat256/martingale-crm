@@ -1,6 +1,8 @@
-// Martingale : commandes du site Shopify vers le CRM.
-// Webhook Shopify « Création de commande » et « Paiement de commande ».
+// Martingale : boutique Shopify vers le CRM (commandes et stock).
+// Webhooks Shopify : « Création de commande », « Paiement de commande », « Mise à jour de commande »,
+// « Annulation de commande » et « Mise à jour du niveau de stock ».
 // Chaque commande crée ou met à jour : la fiche client (prospects) et une commande (orders).
+// Chaque mouvement de stock recopie le disponible Shopify dans la table stock.
 // Sécurité : signature HMAC vérifiée avec SHOPIFY_WEBHOOK_SECRET (clé affichée par Shopify
 // dans Paramètres > Notifications > Webhooks). verify_jwt = false : Shopify n'envoie pas de jeton.
 
@@ -51,24 +53,48 @@ Deno.serve(async (req: Request) => {
     return json(401, { ok: false, error: "signature" });
   }
   const topic = req.headers.get("x-shopify-topic") || "orders/create";
-  if (!/^orders\/(create|paid|updated)$/.test(topic)) return json(200, { ok: true, ignored: topic });
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+
+  // Stock : Shopify annonce le nouveau niveau disponible d'un article, le CRM le recopie.
+  if (topic === "inventory_levels/update") {
+    let lvl: Record<string, any>;
+    try { lvl = JSON.parse(raw); } catch { return json(400, { ok: false, error: "payload" }); }
+    const itemId = Number(lvl?.inventory_item_id);
+    const available = Number(lvl?.available);
+    if (!itemId || !Number.isFinite(available)) return json(200, { ok: true, ignored: "payload" });
+    const { data: map } = await sb.from("shopify_inventory_map").select("product_id, location_id").eq("inventory_item_id", itemId).maybeSingle();
+    if (!map) return json(200, { ok: true, ignored: "unknown item" });
+    if (map.location_id && lvl.location_id && Number(map.location_id) !== Number(lvl.location_id)) return json(200, { ok: true, ignored: "other location" });
+    const now = new Date().toISOString();
+    const { error } = await sb.from("stock").upsert(
+      { product_id: map.product_id, rolls: Math.max(0, Math.round(available)), user_id: USER_ID, source: "shopify", synced_at: now, updated_at: now },
+      { onConflict: "product_id" },
+    );
+    if (error) { console.error("stock", error); return json(500, { ok: false, error: "stock" }); }
+    await sb.from("crm_sync_state").upsert({ key: "shopify_stock", value: { at: now, product: map.product_id, available }, updated_at: now });
+    return json(200, { ok: true, mode: "stock", product: map.product_id, available });
+  }
+
+  if (!/^orders\/(create|paid|updated|cancelled)$/.test(topic)) return json(200, { ok: true, ignored: topic });
 
   let order: Record<string, any>;
   try { order = JSON.parse(raw); } catch { return json(400, { ok: false, error: "payload" }); }
   if (!order?.id) return json(400, { ok: false, error: "payload" });
 
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const key = `shopify:${order.id}`;
-  const paid = ["paid", "partially_refunded"].includes(String(order.financial_status || ""));
-  const statut = order.cancelled_at ? "Annulé" : paid ? "Payé" : "Confirmé";
+  const financial = String(order.financial_status || "");
+  const paid = ["paid", "partially_refunded"].includes(financial);
+  const statut = (order.cancelled_at || financial === "refunded" || financial === "voided") ? "Annulé" : paid ? "Payé" : "Confirmé";
 
   // Commande déjà connue : on met seulement le statut à jour
   const { data: known } = await sb.from("orders").select("id, statut").eq("user_id", USER_ID).eq("devis_id", key).maybeSingle();
   if (known) {
-    if (known.statut !== statut) await sb.from("orders").update({ statut }).eq("id", known.id);
-    return json(200, { ok: true, mode: "status", statut });
+    // Une annulation s'applique toujours ; « Confirmé » devient « Payé » ; un statut posé à la main (Expédié, Livré) est gardé.
+    const next = statut === "Annulé" ? "Annulé" : (known.statut === "Confirmé" && statut === "Payé" ? "Payé" : known.statut);
+    if (known.statut !== next) await sb.from("orders").update({ statut: next }).eq("id", known.id);
+    return json(200, { ok: true, mode: "status", statut: next });
   }
-  if (topic === "orders/updated") return json(200, { ok: true, ignored: "unknown order" });
+  if (topic === "orders/updated" || topic === "orders/cancelled") return json(200, { ok: true, ignored: "unknown order" });
 
   // Lignes et montants (boutique en prix HT : taxes_included = false)
   const taxesIncluded = !!order.taxes_included;
@@ -187,6 +213,19 @@ Deno.serve(async (req: Request) => {
     if ((error as any).code === "23505") return json(200, { ok: true, mode: "duplicate" });
     console.error("order", error);
     return json(500, { ok: false, error: "order" });
+  }
+
+  // Tant que Shopify n'envoie pas les niveaux de stock en direct, la commande retire elle-même les chaises du stock du CRM.
+  if (statut !== "Annulé") {
+    const { data: live } = await sb.from("crm_sync_state").select("key").eq("key", "shopify_stock").maybeSingle();
+    if (!live) {
+      for (const l of lines) {
+        if (!l.prodId || !l.qty) continue;
+        const { data: st } = await sb.from("stock").select("rolls").eq("product_id", l.prodId).maybeSingle();
+        if (!st) continue;
+        await sb.from("stock").update({ rolls: Math.max(0, Math.round(num(st.rolls) - l.qty)), updated_at: new Date().toISOString() }).eq("product_id", l.prodId);
+      }
+    }
   }
   return json(200, { ok: true, mode: "created", statut });
 });

@@ -1951,6 +1951,8 @@ async function loadStock(){
   const {data,error}=await sb.from('stock').select('*');
   if(error)throw error;
   getCatalogChairs().forEach(p=>{stockData[p.id]=0;});
+  window.__mpStockShopify = (data||[]).some(s=>s.source==='shopify');
+  window.__mpStockSyncedAt = (data||[]).map(s=>s.synced_at).filter(Boolean).sort().pop() || null;
   (data||[]).forEach(s=>{
     stockData[s.product_id]=Math.max(0, Math.round(s.rolls||0));
     // Reload stock dates from Supabase
@@ -2600,6 +2602,17 @@ function getStockComplet(productId){
 
   // Chaises déjà vendues (B2B + site)
   const prod = PRODUCTS.find(p=>p.id===productId);
+  if(window.__mpStockShopify){
+    // Stock lu dans Shopify : les commandes du site y sont déjà déduites.
+    // Restent à retirer les commandes B2B confirmées, pas encore expédiées.
+    const reserve = commandesList
+      .filter(c => c.operation_category!=='shopify' && ['Confirmé','En production'].includes(c.statut))
+      .reduce((s,c) => s + orderQtyForProduct(c, productId, prod), 0);
+    const totalStock = stockActuel + chaisesAVenir;
+    const disponible = totalStock - reserve;
+    const pct = totalStock > 0 ? Math.min(100, Math.round((reserve/totalStock)*100)) : 0;
+    return { stockActuel, chaisesAVenir, totalVendu: reserve, totalStock, disponible, pct, shopify: true };
+  }
   const venduB2B = commandesList
     .filter(c => c.statut !== 'Annulé' && c.statut !== 'Site web')
     .reduce((s,c) => {
@@ -2619,6 +2632,15 @@ function getStockComplet(productId){
   const pct = totalStock > 0 ? Math.min(100, Math.round((totalVendu/totalStock)*100)) : 0;
 
   return { stockActuel, chaisesAVenir, totalVendu, totalStock, disponible, pct };
+}
+// Chaises d'un produit dans une commande : lignes détaillées si elles existent, sinon le produit principal
+function orderQtyForProduct(c, productId, prod){
+  const lines = Array.isArray(c.line_items) ? c.line_items : (Array.isArray(c.lineItems) ? c.lineItems : []);
+  const withIds = lines.filter(l=>l && l.prodId);
+  if(withIds.length) return withIds.filter(l=>l.prodId===productId).reduce((s,l)=>s+(+l.qty||0),0);
+  if(c.prod_id && c.prod_id === productId) return +c.qty||0;
+  if(prod && c.prod_name && (c.prod_name.includes(prod.name) || prod.name.includes(c.prod_name))) return +c.qty||0;
+  return 0;
 }
 function buildStockQtyCell(pid, chaises){
   const val = Math.max(0, Math.round(chaises));
@@ -2698,6 +2720,15 @@ function buildArrivagesInline(productId){
 function renderStock(){
   const tbody=document.getElementById('stock-tbody');
   if(!tbody) return;
+  // D'où vient le stock affiché
+  try{
+    const table = tbody.closest('table');
+    let note = document.getElementById('stock-source-note');
+    if(!note && table && table.parentElement){ note = document.createElement('div'); note.id = 'stock-source-note'; note.className = 'page-subtitle'; note.style.margin = '0 0 12px'; table.parentElement.insertBefore(note, table); }
+    if(note) note.textContent = window.__mpStockShopify
+      ? 'Stock lu dans Shopify (disponible à la vente)'+(window.__mpStockSyncedAt?', relu '+relativeTime(window.__mpStockSyncedAt):'')+'. Les commandes du site y sont déjà déduites. Les commandes B2B confirmées et pas encore expédiées sont retirées ici.'
+      : '';
+  }catch(e){}
   let tc=0, tv=0;
 
   tbody.innerHTML = getCatalogChairs().map(p => {
@@ -2727,7 +2758,7 @@ function renderStock(){
           // Légende
           + '<div style="display:flex;justify-content:space-between;font-size:9px;color:#888;width:160px">'
             + '<span><span style="color:#4D5038;font-weight:600">'+dispo+'</span> dispo</span>'
-            + '<span><span style="color:'+barColor+';font-weight:600">'+vendu+'</span> vendues</span>'
+            + '<span><span style="color:'+barColor+';font-weight:600">'+vendu+'</span> '+(sc.shopify?'réservées':'vendues')+'</span>'
             + '<span style="color:#aaa">/ '+total+'</span>'
           + '</div>'
         + '</div>'
@@ -6833,7 +6864,8 @@ async function syncEverything({silent=false}={}){
       else if(res.error) problems.push('banque : lecture impossible');
     }
     const before = prospects.length;
-    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), loadExchangeState(), reloadTeam()]);
+    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), loadExchangeState(), reloadTeam(), loadStock()]);
+    try{ renderStock(); }catch(e){}
     if(prospects.length > before) news.push((prospects.length-before)+' nouvelle'+(prospects.length-before>1?'s':'')+' fiche'+(prospects.length-before>1?'s':''));
     await loadSyncStatus();
     try{ renderToday(); }catch(e){}
@@ -6868,6 +6900,10 @@ function renderSyncCard(){
     rows += row(!g.dernier?'off':(days(g.dernier)>3?'warn':'ok'),'E-mails (Gmail)', g.dernier ? 'dernier mail classé '+ago(g.dernier) : 'aucun mail classé');
     const w = s.whatsapp || {};
     rows += row(w.dernier?(days(w.dernier)>3?'warn':'ok'):'off','WhatsApp', w.dernier ? 'dernier résumé '+ago(w.dernier) : 'tâche pas encore lancée');
+    const bq = s.boutique || {};
+    rows += row(bq.stock_en_direct?'ok':(bq.stock_lu?'warn':'off'),'Boutique (Shopify)',
+      (+bq.commandes||0)+' commande'+(+bq.commandes>1?'s':'')+(bq.derniere_commande?', dernière '+ago(bq.derniere_commande):'')
+      +' · '+(bq.stock_en_direct?'stock en direct':(bq.stock_lu?'stock relu '+ago(bq.stock_lu)+', direct à brancher':'stock non relié')));
     const site = s.site || {};
     rows += row(site.derniere_demande?'ok':'off','Demandes du site', site.derniere_demande ? 'dernière '+ago(site.derniere_demande) : 'aucune demande reçue');
   }
@@ -7307,7 +7343,15 @@ function renderToday(){
   // Colonne de droite : le mois en cours, stock bas
   const m=now.getMonth(), y=now.getFullYear();
   const inMonth=v=>{const t=parseDocDateValue(v); if(!t) return false; const d=new Date(t); return d.getMonth()===m&&d.getFullYear()===y;};
-  const billed=docs.filter(d=>d.type!=='DEV'&&d.invoiceIssuedAt&&inMonth(d.invoiceIssuedAt)).reduce((s,d)=>s+(+d.ht||0),0);
+  const siteOrders=commandesList.filter(c=>c.operation_category==='shopify'&&c.statut!=='Annulé');
+  const normC=v=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const isSiteInvoice=d=>siteOrders.some(c=>Math.abs((+c.total_ttc||0)-(+d.ttc||0))<=0.05 && ((d.prospectId&&c.prospect_id===d.prospectId)
+    || [c.company,c.client_name,c.contact_name,c.email].map(normC).filter(Boolean).some(n=>[d.company,d.clientName,d.contactName,d.email].map(normC).includes(n))));
+  const billed=docs.filter(d=>d.type!=='DEV'&&d.invoiceIssuedAt&&inMonth(d.invoiceIssuedAt)&&!isArchivedDoc(d)&&d.statut!=='Annulée'&&!isSiteInvoice(d)).reduce((s,d)=>s+(+d.ht||0),0);
+  const siteMonth=siteOrders.filter(c=>inMonth(c.created_at)).reduce((s,c)=>s+(+c.total_ht||0),0);
+  const siteYearList=siteOrders.filter(c=>{const t=parseDocDateValue(c.created_at); return t && new Date(t).getFullYear()===y;});
+  const siteYear=siteYearList.reduce((s,c)=>s+(+c.total_ht||0),0);
+  const eur=v=>formatDocMoney(v).replace(',00','');
   const sent=docs.filter(d=>d.type==='DEV'&&!isArchivedDoc(d)&&inMonth(d.createdAt||d.date)).length;
   const signed=docs.filter(d=>d.type==='DEV'&&['Accepté','Facturé'].includes(d.statut)&&inMonth(d.createdAt||d.date)).length;
   const monthName=now.toLocaleDateString('fr-FR',{month:'long'});
@@ -7315,8 +7359,10 @@ function renderToday(){
   try{ low=getCatalogChairs().map(p=>({p,n:Math.max(0,Math.round(getStockComplet(p.id).disponible||0))})).filter(x=>x.n<12).sort((a,b)=>a.n-b.n); }catch(e){}
   side.innerHTML=`
     <div class="td-card"><span class="td-cap">${monthName}</span>
-      <div><div class="td-big">${formatDocMoney(billed).replace(',00','')}</div><span class="td-mute">facturé HT</span></div>
+      <div><div class="td-big">${eur(billed+siteMonth)}</div><span class="td-mute">chiffre d’affaires HT</span></div>
+      <div class="td-2"><div><b>${eur(billed)}</b><span class="td-mute">B2B facturé</span></div><div><b>${eur(siteMonth)}</b><span class="td-mute">site</span></div></div>
       <div class="td-2"><div><b>${sent}</b><span class="td-mute">devis envoyés</span></div><div><b>${signed}</b><span class="td-mute">devis signés</span></div></div>
+      ${siteYearList.length?`<span class="td-mute">Site depuis janvier : ${eur(siteYear)} HT, ${siteYearList.length} commandes</span>`:''}
     </div>
     ${low.length?`<div class="td-card td-soft"><span class="td-cap">Stock bas</span><span>${low.slice(0,4).map(x=>esc(x.p.name)+' : '+x.n).join(' · ')}</span><button type="button" class="td-link" onclick="go('stock')">Voir le stock</button></div>`:''}
     ${bankSideCard()}
@@ -7815,7 +7861,9 @@ async function loadCommandes(){
     ...o,
     devis_num: o.devis_num || o.quote_num || '',
     supabase_id: o.id,
-    payments: (o.payments||[]).map(p=>({...p, date: p.date || p.date_paiement || p.created_at}))
+    payments: (o.payments||[]).length
+      ? o.payments.map(p=>({...p, date: p.date || p.date_paiement || p.created_at}))
+      : ((o.operation_category==='shopify' && o.statut==='Payé') ? [{montant:+o.total_ttc||0, date:o.created_at, mode:'Shopify'}] : [])
   }));
   saveCmdLocal();
   try{ renderCommandes(); updateCmdBadge(); renderToday(); }catch(e){}
@@ -8417,6 +8465,7 @@ function renderCommandes(){
   // Compute totals
   let totalTTC=0, totalPaye=0, totalChaisesB2B=0;
   commandesList.forEach(c=>{
+    if(c.statut==='Annulé') return;
     totalTTC += +(c.total_ttc||0);
     totalChaisesB2B += +(c.qty||0);
     (c.payments||[]).forEach(p=>{ totalPaye += +(p.montant||0); });
