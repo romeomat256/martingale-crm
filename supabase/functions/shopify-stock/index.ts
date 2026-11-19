@@ -27,7 +27,7 @@ function cors(origin: string | null): Record<string, string> {
   };
 }
 
-async function shopifyToken(id: string, secret: string): Promise<{ token?: string; error?: string }> {
+async function shopifyToken(id: string, secret: string): Promise<{ token?: string; scope?: string; error?: string }> {
   const res = await fetch(`https://${SHOP}/admin/oauth/access_token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -39,7 +39,27 @@ async function shopifyToken(id: string, secret: string): Promise<{ token?: strin
   if (!res.ok || !body?.access_token) {
     return { error: `jeton refusé (${res.status}) : ${String(body?.error_description || body?.error || text).slice(0, 160)}` };
   }
-  return { token: String(body.access_token) };
+  return { token: String(body.access_token), scope: String(body.scope || "") };
+}
+
+// Vérification sans rien modifier : la boutique répond-elle, et lit-on bien le stock d'un article ?
+async function verify(token: string, item: any): Promise<{ ok: boolean; shop?: string; available?: number | null; error?: string }> {
+  const query = `query VerifCrm($item: ID!, $loc: ID!) {
+    shop { name }
+    inventoryItem(id: $item) { tracked inventoryLevel(locationId: $loc) { quantities(names: ["available"]) { name quantity } } }
+  }`;
+  const res = await fetch(`https://${SHOP}/admin/api/${API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({ query, variables: { item: `gid://shopify/InventoryItem/${item.inventory_item_id}`, loc: `gid://shopify/Location/${item.location_id}` } }),
+  });
+  const text = await res.text();
+  let body: any = null;
+  try { body = JSON.parse(text); } catch { /* réponse non JSON */ }
+  if (!res.ok) return { ok: false, error: `Shopify ${res.status} : ${text.slice(0, 200)}` };
+  if (body?.errors?.length) return { ok: false, error: body.errors.map((e: any) => e.message).join(" ; ").slice(0, 300) };
+  const q = body?.data?.inventoryItem?.inventoryLevel?.quantities?.[0];
+  return { ok: true, shop: body?.data?.shop?.name || "", available: q ? Number(q.quantity) : null };
 }
 
 const MUTATION = (key: string) => `mutation MouvementCrm($input: InventoryAdjustQuantitiesInput!) {
@@ -107,6 +127,9 @@ Deno.serve(async (req: Request) => {
     if (!owner) return rep(403, { ok: false, error: "forbidden" });
   }
 
+  let payload: Record<string, any> = {};
+  try { payload = JSON.parse((await req.text()) || "{}") || {}; } catch { /* corps vide */ }
+
   const now = () => new Date().toISOString();
   const saveState = (value: Record<string, unknown>) =>
     sb.from("crm_sync_state").upsert({ key: "shopify_push", value: { at: now(), ...value }, updated_at: now() });
@@ -126,6 +149,22 @@ Deno.serve(async (req: Request) => {
     }
     await saveState({ configured: false, laisses: moves?.length || 0 });
     return rep(200, { ok: false, error: "not_configured", laisses: moves?.length || 0 });
+  }
+
+  // { "action": "check" } : essai de connexion, sans toucher au stock ni aux mouvements en attente.
+  if (payload.action === "check") {
+    const auth = await shopifyToken(clientId, clientSecret);
+    if (!auth.token) {
+      await saveState({ configured: true, ok: false, erreur: auth.error });
+      return rep(200, { ok: false, error: "token", detail: auth.error });
+    }
+    const scopes = String(auth.scope || "");
+    const canWrite = /(^|,)\s*write_inventory(\s*,|\s*$)/.test(scopes);
+    const { data: item } = await sb.from("shopify_inventory_map").select("product_id, inventory_item_id, location_id").order("product_id").limit(1).maybeSingle();
+    const v = item ? await verify(auth.token, item) : { ok: false, error: "aucun article relié" };
+    const ok = v.ok && canWrite;
+    await saveState({ configured: true, ok, verifie: now(), scopes, ...(ok ? {} : { erreur: v.error || "droit write_inventory absent" }) });
+    return rep(200, { ok, boutique: v.shop || null, scopes, ecriture: canWrite, exemple: item ? { produit: item.product_id, disponible: v.available ?? null } : null, erreur: v.error || null });
   }
 
   if (!moves?.length) {
