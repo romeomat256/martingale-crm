@@ -1880,6 +1880,7 @@ async function loadAllData(){
     loadInvoiceDrafts().catch(e=>console.error('Brouillons:',e));
     loadCommandes().catch(e=>console.error('Commandes:',e));
     loadBankReceipts().catch(e=>console.error('Encaissements:',e));
+    loadExchangeState().catch(e=>console.error('Échanges:',e));
     loadRdv().catch(e=>console.error('RDV:',e));
   }catch(e){
     if(e.message==='timeout'){
@@ -6768,6 +6769,37 @@ async function confirmReceiptPicker(btn){
 }
 
 // ══════════════════════════════════════════════════════════════
+// ÉCHANGES : où en est la conversation avec chaque client (dernier message reçu, dernier envoyé)
+// Le passage « Nouveau » → « Contacté » est fait par la base dès qu'une réponse est enregistrée.
+// ══════════════════════════════════════════════════════════════
+function exchangeStore(){ return window.__mpExchange || (window.__mpExchange = {byId:{}, loaded:false}); }
+
+async function loadExchangeState(){
+  if(!sb || NOT_CONFIGURED || !currentUser) return;
+  const {data, error} = await sb.rpc('crm_exchange_state');
+  if(error){ console.warn('crm_exchange_state', error.message); return; }
+  const st = exchangeStore(); st.byId = {};
+  (Array.isArray(data) ? data : []).forEach(x=>{ st.byId[x.p] = {recu: x.recu ? new Date(x.recu).getTime() : 0, envoye: x.envoye ? new Date(x.envoye).getTime() : 0}; });
+  st.loaded = true;
+  try{ renderToday(); }catch(e){}
+}
+
+// Le client a écrit en dernier : c'est à toi de répondre.
+function prospectsAwaitingYou(){
+  const st = exchangeStore().byId;
+  return prospects.filter(p=>['Contacté','Devis envoyé'].includes(p.statut) && st[p.id] && st[p.id].recu && st[p.id].recu > st[p.id].envoye)
+    .map(p=>({p, t: st[p.id].recu})).sort((a,b)=>b.t-a.t);
+}
+
+// Tu as écrit en dernier, sans réponse depuis 3 jours ou plus (les devis envoyés ont leur propre liste).
+function prospectsNoReply(){
+  const st = exchangeStore().byId;
+  return prospects.filter(p=>p.statut==='Contacté' && st[p.id] && st[p.id].envoye && st[p.id].envoye >= st[p.id].recu && !p.rappel_date)
+    .map(p=>({p, t: st[p.id].envoye, j: daysSince(new Date(st[p.id].envoye).toISOString())}))
+    .filter(x=>x.j!==null && x.j>=3).sort((a,b)=>b.j-a.j);
+}
+
+// ══════════════════════════════════════════════════════════════
 // SYNCHRONISATION : un seul bouton et un seul état pour toutes les sources
 // (Pennylane banque et factures, Gmail, WhatsApp, demandes du site)
 // ══════════════════════════════════════════════════════════════
@@ -6801,7 +6833,7 @@ async function syncEverything({silent=false}={}){
       else if(res.error) problems.push('banque : lecture impossible');
     }
     const before = prospects.length;
-    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), reloadTeam()]);
+    await Promise.allSettled([loadProspects(), loadDevis(), loadCommandes(), loadInvoiceDrafts(), loadBankReceipts(), loadExchangeState(), reloadTeam()]);
     if(prospects.length > before) news.push((prospects.length-before)+' nouvelle'+(prospects.length-before>1?'s':'')+' fiche'+(prospects.length-before>1?'s':''));
     await loadSyncStatus();
     try{ renderToday(); }catch(e){}
@@ -6857,7 +6889,7 @@ async function syncOnOpen(){
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState!=='visible' || !currentUser) return;
   const st = bankStore(), now = Date.now();
-  if(now-(st.at||0) > 5*60*1000){ st.at = now; loadBankReceipts().catch(()=>{}); loadSyncStatus().catch(()=>{}); }
+  if(now-(st.at||0) > 5*60*1000){ st.at = now; loadBankReceipts().catch(()=>{}); loadSyncStatus().catch(()=>{}); loadExchangeState().catch(()=>{}); loadProspects().catch(()=>{}); }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -7196,13 +7228,16 @@ function renderToday(){
   // 6. Encaissements à rattacher, devis payés ou livrés à facturer
   const receipts=receiptsToHandle();
   const toBill=quotesToInvoice();
+  // 7. Échanges : le client a répondu, ou n'a pas répondu
+  const awaiting=prospectsAwaitingYou();
+  const noReply=prospectsNoReply();
 
-  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length;
+  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(rappels.length+relances.length,'relance'+(rappels.length+relances.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -7216,6 +7251,13 @@ function renderToday(){
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
     </div>`).join(''), nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:'');
+  html+=section('Réponses reçues','le client a écrit en dernier', awaiting.slice(0,6).map(({p,t})=>{const d=daysSince(new Date(t).toISOString());return `
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.statut,p.contact,p.ville].filter(Boolean).join(' · '))}</span></button>
+      <span class="td-what">${esc(prodSummary(p))}</span>
+      <span class="td-when ${ageClass(d,1,3)}">${d<=0?'a écrit aujourd’hui':(d===1?'a écrit hier':'a écrit il y a '+d+' j')}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="openFiche('${esc(p.id)}')">Lire</button><button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
+    </div>`;}).join(''), awaiting.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${awaiting.length} réponses</button>`:'');
   html+=section('Encaissements à rattacher','virements reçus, client à confirmer', bankTodayRows(receipts.slice(0,8)),
     receipts.length>8?`<div class="td-more" style="cursor:default">${receipts.length-8} autres encaissements à traiter ensuite</div>`:'');
   html+=section('Rappels','prévus aujourd’hui ou en retard', rappels.map(p=>{const d=daysSince(p.rappel_date);return `
@@ -7225,6 +7267,13 @@ function renderToday(){
       <span class="td-when ${d>0?'is-late':'is-warn'}">${d>0?'en retard de '+d+' j':'aujourd’hui'}</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(p.id)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="goRelanceGmail('${esc(p.id)}')">Email</button></div>
     </div>`;}).join(''));
+  html+=section('Sans réponse','tu as écrit, le client n’a pas répondu', noReply.slice(0,6).map(({p,j})=>`
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.contact,p.ville].filter(Boolean).join(' · '))}</span></button>
+      <span class="td-what">${esc(prodSummary(p))}</span>
+      <span class="td-when ${ageClass(j,5,10)}">depuis ${j} j</span>
+      <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm" onclick="goRelanceWA('${esc(p.id)}')">WhatsApp</button><button type="button" class="btn btn-sm" onclick="goRelanceGmail('${esc(p.id)}')">Email</button></div>
+    </div>`).join(''), noReply.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${noReply.length} clients sans réponse</button>`:'');
   html+=section('Devis à relancer','envoyés depuis plus de 7 jours', relances.slice(0,8).map(({d,j})=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="${d.prospectId?`openFiche('${esc(d.prospectId)}')`:`go('devis')`}"><b>${esc(getDocClientLabel(d)||'Client')}</b><span>${esc(d.num)}${docLinesLabel(d)?' · '+esc(docLinesLabel(d)):''}</span></button>
