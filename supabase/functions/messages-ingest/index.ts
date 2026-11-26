@@ -8,6 +8,9 @@
 // POST -> { canal: "gmail" | "whatsapp", self?: [adresses de Martingale], messages: [...] }
 //         message : { external_id, direction: "in" | "out", from, to, subject?, content?,
 //                     sent_at?, thread_id?, attachments?: [{ name, size, type }] }
+//         candidats (facultatif) : mails reçus d'expéditeurs inconnus, déjà filtrés par le script Gmail.
+//         { external_id, from, from_name?, to, subject?, content?, sent_at? } -> table mail_candidates,
+//         triés ensuite par le serveur (fonction crm-ai) : rien n'entre dans les fiches sans ce tri.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -78,12 +81,45 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch { return json(400, { ok: false, error: "payload" }); }
   const canal = String(body?.canal || "");
   if (!CANAUX.has(canal)) return json(400, { ok: false, error: "canal" });
-  const list = Array.isArray(body?.messages) ? body.messages : null;
+  const candidats = canal === "gmail" && Array.isArray(body?.candidats) ? body.candidats.slice(0, 50) : [];
+  const list = Array.isArray(body?.messages) ? body.messages : (candidats.length ? [] : null);
   if (!list) return json(400, { ok: false, error: "messages" });
   if (list.length > MAX_BATCH) return json(413, { ok: false, error: "too_many", max: MAX_BATCH });
 
   // Adresses et numéros de Martingale : jamais utilisés pour rattacher un message à une fiche.
   const selfEmails = new Set<string>((Array.isArray(body?.self) ? body.self : []).flatMap((v: unknown) => emailsOf(v)));
+
+  // Mails d'inconnus : mis de côté pour le tri, jamais rattachés directement à une fiche.
+  let candidatsGardes = 0;
+  if (candidats.length) {
+    const rowsC: Record<string, unknown>[] = [];
+    for (const c of candidats) {
+      const externalId = cut(c?.external_id, 200).trim();
+      const sender = emailsOf(c?.from)[0] || "";
+      if (!externalId || !sender || selfEmails.has(sender) || byEmail.has(sender)) continue;
+      const t = Date.parse(String(c?.sent_at || ""));
+      rowsC.push({
+        user_id: USER_ID,
+        external_id: externalId,
+        from_addr: cut(c?.from, 300) || null,
+        from_name: cut(c?.from_name, 120) || null,
+        to_addr: cut(c?.to, 500) || null,
+        subject: cut(c?.subject, 300) || null,
+        content: cut(c?.content, 6000) || null,
+        sent_at: new Date(Number.isFinite(t) ? t : Date.now()).toISOString(),
+      });
+    }
+    if (rowsC.length) {
+      const { data: already } = await sb.from("messages").select("external_id").eq("canal", "gmail").in("external_id", rowsC.map((r) => r.external_id as string));
+      const seen = new Set((already || []).map((r: any) => r.external_id));
+      const fresh = rowsC.filter((r) => !seen.has(r.external_id as string));
+      if (fresh.length) {
+        const { data, error } = await sb.from("mail_candidates").upsert(fresh, { onConflict: "external_id", ignoreDuplicates: true }).select("id");
+        if (error) console.error("candidats", error);
+        else candidatsGardes = data?.length || 0;
+      }
+    }
+  }
   const selfPhones = new Set<string>((Array.isArray(body?.self) ? body.self : []).map((v: unknown) => phoneKey(v)).filter(Boolean));
 
   const rows: Record<string, unknown>[] = [];
@@ -146,5 +182,5 @@ Deno.serve(async (req: Request) => {
     }
     stored = data?.length || 0;
   }
-  return json(200, { ok: true, received: list.length, matched: rows.length, stored, skipped });
+  return json(200, { ok: true, received: list.length, matched: rows.length, stored, skipped, candidats: candidats.length, candidats_gardes: candidatsGardes });
 });

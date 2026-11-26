@@ -1,9 +1,12 @@
 /**
  * Martingale CRM : Gmail vers fiches clients
  * ------------------------------------------
- * Ce script lit ta boîte Gmail et envoie au CRM les mails échangés avec les contacts
- * qui ont une fiche (même adresse e-mail). Rien d'autre ne sort de Gmail :
- * fournisseurs, banque, newsletters et mails personnels sont ignorés à la source.
+ * Ce script lit ta boîte Gmail et envoie au CRM :
+ *  1. les mails échangés avec les contacts qui ont une fiche (même adresse e-mail) ;
+ *  2. les mails reçus d'inconnus qui passent un premier filtre ici (boîte principale seulement :
+ *     ni promotions, ni réseaux sociaux, ni notifications ; ni newsletters, ni « noreply »,
+ *     ni banques, transporteurs ou outils connus). Le serveur les trie ensuite : fiche créée
+ *     seulement pour une vraie demande client, sinon le mail est effacé du CRM.
  * Le script ne fait que lire. Il n'envoie, ne modifie et ne supprime aucun mail.
  *
  * INSTALLATION (une seule fois)
@@ -33,6 +36,16 @@ const ADRESSES_PAR_RECHERCHE = 12;   // contacts regroupés dans une même reche
 const MESSAGES_PAR_ENVOI = 40;       // messages envoyés au CRM par appel
 const TAILLE_MAX_TEXTE = 20000;      // caractères conservés par mail
 const DUREE_MAX_MS = 5 * 60 * 1000;  // Google coupe un script à 6 minutes
+const MAX_INCONNUS = 25;             // mails d'inconnus envoyés au tri par passage
+
+// Expéditeurs jamais envoyés au tri : services, banques, transporteurs, administrations.
+// Pour en ajouter : propriété du script EXCLUS, domaines séparés par des virgules.
+const DOMAINES_EXCLUS = ['shopify.com', 'stripe.com', 'paypal.com', 'paypal.fr', 'qonto.com', 'pennylane.com', 'vercel.com',
+  'supabase.com', 'supabase.io', 'anthropic.com', 'github.com', 'google.com', 'amazon.fr', 'amazon.com', 'facebookmail.com',
+  'linkedin.com', 'instagram.com', 'apple.com', 'malt.com', 'malt.fr', 'oocl.com', 'jestocke.com', 'ups.com', 'dhl.com',
+  'fedex.com', 'chronopost.fr', 'colissimo.fr', 'laposte.fr', 'urssaf.fr', 'impots.gouv.fr', 'canva.com', 'notion.so',
+  'mailchimp.com', 'sendinblue.com', 'brevo.com', 'klaviyo.com', 'semrush.com', 'make.com', 'zapier.com', 'slack.com'];
+const PREFIXES_EXCLUS = /^(no-?reply|ne-?pas-?repondre|donotreply|do-not-reply|notifications?|newsletters?|news|marketing|mailer-daemon|postmaster|bounces?|billing|invoices?|factur|comptab|receipts?|alerts?|security|support|team|hello)\b/;
 
 /** À exécuter une fois : vérifie la connexion, pose les déclencheurs, fait un premier passage. */
 function installer() {
@@ -53,7 +66,13 @@ function desinstaller() {
 }
 
 /** Toutes les 10 minutes. */
-function synchroniser() { Logger.log(JSON.stringify(envoyerPeriode_(2))); }
+function synchroniser() {
+  Logger.log(JSON.stringify(envoyerPeriode_(2)));
+  Logger.log(JSON.stringify(envoyerInconnus_(2)));
+}
+
+/** À la main, une fois : envoie au tri les mails d'inconnus des 14 derniers jours. */
+function trierInconnusRecents() { Logger.log(JSON.stringify(envoyerInconnus_(14))); }
 
 /** Chaque nuit. */
 function rattrapageNuit() { Logger.log(JSON.stringify(envoyerPeriode_(30))); }
@@ -138,6 +157,91 @@ function envoyerPeriode_(jours) {
   } finally {
     verrou.releaseLock();
   }
+}
+
+/** Mails reçus d'inconnus : un par fil, filtrés ici, puis triés par le serveur. */
+function envoyerInconnus_(jours) {
+  const verrou = LockService.getScriptLock();
+  if (!verrou.tryLock(1000)) return { ignore: 'un passage est déjà en cours' };
+  try {
+    const moi = mesAdresses_();
+    const domaines = mesDomaines_(moi);
+    const contacts = appelCrm_('get', null);
+    const connus = {};
+    (contacts.emails || []).forEach(function (e) { connus[e] = true; });
+    const cache = CacheService.getScriptCache();
+    const bilan = { inconnus: true, jours: jours, fils: 0, envoyes: 0, gardes: 0 };
+    const requete = 'in:inbox newer_than:' + jours + 'd -from:me -in:chats -in:spam'
+      + ' -category:promotions -category:social -category:updates -category:forums';
+    const fils = GmailApp.search(requete, 0, 80);
+    const lot = [];
+    fils.forEach(function (fil) {
+      if (lot.length >= MAX_INCONNUS) return;
+      const msgs = fil.getMessages();
+      bilan.fils++;
+      // Un fil où un contact connu apparaît est déjà traité par le passage normal.
+      const dejaConnu = msgs.some(function (m) {
+        return adresses_([m.getFrom(), m.getTo(), m.getCc()].join(', ')).some(function (x) { return connus[x]; });
+      });
+      if (dejaConnu) return;
+      for (let i = 0; i < msgs.length; i++) {
+        const msg = msgs[i];
+        const id = msg.getId();
+        if (msg.isDraft() || cache.get('c_' + id)) continue;
+        const de = msg.getFrom() || '';
+        const adresse = adresses_(de)[0] || '';
+        if (!adresse || estMoi_(adresse, moi, domaines) || connus[adresse]) continue;
+        if (expediteurExclu_(adresse) || envoiDeMasse_(msg)) { cache.put('c_' + id, '1', 21600); continue; }
+        lot.push({
+          external_id: identifiantMail_(msg) || id,
+          gmail_id: id,
+          from: de,
+          from_name: nomDe_(de),
+          to: [msg.getTo(), msg.getCc()].filter(function (v) { return v; }).join(', '),
+          subject: msg.getSubject() || '',
+          content: (msg.getPlainBody() || '').slice(0, 6000),
+          sent_at: msg.getDate().toISOString()
+        });
+        break; // le premier mail de l'inconnu suffit pour décider
+      }
+    });
+    if (lot.length) {
+      const res = appelCrm_('post', { canal: 'gmail', self: moi, messages: [], candidats: lot });
+      bilan.envoyes = lot.length;
+      bilan.gardes = res.candidats_gardes || 0;
+      const marques = {};
+      lot.forEach(function (m) { marques['c_' + m.gmail_id] = '1'; });
+      cache.putAll(marques, 21600);
+    }
+    return bilan;
+  } finally {
+    verrou.releaseLock();
+  }
+}
+
+function expediteurExclu_(adresse) {
+  const parts = String(adresse || '').toLowerCase().split(String.fromCharCode(64));
+  const local = parts[0] || '', domaine = parts[1] || '';
+  if (PREFIXES_EXCLUS.test(local)) return true;
+  const enPlus = String(PropertiesService.getScriptProperties().getProperty('EXCLUS') || '')
+    .toLowerCase().split(',').map(function (d) { return d.trim(); }).filter(function (d) { return d; });
+  return DOMAINES_EXCLUS.concat(enPlus).some(function (d) { return domaine === d || domaine.slice(-(d.length + 1)) === '.' + d; });
+}
+
+/** Newsletters, envois groupés et listes : jamais envoyés au tri. */
+function envoiDeMasse_(msg) {
+  try {
+    if (msg.getHeader('List-Unsubscribe') || msg.getHeader('List-Id')) return true;
+    return /bulk|list|junk/i.test(String(msg.getHeader('Precedence') || ''));
+  } catch (e) {
+    return false;
+  }
+}
+
+/** "Prénom Nom <adresse>" -> "Prénom Nom". */
+function nomDe_(de) {
+  const m = String(de || '').match(/^\s*"?([^"<]+?)"?\s*</);
+  return m ? m[1].trim().slice(0, 120) : '';
 }
 
 /** Noms et tailles des pièces jointes. Le contenu des fichiers n'est pas envoyé. */

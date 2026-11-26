@@ -1899,7 +1899,7 @@ const SHIPPING_RULES = {
 };
 const STATUT_CLASS={Nouveau:'b-new',Contacté:'b-contact','Devis envoyé':'b-devis',Relance:'b-relance','En attente chantier':'b-attente',Gagné:'b-won',Perdu:'b-lost'};
 const PROFIL_CLASS={'Restaurateur premium':'b-pre','Restaurateur':'b-res','Architecte d\'intérieur':'b-arc'};
-const SOURCE_COLORS={'Google Ads':'#3498DB','Bouche-à-oreille':'#27AE60','Instagram':'#E91E8C','Pinterest':'#E60023','Site web':'#8E44AD','Shopify - Demande devis':'#96BF48','Approche directe':'#E67E22','Téléphone':'#16A085','WhatsApp':'#25D366'};
+const SOURCE_COLORS={'Google Ads':'#3498DB','Bouche-à-oreille':'#27AE60','Instagram':'#E91E8C','Pinterest':'#E60023','Site web':'#8E44AD','Shopify - Demande devis':'#96BF48','Approche directe':'#E67E22','Téléphone':'#16A085','WhatsApp':'#25D366','E-mail':'#2E86C1'};
 
 let prospects = [];
 let currentProspectId = null;
@@ -7596,10 +7596,14 @@ async function loadAutomationState(){
   if(!sb || NOT_CONFIGURED || !currentUser) return;
   const st = autoStore();
   try{
-    const [m, l] = await Promise.allSettled([
+    const [m, l, mc, sg] = await Promise.allSettled([
       sb.from('shopify_stock_moves').select('id,order_id,quote_num,client,direction,lines,unknown,status,note,created_at,done_at').order('id',{ascending:false}).limit(300),
-      sb.from('document_links').select('document_num,views,first_viewed_at,last_viewed_at,accepted_at,accepted_name').limit(1000)
+      sb.from('document_links').select('document_num,views,first_viewed_at,last_viewed_at,accepted_at,accepted_name').limit(1000),
+      sb.from('mail_candidates').select('id,from_addr,from_name,subject,resume,content,sent_at,nature,confiance,source,fiche').eq('status','a_verifier').order('sent_at',{ascending:false}).limit(50),
+      sb.from('crm_suggestions').select('id,prospect_id,message_id,kind,raison,extrait,confiance,source,created_at').eq('status','propose').order('created_at',{ascending:false}).limit(50)
     ]);
+    if(mc.status==='fulfilled' && mc.value && !mc.value.error) st.candidates = mc.value.data || [];
+    if(sg.status==='fulfilled' && sg.value && !sg.value.error) st.suggestions = sg.value.data || [];
     if(m.status==='fulfilled' && m.value && !m.value.error) st.moves = m.value.data || [];
     if(l.status==='fulfilled' && l.value && !l.value.error){
       const map = {};
@@ -7613,6 +7617,35 @@ async function loadAutomationState(){
       st.links = map;
     }
   }catch(e){ console.warn('Automatisations :', e?.message||e); }
+}
+
+// ── Mails d'inconnus à vérifier, propositions de l'IA sur les mails des clients
+const SUGG_LABELS = {gagne:'Passer en Gagné', perdu:'Classer perdu', devis:'Mettre en « Devis à préparer »', attente:'Mettre en attente'};
+const SUGG_SHORT = {gagne:'valide', perdu:'renonce', devis:'demande un chiffrage', attente:'reporte'};
+function mailCandidates(){ return autoStore().candidates || []; }
+function crmSuggestions(){
+  return (autoStore().suggestions || []).filter(x=>prospects.some(p=>p.id===x.prospect_id));
+}
+async function decideCandidate(id, action, btn){
+  if(btn){ btn.disabled = true; btn.textContent = action==='creer' ? 'Création…' : '…'; }
+  const {data, error} = await sb.rpc('crm_candidate_decide', {p_id:id, p_action:action});
+  if(error){ toast(error.message,'error'); if(btn){ btn.disabled = false; btn.textContent = action==='creer' ? 'Créer la fiche' : 'Ignorer'; } return; }
+  autoStore().candidates = mailCandidates().filter(c=>c.id!==id);
+  if(action==='creer'){
+    await loadProspects().catch(()=>{});
+    toast('Fiche créée');
+    if(data && data.prospect_id) openFiche(data.prospect_id); else renderToday();
+  }else{ toast('Mail ignoré, rien n’est gardé'); renderToday(); }
+}
+async function decideSuggestion(id, action, btn){
+  if(btn){ btn.disabled = true; btn.textContent = '…'; }
+  const s = (autoStore().suggestions||[]).find(x=>x.id===id);
+  const {error} = await sb.rpc('crm_suggestion_decide', {p_id:id, p_action:action});
+  if(error){ toast(error.message,'error'); if(btn){ btn.disabled = false; btn.textContent = action==='appliquer' ? 'Appliquer' : 'Ignorer'; } return; }
+  autoStore().suggestions = (autoStore().suggestions||[]).filter(x=>x.id!==id);
+  if(action==='appliquer'){ await loadProspects().catch(()=>{}); try{ renderProspects(); }catch(e){} }
+  renderToday();
+  toast(action==='appliquer' ? (SUGG_LABELS[s?.kind]||'Appliqué')+' : fait' : 'Proposition ignorée');
 }
 
 // ── Devis consultés (lien client ouvert)
@@ -8776,19 +8809,36 @@ function renderToday(){
   const toQuote=quotesToPrepare();
   // 8. Devis que le client a ouverts ces 7 derniers jours
   const viewed=quotesViewed();
+  // 9. Mails d'inconnus à vérifier, propositions sur les mails des clients
+  const toCheck=mailCandidates();
+  const suggs=crmSuggestions();
 
-  const total=nouveaux.length+toQuote.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
+  const total=nouveaux.length+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
   const telLink=t=>t?`<a class="btn btn-sm" href="tel:${esc(String(t).replace(/\s/g,''))}">Appeler</a>`:'';
 
   let html='';
+  html+=section('Propositions','d’après les derniers mails des clients, un clic pour valider', suggs.slice(0,8).map(x=>{const p=prospects.find(y=>y.id===x.prospect_id)||{};const d=daysSince(x.created_at);return `
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Client')}</b><span>${esc(p.statut||'')}${x.source==='ia'?' · lu par l’IA':''}</span></button>
+      <span class="td-what">${esc(x.raison ? 'Le client '+x.raison.replace(/^le client\s+/i,'') : 'Le client '+(SUGG_SHORT[x.kind]||''))}${x.extrait?'<small class="td-sub">« '+esc(x.extrait.slice(0,160))+(x.extrait.length>160?'…':'')+' »</small>':''}</span>
+      <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideSuggestion(${+x.id},'ignorer',this)">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideSuggestion(${+x.id},'appliquer',this)">${esc(SUGG_LABELS[x.kind]||'Appliquer')}</button></div>
+    </div>`;}).join(''));
+  html+=section('Mails à vérifier','nouveaux contacts, peut-être des clients', toCheck.slice(0,6).map(c=>{const d=daysSince(c.sent_at);const f=c.fiche||{};return `
+    <div class="td-row">
+      <div class="td-who" style="cursor:default"><b>${esc(f.name||c.from_name||String(c.from_addr||'').replace(/.*</,'').replace(/>.*/,'')||'Inconnu')}</b><span>${esc([f.contact||c.from_name, f.ville].filter(Boolean).join(' · '))}</span></div>
+      <span class="td-what">${esc(c.subject||'(sans objet)')}${(c.resume||c.content)?'<small class="td-sub">'+esc(String(c.resume||c.content).replace(/\s+/g,' ').slice(0,180))+'</small>':''}</span>
+      <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideCandidate(${+c.id},'ignorer',this)" title="Ce n’est pas un client : le mail est effacé du CRM">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideCandidate(${+c.id},'creer',this)">Créer la fiche</button></div>
+    </div>`;}).join(''), toCheck.length>6?`<div class="td-more" style="cursor:default">${toCheck.length-6} autres mails à vérifier ensuite</div>`:'');
   html+=section('Nouvelles demandes','à rappeler sous 24 h', nouveaux.slice(0,6).map(({p,d})=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}${(()=>{const k=findProspectDuplicates(p,p.id)[0];return k?' · <em style="font-style:normal;color:#B9770E;font-weight:600">existe déjà : '+esc(k.name||k.contact||'fiche')+'</em>':'';})()}</span></button>
