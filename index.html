@@ -444,6 +444,10 @@ body.nd-open{overflow:hidden}
 .td-done-bar label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--gris-l);white-space:nowrap}
 .td-done-bar input[type=date]{font-family:inherit;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px}
 .td-done-bar .td-done-go{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.td-done-preview{font-size:12px;color:var(--gris-l);min-width:0;flex:1 1 260px;overflow-wrap:anywhere}
+.td-done-preview b{color:var(--noir);font-weight:600}
+.td-sub{display:block;font-size:11px;color:var(--gris-l);margin-top:2px}
+.td-miss{font-style:normal;color:#B9770E;font-weight:600}
 .td-ok:hover{background:var(--ok-bg);border-color:var(--ok)}
 .td-more{border:0;background:none;text-align:left;padding:12px 18px;font-size:13px;font-weight:700;color:var(--vert);cursor:pointer;border-top:1px solid var(--ligne)}
 .td-empty{padding:28px;background:#fff;border:1px solid var(--border);border-radius:10px;color:var(--gris-l)}
@@ -2053,6 +2057,8 @@ async function upsertProspect(p){
     rappel_date: p.rappel_date||null,
     rappel_note: p.rappel_note||null,
     groupe_wa: p.groupe_wa||false,
+    devis_demande_at: p.devis_demande_at||null,
+    devis_brief: p.devis_brief||null,
     date_updated: p.date_updated,
     user_id: currentUser.id
   };
@@ -2117,7 +2123,9 @@ function prospectSyncFields(p){
     rappel: p.rappel||null,
     rappel_date: p.rappel_date||null,
     rappel_note: p.rappel_note||null,
-    groupe_wa: p.groupe_wa||false
+    groupe_wa: p.groupe_wa||false,
+    devis_demande_at: p.devis_demande_at||null,
+    devis_brief: p.devis_brief||null
   };
 }
 
@@ -7497,7 +7505,9 @@ function quotesViewed(){
 function markProspectQuoted(rec){
   if(!rec || rec.type!=='DEV' || !rec.prospectId || isArchivedDoc(rec)) return;
   const p = prospects.find(x=>x.id===rec.prospectId);
-  if(!p || !['Nouveau','Contacté'].includes(p.statut||'Nouveau')) return;
+  if(!p) return;
+  if(p.devis_demande_at){ p.devis_demande_at = null; saveLocal(); try{ renderToday(); }catch(e){} }
+  if(!['Nouveau','Contacté'].includes(p.statut||'Nouveau')) return;
   p.statut = 'Devis envoyé';
   saveLocal();
   try{ renderToday(); }catch(e){}
@@ -8034,60 +8044,195 @@ function toggleCallDone(id){
   if(st.open===id){ st.open = null; }
   else { st.open = id; st.text = ''; st.date = ''; }
   renderToday();
-  if(st.open) setTimeout(()=>{ try{ document.getElementById('td-done-text')?.focus(); }catch(e){} }, 30);
+  if(st.open) setTimeout(()=>{ try{ previewCallDone(); document.getElementById('td-done-text')?.focus(); }catch(e){} }, 30);
 }
 function callDonePanel(p){
   const st = doneStore(), esc = escapeHTML;
   return `<div class="td-done">
-    <textarea id="td-done-text" rows="2" placeholder="Résumé de l’appel (facultatif). Ex. : veut 20 chaises kaki pour mars, rappeler après la visite du local." oninput="doneStore().text=this.value">${esc(st.text||'')}</textarea>
+    <textarea id="td-done-text" rows="2" placeholder="Résumé de l’appel. Ex. : veut un devis pour 20 chaises kaki, livraison Bordeaux, rappeler lundi." oninput="doneStore().text=this.value;previewCallDone()">${esc(st.text||'')}</textarea>
     <div class="td-done-bar">
-      <label>Rappeler le <input type="date" id="td-done-date" value="${esc(st.date||'')}" min="${todayParisISO()}" onchange="doneStore().date=this.value"></label>
+      <div id="td-done-preview" class="td-done-preview"></div>
       <div class="td-done-go">
         <button type="button" class="btn btn-sm" onclick="toggleCallDone('${esc(p.id)}')">Annuler</button>
-        <button type="button" class="btn btn-sm" onclick="saveCallDone('${esc(p.id)}','perdu',this)" title="La demande n’aboutira pas : la fiche passe en Perdu">Sans suite</button>
-        <button type="button" class="btn btn-sm btn-primary" onclick="saveCallDone('${esc(p.id)}','fait',this)">Valider</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="saveCallDone('${esc(p.id)}',this)">Valider</button>
       </div>
     </div>
   </div>`;
 }
-async function saveCallDone(id, outcome, btn){
+async function saveCallDone(id, btn){
   const st = doneStore();
   if(st.busy) return;
   const p = prospects.find(x=>x.id===id);
   if(!p){ toast('Fiche introuvable','error'); return; }
   const summary = String(document.getElementById('td-done-text')?.value ?? st.text ?? '').trim();
-  const date = String(document.getElementById('td-done-date')?.value ?? st.date ?? '');
-  const day = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const entry = '['+day+'] '+(outcome==='perdu' ? 'Appel, sans suite' : 'Appel')+(summary ? ' : '+summary : '')
-    + (date ? '\nÀ rappeler le '+new Date(date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long'})+'.' : '');
   st.busy = true;
-  if(btn){ btn.disabled = true; btn.textContent = 'Enregistrement…'; }
+  if(btn){ btn.disabled = true; btn.textContent = summary ? 'Classement…' : 'Enregistrement…'; }
   try{
+    const r = await classifyCall(summary, p);
+    const day = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const suite = CALL_SUITES[r.suite] || 'Contacté';
+    const entry = '['+day+'] Appel'+(summary ? ' : '+summary : '')
+      + '\nSuite : '+suite.toLowerCase()
+      + (r.rappel_date ? ', rappel le '+new Date(r.rappel_date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) : '')+'.';
     await appendProspectNote(p, entry);
-    p.statut = outcome==='perdu' ? 'Perdu' : 'Contacté';
-    if(date){ p.rappel_date = date; p.rappel_note = (summary || 'Rappeler suite à l’appel').slice(0,120); }
-    // Ce que le résumé apprend et que la fiche n'a pas encore : chaises, quantité, téléphone, e-mail.
+    p.statut = r.suite==='sans_suite' ? 'Perdu' : 'Contacté';
+    if(r.suite==='sans_suite'){ p.devis_demande_at = null; }
+    else if(r.rappel_date){ p.rappel_date = r.rappel_date; p.rappel_note = (summary || 'Rappeler suite à l’appel').slice(0,120); }
+    if(r.suite==='devis'){
+      p.devis_demande_at = new Date().toISOString();
+      p.devis_brief = {at:p.devis_demande_at, resume:summary.slice(0,600), produits:r.produits||[], qty:r.qty||0, dept:r.dept||'', ville:r.ville||'',
+        remise_pct:+r.remise_pct||0, delai:r.delai||'', besoin:r.besoin||'', manque:r.manque||[], source:r.source};
+    }
+    // Ce que l'appel apprend et que la fiche n'a pas encore.
+    if(!(p.produits||[]).length && (r.produits||[]).length) p.produits = r.produits;
+    if(!p.qty && r.qty) p.qty = r.qty;
+    if(!p.dept && r.dept) p.dept = r.dept;
+    if(!p.ville && r.ville) p.ville = r.ville;
     if(summary){
-      try{
-        const r = parseQuickText(summary);
-        if(!(p.produits||[]).length && r.produits.length) p.produits = r.produits;
-        if(!p.qty && r.qty) p.qty = r.qty;
-        if(!p.tel && r.tel) p.tel = r.tel;
-        if(!p.email && r.email) p.email = r.email;
-      }catch(e){}
+      try{ const q = parseQuickText(summary); if(!p.tel && q.tel) p.tel = q.tel; if(!p.email && q.email) p.email = q.email; }catch(e){}
     }
     await upsertProspect(p);
     st.open = null; st.text = ''; st.date = '';
     try{ updateBadge(); renderDashboard(); }catch(e){}
     renderToday();
-    toast((p.name||p.contact||'Fiche')+(outcome==='perdu' ? ' : classée sans suite' : ' : demande traitée'+(date ? ', rappel prévu' : '')));
+    toast((p.name||p.contact||'Fiche')+' : '+suite.toLowerCase()+(r.rappel_date && r.suite!=='sans_suite' ? ', rappel prévu' : '')+(r.source==='ia' ? ' (classé par l’IA)' : ''));
   }catch(e){
     toast('Non enregistré : '+(e?.message||e),'error');
-    if(btn){ btn.disabled = false; btn.textContent = outcome==='perdu' ? 'Sans suite' : 'Valider'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'Valider'; }
   }finally{
     st.busy = false;
   }
 }
+
+// ── Suite d'un appel : l'IA du serveur classe le résumé ; sans elle, des règles prennent le relais.
+const CALL_SUITES = {devis:'Devis à préparer', rappel:'À rappeler', sans_suite:'Sans suite', contacte:'Contacté'};
+const FR_MONTHS = ['janvier','fevrier','mars','avril','mai','juin','juillet','aout','septembre','octobre','novembre','decembre'];
+const FR_DAYS = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+function isoDay(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Date écrite en français (« lundi », « dans 15 jours », « le 12/12 », « 3 décembre », « début janvier »), à partir d'aujourd'hui.
+function parseFrDate(text, todayISO){
+  const t = qaNorm(text).replace(/[’']/g,' ');
+  const base = new Date((todayISO||todayParisISO())+'T12:00:00');
+  const add = n => { const d = new Date(base); d.setDate(d.getDate()+n); return isoDay(d); };
+  let m;
+  if(/\bapres[- ]demain\b/.test(t)) return add(2);
+  if(/\bdemain\b/.test(t)) return add(1);
+  if((m = t.match(/\bdans\s+(\d{1,3}|un|une|deux|trois|quinze)\s+(jours?|semaines?|mois)\b/))){
+    const n = {un:1,une:1,deux:2,trois:3,quinze:15}[m[1]] || +m[1];
+    return add(/^sem/.test(m[2]) ? 7*n : /^mois/.test(m[2]) ? 30*n : n);
+  }
+  if(/\bsemaine prochaine\b/.test(t)){ const d = new Date(base); d.setDate(d.getDate()+((8-d.getDay())%7||7)); return isoDay(d); }
+  if((m = t.match(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/))){
+    const d = new Date(base), want = FR_DAYS.indexOf(m[1]);
+    let n = (want - d.getDay() + 7) % 7; if(n===0) n = 7;
+    return add(n);
+  }
+  const fix = (y,mo,da) => { let d = new Date(y, mo, da, 12); if(isNaN(d)) return ''; if(d < base) d = new Date(y+1, mo, da, 12); return isoDay(d); };
+  if((m = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/))){
+    const y = m[3] ? (m[3].length===2 ? 2000 + +m[3] : +m[3]) : base.getFullYear();
+    if(+m[2]>=1 && +m[2]<=12 && +m[1]>=1 && +m[1]<=31) return m[3] ? isoDay(new Date(y, +m[2]-1, +m[1], 12)) : fix(y, +m[2]-1, +m[1]);
+  }
+  if((m = t.match(new RegExp('\\b(1er|\\d{1,2})\\s+('+FR_MONTHS.join('|')+')\\b')))) return fix(base.getFullYear(), FR_MONTHS.indexOf(m[2]), m[1]==='1er' ? 1 : +m[1]);
+  if((m = t.match(new RegExp('\\b(debut|mi|fin)[- ]('+FR_MONTHS.join('|')+')\\b')))) return fix(base.getFullYear(), FR_MONTHS.indexOf(m[2]), {debut:5, mi:15, fin:25}[m[1]]);
+  return '';
+}
+function classifyCallRules(summary, p){
+  const text = String(summary||'').trim();
+  const n = qaNorm(text).replace(/[’']/g,' ');
+  const q = parseQuickText(text);
+  const out = {suite:'contacte', rappel_date:'', produits:q.produits, qty:q.qty, dept:q.dept, ville:q.ville, remise_pct:0, delai:'', besoin:'', manque:[], source:'regles'};
+  if(!text) return out;
+  const lost = /\b(pas interess|plus interess|pas de suite|sans suite|trop cher|hors budget|pas de budget|annule|abandonn|a choisi (un |une )?autre|trouve ailleurs|deja equipe|ne veut plus|refuse)/.test(n);
+  const wantsQuote = /\b(devis|chiffr|tarif|cotation|proposition|offre de prix|prix)/.test(n) || q.produits.length>0 || q.qty>0;
+  const k = n.search(/\b(rappeler|recontacter|relancer|rappel|rappelle|rappelera)\b/);
+  if(k>=0) out.rappel_date = parseFrDate(n.slice(k, k+60)) || (()=>{ const d = new Date(todayParisISO()+'T12:00:00'); d.setDate(d.getDate()+3); return isoDay(d); })();
+  out.suite = lost ? 'sans_suite' : wantsQuote ? 'devis' : k>=0 ? 'rappel' : 'contacte';
+  if(lost) out.rappel_date = '';
+  let m = n.match(/\b(?:remise|reduction|rabais|geste)[^\d%]{0,20}(\d{1,2}(?:[.,]\d)?)\s?%/) || n.match(/\b(\d{1,2}(?:[.,]\d)?)\s?%\s*(?:de\s+)?(?:remise|reduction|rabais)/);
+  if(m) out.remise_pct = Math.min(50, parseFloat(m[1].replace(',','.'))||0);
+  const months = FR_MONTHS.map(x=>x.replace('fevrier','f[ée]vrier').replace('aout','ao[uû]t').replace('decembre','d[ée]cembre')).join('|');
+  m = text.match(new RegExp("\\b(?:pour|avant|d['’]ici|ouverture)\\s+(?:le\\s+|la\\s+|l['’]|fin\\s+|d[ée]but\\s+|mi[- ])?(?:\\d{1,2}(?:er)?\\s+)?(?:"+months+"|printemps|[ée]t[ée]|rentr[ée]e|saison|\\d{1,2}\\/\\d{1,2})(?![A-Za-zÀ-ÿ])","i"));
+  if(m) out.delai = m[0].trim().slice(0,60);
+  // Département donné avec la livraison (« livraison 64 », « livraison Bordeaux 33 », « dans le 75 »)
+  if(!out.dept){
+    m = n.match(/\blivr\w*\b[^\d\n]{0,30}\b(\d{2,3})\b(?!\s*(?:chaises?|pieces?|pcs|unites?|%|€|eur))/) || n.match(/\b(?:dans le|departement|dept|dpt)\s*(\d{2,3})\b/);
+    if(m && +m[1]>=1 && +m[1]<=976) out.dept = m[1];
+  }
+  return out;
+}
+async function classifyCall(summary, p){
+  const rules = classifyCallRules(summary, p);
+  if(!String(summary||'').trim()) return rules;
+  try{
+    const weekday = new Date(todayParisISO()+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long'});
+    const call = callCrmFunction('crm-ai', {action:'appel', summary, today:todayParisISO(), weekday,
+      catalog:getCatalogChairs().map(x=>({id:x.id, name:x.name})),
+      fiche:{name:p.name||'', ville:p.ville||'', dept:p.dept||'', produits:p.produits||[], qty:p.qty||0, statut:p.statut||''}});
+    const res = await Promise.race([call, new Promise(r=>setTimeout(()=>r(null), 15000))]);
+    if(res && res.ok && res.result) return {...res.result, source:'ia'};
+  }catch(e){ console.warn('IA indisponible, règles utilisées :', e?.message||e); }
+  return rules;
+}
+function callPreviewHTML(r){
+  if(!r) return '';
+  const bits = [CALL_SUITES[r.suite]||'Contacté'];
+  const lines = (r.produits||[]).map(i=>{ const pr = PRODUCTS.find(x=>x.id===i.id); return (pr?pr.name:i.id)+' × '+i.qty; });
+  if(lines.length) bits.push(lines.join(', ')); else if(r.qty) bits.push(r.qty+' chaises');
+  if(r.rappel_date) bits.push('rappel le '+new Date(r.rappel_date+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}));
+  if(r.remise_pct) bits.push('remise '+r.remise_pct+' %');
+  if(r.delai) bits.push(r.delai);
+  return '<b>Suite prévue :</b> '+escapeHTML(bits.join(' · '));
+}
+function previewCallDone(){
+  const st = doneStore(), box = document.getElementById('td-done-preview');
+  if(!box) return;
+  const p = prospects.find(x=>x.id===st.open);
+  const text = String(st.text||'').trim();
+  box.innerHTML = text ? callPreviewHTML(classifyCallRules(text, p)) : '<span>Sans résumé, la demande passe simplement en « Contacté ».</span>';
+}
+
+// ── Devis à préparer
+function quoteBriefLines(p){
+  const b = p.devis_brief || {};
+  const list = (b.produits && b.produits.length) ? b.produits : (p.produits || []);
+  return list.map(i=>({id:resolveProspectProduct(i)?.id || i.id, qty:+i.qty||1})).filter(i=>i.id);
+}
+function quoteMissing(p){
+  const b = p.devis_brief || {}, lines = quoteBriefLines(p), miss = [];
+  if(!lines.length) miss.push('modèle');
+  if(!lines.length && !(b.qty || p.qty)) miss.push('quantité');
+  if(!(b.dept || p.dept)) miss.push('département');
+  return miss;
+}
+function quotesToPrepare(){
+  return prospects.filter(p=>p.devis_demande_at && !['Perdu','Gagné'].includes(p.statut))
+    .map(p=>({p, d:daysSince(p.devis_demande_at)}))
+    .sort((a,b)=>(b.d??0)-(a.d??0));
+}
+function prepareQuoteFromBrief(id){
+  const p = prospects.find(x=>x.id===id);
+  if(!p){ toast('Fiche introuvable','error'); return; }
+  const b = p.devis_brief || {};
+  openDocGenerator(p.id);
+  const lines = quoteBriefLines(p);
+  if(lines.length) dgLignes = lines.map((l,i)=>({id:'brief-'+Date.now()+'-'+i, prodId:l.id, qty:l.qty, remise:0}));
+  else if(b.qty || p.qty) dgLignes = [{id:'brief-'+Date.now(), prodId:'', qty:b.qty||p.qty, remise:0}];
+  const set = (fid, v) => { const e = document.getElementById(fid); if(e && v!==undefined && v!==null && v!=='') e.value = v; };
+  set('dg-dept', b.dept || p.dept);
+  if(+b.remise_pct > 0) set('dg-remise', b.remise_pct);
+  try{ renderLignesProduits(); updateDocCalc(); }catch(e){}
+  const miss = quoteMissing(p);
+  toast(miss.length ? 'Devis prérempli. À compléter : '+miss.join(', ')+'.' : 'Devis prérempli depuis l’appel : relis et génère.');
+}
+async function dropQuoteRequest(id){
+  const p = prospects.find(x=>x.id===id);
+  if(!p) return;
+  p.devis_demande_at = null;
+  await upsertProspect(p);
+  try{ renderToday(); }catch(e){}
+  toast((p.name||'Fiche')+' retirée des devis à préparer');
+}
+
 
 function renderToday(){
   const main=document.getElementById('td-main'), side=document.getElementById('td-side');
@@ -8121,15 +8266,16 @@ function renderToday(){
   // 7. Échanges : le client a répondu, ou n'a pas répondu
   const awaiting=prospectsAwaitingYou();
   const noReply=prospectsNoReply();
+  const toQuote=quotesToPrepare();
   // 8. Devis que le client a ouverts ces 7 derniers jours
   const viewed=quotesViewed();
 
-  const total=nouveaux.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
+  const total=nouveaux.length+toQuote.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -8144,6 +8290,13 @@ function renderToday(){
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm td-ok" onclick="toggleCallDone('${esc(p.id)}')" aria-expanded="${doneStore().open===p.id}">Fait</button><button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
       ${doneStore().open===p.id?callDonePanel(p):''}
     </div>`).join(''), nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:'');
+  html+=section('Devis à préparer','demandés au téléphone, prêts à chiffrer', toQuote.slice(0,8).map(({p,d})=>{const b=p.devis_brief||{};const lines=quoteBriefLines(p);const miss=quoteMissing(p);return `
+    <div class="td-row">
+      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.contact,b.ville||p.ville||((b.dept||p.dept)?'('+(b.dept||p.dept)+')':'')].filter(Boolean).join(' · '))}</span></button>
+      <span class="td-what">${esc(lines.length?lines.map(i=>{const pr=PRODUCTS.find(x=>x.id===i.id);return (pr?pr.name:i.id)+' × '+i.qty;}).join(', '):((b.qty||p.qty)?(b.qty||p.qty)+' chaises':''))}${+b.remise_pct?' · −'+esc(b.remise_pct)+' %':''}${b.delai?'<small class="td-sub">'+esc(b.delai)+'</small>':''}${miss.length?'<small class="td-sub td-miss">à préciser : '+esc(miss.join(', '))+'</small>':''}</span>
+      <span class="td-when ${ageClass(d,1,3)}">${d<=0?'demandé aujourd’hui':(d===1?'demandé hier':'demandé il y a '+d+' j')}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="dropQuoteRequest('${esc(p.id)}')" title="Le client n’attend plus de devis">Plus besoin</button><button type="button" class="btn btn-sm btn-primary" onclick="prepareQuoteFromBrief('${esc(p.id)}')">Préparer le devis</button></div>
+    </div>`;}).join(''), toQuote.length>8?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${toQuote.length} devis à préparer</button>`:'');
   html+=section('Réponses reçues','le client a écrit en dernier', awaiting.slice(0,6).map(({p,t})=>{const d=daysSince(new Date(t).toISOString());return `
     <div class="td-row">
       <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.statut,p.contact,p.ville].filter(Boolean).join(' · '))}</span></button>
