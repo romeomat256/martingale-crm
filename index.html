@@ -6494,20 +6494,23 @@ async function insertDocumentRecord(record, {createdAt=null}={}){
 
 // Un nouveau devis pour la même fiche range les anciens encore « Envoyé » (fait par la base).
 // On met l'écran à jour et on propose de garder les deux, au cas où les devis étaient bien distincts.
-async function reflectReplacedQuotes(newNum){
+async function reflectReplacedQuotes(newNum, {won=false}={}){
   if(!sb || NOT_CONFIGURED || !currentUser || !newNum) return [];
   const {data, error} = await sb.from('documents').select('id,num,statut,doc_meta')
     .eq('type','DEV').eq('doc_meta->>remplacePar', newNum);
   if(error || !Array.isArray(data) || !data.length) return [];
   data.forEach(row=>[devisList, docHistory].forEach(list=>list.forEach(d=>{
-    if(d.num === row.num){ d.statut = row.statut; d.remplacePar = newNum; if(isUuid(row.id)) d.id = row.id; }
+    if(d.num === row.num){ d.statut = row.statut; d.remplacePar = newNum; d.motif = row.doc_meta?.motif || ''; if(isUuid(row.id)) d.id = row.id; }
   })));
   saveDevisLocal();
   try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
   try{ renderDevisList(); }catch(e){}
   try{ renderDocHistory(); }catch(e){}
   const nums = data.map(r=>r.num);
-  toastAction((nums.length>1 ? nums.join(', ')+' rangés' : nums[0]+' rangé')+' : remplacé par '+newNum, 'Garder les deux', ()=>{
+  const msg = won
+    ? (nums.length>1 ? nums.join(', ')+' rangés' : nums[0]+' rangé')+' : version non retenue, '+newNum+' choisi'
+    : (nums.length>1 ? nums.join(', ')+' rangés' : nums[0]+' rangé')+' : remplacé par '+newNum;
+  toastAction(msg, 'Garder les deux', ()=>{
     data.forEach(r=>restoreArchivedDoc(r.id||r.num));
     toast(nums.length>1 ? 'Les anciens devis restent en cours' : nums[0]+' reste en cours');
   });
@@ -6521,7 +6524,7 @@ function updateDocumentStatut(d, statut){
   if(isUuid(d.id)) query = query.eq('id', d.id);
   else if(d.num) query = query.eq('num', d.num).eq('type', d.type||'DEV').eq('user_id', currentUser.id);
   else return;
-  query.then(({error})=>{ if(error) console.error('Statut du document :', error); });
+  return query.then(({error})=>{ if(error) console.error('Statut du document :', error); });
 }
 
 // Numéros des documents supprimés sur cet ordinateur : ils ne doivent jamais être renvoyés à la base.
@@ -9550,7 +9553,7 @@ function renderDevisList(){
       </td>
       <td style="font-weight:600;color:var(--vert)">${fmt(d.ttc)}${vatSettings.isVatExempt?`<div style="font-size:10px;color:#1E8449;margin-top:2px">TVA 0%</div>`:''}</td>
       <td style="font-size:11px;color:var(--gris-l)">${d.date||'—'}</td>
-      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isArchivedDoc(d)&&d.remplacePar?`<div style="font-size:10px;color:var(--gris-l);margin-top:3px">par ${escapeHTML(d.remplacePar)}</div>`:''}${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
+      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isArchivedDoc(d)&&d.remplacePar?`<div style="font-size:10px;color:var(--gris-l);margin-top:3px">${d.motif==='version retenue'?'non retenu, '+escapeHTML(d.remplacePar)+' choisi':'par '+escapeHTML(d.remplacePar)}</div>`:''}${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
@@ -9599,8 +9602,8 @@ async function accepterDevis(id){
   d.date_accepte = new Date().toISOString();
   saveDevisLocal();
   
-  // Update in Supabase documents table
-  updateDocumentStatut(d, 'Accepté');
+  // Update in Supabase documents table. Les autres versions du même client sortent ensuite (fait par la base).
+  Promise.resolve(updateDocumentStatut(d, 'Accepté')).then(()=>reflectReplacedQuotes(d.num, {won:true})).catch(()=>{});
   
   // Update prospect statut → Gagné
   if(d.prospectId){
