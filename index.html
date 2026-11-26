@@ -3186,10 +3186,22 @@ function setConnStatus(state,label){
 let toastTimer;
 function toast(msg,type='success'){
   const el=document.getElementById('toast');if(!el)return;
-  el.textContent=msg;el.className='show';
+  el.textContent=msg;el.className='show';el.style.pointerEvents='';
   if(type==='error')el.style.background='var(--rouge)';else el.style.background='var(--noir)';
   // Une erreur reste affichée plus longtemps qu'une confirmation.
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),type==='error'?7000:2500);
+}
+
+// Message avec un bouton (ex. « Annuler »), affiché plus longtemps.
+function toastAction(msg, label, fn){
+  const el=document.getElementById('toast');if(!el)return;
+  el.textContent='';el.className='show';el.style.background='var(--noir)';el.style.pointerEvents='auto';
+  const t=document.createElement('span');t.textContent=msg;
+  const b=document.createElement('button');b.type='button';b.textContent=label;
+  b.style.cssText='margin-left:12px;padding:3px 10px;border:1px solid rgba(255,255,255,.5);border-radius:6px;background:none;color:inherit;font:inherit;font-weight:700;cursor:pointer';
+  b.onclick=()=>{ clearTimeout(toastTimer); el.classList.remove('show'); el.style.pointerEvents=''; try{ fn(); }catch(e){ console.error(e); } };
+  el.append(t,b);
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.classList.remove('show');el.style.pointerEvents='';},9000);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -6472,11 +6484,34 @@ async function insertDocumentRecord(record, {createdAt=null}={}){
     }));
     saveDevisLocal();
     try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+    if(record.type==='DEV' && !createdMs) reflectReplacedQuotes(record.num).catch(e=>console.warn('Devis remplacés :', e));
     return true;
   }catch(e){
     console.error('Document non enregistré ('+record.num+') :', e);
     return false;
   }
+}
+
+// Un nouveau devis pour la même fiche range les anciens encore « Envoyé » (fait par la base).
+// On met l'écran à jour et on propose de garder les deux, au cas où les devis étaient bien distincts.
+async function reflectReplacedQuotes(newNum){
+  if(!sb || NOT_CONFIGURED || !currentUser || !newNum) return [];
+  const {data, error} = await sb.from('documents').select('id,num,statut,doc_meta')
+    .eq('type','DEV').eq('doc_meta->>remplacePar', newNum);
+  if(error || !Array.isArray(data) || !data.length) return [];
+  data.forEach(row=>[devisList, docHistory].forEach(list=>list.forEach(d=>{
+    if(d.num === row.num){ d.statut = row.statut; d.remplacePar = newNum; if(isUuid(row.id)) d.id = row.id; }
+  })));
+  saveDevisLocal();
+  try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+  try{ renderDevisList(); }catch(e){}
+  try{ renderDocHistory(); }catch(e){}
+  const nums = data.map(r=>r.num);
+  toastAction((nums.length>1 ? nums.join(', ')+' rangés' : nums[0]+' rangé')+' : remplacé par '+newNum, 'Garder les deux', ()=>{
+    data.forEach(r=>restoreArchivedDoc(r.id||r.num));
+    toast(nums.length>1 ? 'Les anciens devis restent en cours' : nums[0]+' reste en cours');
+  });
+  return nums;
 }
 
 // Change le statut d'un devis dans la base, qu'il porte déjà son identifiant de base ou non.
@@ -9515,7 +9550,7 @@ function renderDevisList(){
       </td>
       <td style="font-weight:600;color:var(--vert)">${fmt(d.ttc)}${vatSettings.isVatExempt?`<div style="font-size:10px;color:#1E8449;margin-top:2px">TVA 0%</div>`:''}</td>
       <td style="font-size:11px;color:var(--gris-l)">${d.date||'—'}</td>
-      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
+      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isArchivedDoc(d)&&d.remplacePar?`<div style="font-size:10px;color:var(--gris-l);margin-top:3px">par ${escapeHTML(d.remplacePar)}</div>`:''}${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
