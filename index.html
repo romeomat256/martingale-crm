@@ -5573,7 +5573,7 @@ function openSendDocument(id){
     const btn=ev.currentTarget; btn.disabled=true; btn.textContent='Envoi…';
     try{
       const r = await callCrmFunction('document-share',{action:'send', num:d.num, to:val('sd-to'), subject:val('sd-subject'), message:val('sd-message'), lang: en?'en':'fr'});
-      if(r?.sent){ toast('Envoyé à '+val('sd-to')); ov.remove(); return; }
+      if(r?.sent){ toast('Envoyé à '+val('sd-to')); ov.remove(); if(d.type==='DEV' && d.prospectId) closeQuoteTasks(d.prospectId, 'sent'); return; }
       if(r?.error==='not_configured'){ toast('Envoi automatique pas encore branché : Gmail s’ouvre avec le message prêt.'); openGmail(r.url); ov.remove(); return; }
       throw new Error(r?.error==='no_html'?'Ce devis date d’avant l’envoi en ligne : régénère-le pour pouvoir l’envoyer.':(r?.detail||r?.error||'Envoi impossible'));
     }catch(e){ toast(e.message,'error'); }
@@ -7809,8 +7809,24 @@ async function addQuickTask(ev){
   toast('Ajouté à « À faire »'+(p ? ' pour '+p.name : '')+(saved.echeance ? ', '+taskWhen(saved).label : ''));
   setTimeout(()=>document.getElementById('td-task-input')?.focus(), 0);
 }
+// Devis créé : coche « faire le devis ». Devis envoyé (mail avec le PDF, ou envoi depuis le CRM) : coche tout.
+function isSendQuoteTask(t){ return /\benvo/.test(qaNorm(t.titre)); }
+async function closeQuoteTasks(prospectId, step){
+  const hit = (autoStore().tasks||[]).filter(t=>t.prospect_id===prospectId && t.kind==='devis' && !t.fait_at && (step==='sent' || !isSendQuoteTask(t)));
+  if(!hit.length) return;
+  const now = new Date().toISOString();
+  hit.forEach(t=>t.fait_at = now);
+  refreshTaskViews();
+  const ids = hit.map(t=>t.id).filter(id=>!String(id).startsWith('local-'));
+  if(ids.length && sb && !NOT_CONFIGURED){ const {error} = await sb.from('crm_tasks').update({fait_at:now}).in('id', ids); if(error) console.error('À faire :', error); }
+}
+function latestOpenQuote(prospectId){
+  return uniqueDocs().filter(d=>d.type==='DEV' && d.prospectId===prospectId && !isArchivedDoc(d) && d.statut==='Envoyé')
+    .sort((a,b)=>parseDocDateValue(b.createdAt||b.date)-parseDocDateValue(a.createdAt||a.date))[0] || null;
+}
 function taskAction(t){
   const p = t.prospect_id ? prospects.find(x=>x.id===t.prospect_id) : null;
+  if(t.kind==='devis' && p && isSendQuoteTask(t)){ const q = latestOpenQuote(p.id); if(q) return `<button type="button" class="btn btn-sm" onclick="openSendDocument('${escapeHTML(q.id||q.num)}')" title="Envoyer ${escapeHTML(q.num)} au client">Envoyer ${escapeHTML(q.num)}</button>`; }
   if(t.kind==='devis' && p) return `<button type="button" class="btn btn-sm" onclick="openDocGenerator('${escapeHTML(p.id)}')">Faire le devis</button>`;
   if(t.kind==='rappel' && p && p.tel) return `<a class="btn btn-sm" href="tel:${escapeHTML(String(p.tel).replace(/\s/g,''))}">Appeler</a>`;
   return '';
@@ -7876,8 +7892,8 @@ function markProspectQuoted(rec){
   const p = prospects.find(x=>x.id===rec.prospectId);
   if(!p) return;
   // Comme la base : devis créé = « Devis envoyé » (même en attente ou perdu) et activité du jour ; un client gagné reste gagné.
-  // Les tâches « devis » de la fiche sont cochées (la base fait de même).
-  (autoStore().tasks||[]).forEach(t=>{ if(t.prospect_id===p.id && t.kind==='devis' && !t.fait_at) t.fait_at = new Date().toISOString(); });
+  // « Faire / préparer le devis » est coché ; « envoyer le devis » attend l'envoi (la base fait de même).
+  closeQuoteTasks(p.id, 'created');
   p.devis_demande_at = null;
   p.date_updated = new Date().toISOString();
   if((p.statut||'Nouveau')!=='Gagné') p.statut = 'Devis envoyé';
