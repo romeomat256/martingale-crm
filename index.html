@@ -2406,12 +2406,42 @@ function go(id){
 // ══════════════════════════════════════════════════════════════
 // PROSPECTS TABLE
 // ══════════════════════════════════════════════════════════════
+// ── Petites demandes : moins de 6 chaises. Rangées à part, jamais supprimées.
+// Une fiche sans quantité reste normale. Un devis de 6 chaises ou plus la fait repasser en demande normale.
+const SMALL_REQUEST_MAX = 5;
+function prospectChairQty(p){
+  const fromLines = (p.produits||[]).reduce((s,i)=>s+(+i.qty||0),0);
+  return Math.max(+p.qty||0, fromLines);
+}
+function bigQuoteProspects(){
+  const ids = new Set();
+  try{ uniqueDocs().forEach(d=>{ if(d.type==='DEV' && d.prospectId && !isArchivedDoc(d) && (+d.qty||0) > SMALL_REQUEST_MAX) ids.add(d.prospectId); }); }catch(e){}
+  return ids;
+}
+function isSmallRequest(p, big){
+  const q = prospectChairQty(p);
+  if(!(q > 0 && q <= SMALL_REQUEST_MAX)) return false;
+  return !(big || bigQuoteProspects()).has(p.id);
+}
+function showSmallRequests(){ try{ return localStorage.getItem('mp_show_small')==='1'; }catch(e){ return false; } }
+function toggleSmallRequests(){
+  try{ localStorage.setItem('mp_show_small', showSmallRequests() ? '0' : '1'); }catch(e){}
+  renderProspects();
+}
+let tdSmallOpen = false;
+function toggleTodaySmall(){ tdSmallOpen = !tdSmallOpen; renderToday(); }
+
 function renderProspects(){
   const search=(document.getElementById('search-input')||{}).value||'';
   const profil=(document.getElementById('filter-profil')||{}).value||'';
   const source=(document.getElementById('filter-source')||{}).value||'';
   const statut=(document.getElementById('filter-statut')||{}).value||'';
   let list=[...prospects];
+  // Petites demandes masquées par défaut, sauf pendant une recherche ou si on les a affichées.
+  const bigSet=bigQuoteProspects();
+  const smallCount=list.filter(p=>isSmallRequest(p,bigSet)).length;
+  const withSmall=showSmallRequests() || !!search;
+  if(!withSmall) list=list.filter(p=>!isSmallRequest(p,bigSet));
   if(search)list=list.filter(p=>[p.name,p.contact,p.email,p.tel].some(value=>String(value||'').toLowerCase().includes(search.toLowerCase())));
   if(profil)list=list.filter(p=>p.profil===profil);
   if(source)list=list.filter(p=>p.source===source);
@@ -2429,10 +2459,12 @@ function renderProspects(){
   if(!tbody)return;
   const count=document.getElementById('prospects-count');
   if(count)count.textContent=list.length+' prospects';
+  const smallToggle = smallCount ? `<button type="button" class="btn btn-sm kb-small-toggle" aria-pressed="${withSmall}" onclick="toggleSmallRequests()" title="Fiches de 1 à ${SMALL_REQUEST_MAX} chaises">${showSmallRequests()?'Masquer':'Afficher'} les petites demandes (${smallCount})</button>` : '';
   // Tableau de cartes ou liste
   const kbp=kbPrefs(), bar=document.getElementById('kb-bar');
   if(bar) bar.innerHTML=`<div class="kb-seg" role="group" aria-label="Affichage"><button type="button" class="${kbp.view==='kanban'?'on':''}" aria-pressed="${kbp.view==='kanban'}" onclick="setClientsView('kanban')">Tableau</button><button type="button" class="${kbp.view==='list'?'on':''}" aria-pressed="${kbp.view==='list'}" onclick="setClientsView('list')">Liste</button></div>`
     +(kbp.view==='kanban'?`<div class="kb-seg kb-test" role="group" aria-label="Version du tableau"><span>À l’essai :</span><button type="button" class="${kbp.variant==='A'?'on':''}" aria-pressed="${kbp.variant==='A'}" onclick="setKbVariant('A')">Test A · 4 colonnes</button><button type="button" class="${kbp.variant==='B'?'on':''}" aria-pressed="${kbp.variant==='B'}" onclick="setKbVariant('B')">Test B · par étape</button></div>`:'');
+  if(bar && smallToggle) bar.insertAdjacentHTML('beforeend', smallToggle);
   const kbHost=document.getElementById('prospects-kanban'), listWrap=document.getElementById('prospects-list-wrap');
   if(kbHost) kbHost.hidden = kbp.view!=='kanban';
   if(listWrap) listWrap.hidden = kbp.view==='kanban';
@@ -8821,9 +8853,12 @@ function renderToday(){
   document.getElementById('td-date').textContent=dateLabel.charAt(0).toUpperCase()+dateLabel.slice(1);
 
   // 1. Nouvelles demandes
-  const nouveaux=prospects.filter(p=>(p.statut||'Nouveau')==='Nouveau')
+  const bigSetT=bigQuoteProspects();
+  const allNew=prospects.filter(p=>(p.statut||'Nouveau')==='Nouveau')
     .map(p=>({p, d:daysSince(p.date_created)}))
     .sort((a,b)=>(a.d??999)-(b.d??999));
+  const nouveaux=allNew.filter(x=>!isSmallRequest(x.p,bigSetT));
+  const petits=allNew.filter(x=>isSmallRequest(x.p,bigSetT));
   // 2. Rappels du jour ou dépassés
   const today0=new Date(); today0.setHours(0,0,0,0);
   const rappels=prospects.filter(p=>p.rappel_date && new Date(p.rappel_date)<=new Date(today0.getTime()+86399999) && !['Gagné','Perdu'].includes(p.statut));
@@ -8851,12 +8886,12 @@ function renderToday(){
   const toCheck=mailCandidates();
   const suggs=crmSuggestions();
 
-  const total=nouveaux.length+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
+  const total=nouveaux.length+(petits.length?1:0)+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(petits.length,'petite'+(petits.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -8877,14 +8912,18 @@ function renderToday(){
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideCandidate(${+c.id},'ignorer',this)" title="Ce n’est pas un client : le mail est effacé du CRM">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideCandidate(${+c.id},'creer',this)">Créer la fiche</button></div>
     </div>`;}).join(''), toCheck.length>6?`<div class="td-more" style="cursor:default">${toCheck.length-6} autres mails à vérifier ensuite</div>`:'');
-  html+=section('Nouvelles demandes','à rappeler sous 24 h', nouveaux.slice(0,6).map(({p,d})=>`
+  const newRow=({p,d})=>`
     <div class="td-row">
       <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}${(()=>{const k=findProspectDuplicates(p,p.id)[0];return k?' · <em style="font-style:normal;color:#B9770E;font-weight:600">existe déjà : '+esc(k.name||k.contact||'fiche')+'</em>':'';})()}</span></button>
       <span class="td-what">${esc(prodSummary(p))}</span>
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm td-ok" onclick="toggleCallDone('${esc(p.id)}')" aria-expanded="${doneStore().open===p.id}">Fait</button><button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
       ${doneStore().open===p.id?callDonePanel(p):''}
-    </div>`).join(''), nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:'');
+    </div>`;
+  const smallFold = petits.length ? `<button type="button" class="td-more td-small-fold" aria-expanded="${tdSmallOpen}" onclick="toggleTodaySmall()">${tdSmallOpen?'Replier':'Voir'} ${petits.length>1?'les '+petits.length+' petites demandes':'la petite demande'} (moins de ${SMALL_REQUEST_MAX+1} chaises)</button>`
+    + (tdSmallOpen ? petits.slice(0,12).map(newRow).join('') : '') : '';
+  if(nouveaux.length || petits.length)
+    html+=`<section class="td-sec"><div class="td-sec-h"><h2>Nouvelles demandes</h2><span>à rappeler sous 24 h</span></div><div class="td-list">${nouveaux.slice(0,6).map(newRow).join('')}${nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:''}${smallFold}</div></section>`;
   html+=section('Devis à préparer','demandés au téléphone, prêts à chiffrer', toQuote.slice(0,8).map(({p,d})=>{const b=p.devis_brief||{};const lines=quoteBriefLines(p);const miss=quoteMissing(p);return `
     <div class="td-row">
       <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.contact,b.ville||p.ville||((b.dept||p.dept)?'('+(b.dept||p.dept)+')':'')].filter(Boolean).join(' · '))}</span></button>
