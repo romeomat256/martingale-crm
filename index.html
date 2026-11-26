@@ -567,6 +567,13 @@ button.ag-client:hover{text-decoration:underline}
 .prod-qty{font-size:15px;font-weight:700;white-space:nowrap}
 .prod-row select{font:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:100%}
 .prod-empty{padding:16px;color:var(--gris-l);font-size:13px}
+.prod-row-stock{grid-template-columns:52px minmax(0,1fr) auto}
+.prod-dates{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--gris-l)}
+.prod-dates label{display:inline-flex;align-items:center;gap:8px;margin:0}
+.prod-dates input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:auto}
+.prod-fill-wrap{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--gris-f);flex-wrap:wrap}
+.prod-fill{flex:1;min-width:180px;max-width:420px;height:8px;border-radius:4px;background:#EDEAE1;overflow:hidden}
+.prod-fill i{display:block;height:100%;background:var(--vert)}
 @media(max-width:860px){.prod-row{grid-template-columns:52px minmax(0,1fr) auto}.prod-row .prod-client,.prod-row select{grid-column:2/4}}
 .pay-state{font-size:11px;font-weight:700;color:var(--warn)}
 .pay-state.is-paid{color:var(--vert)}
@@ -3863,6 +3870,7 @@ async function loadConteneurs(){
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:10px;background:${statutColor.bg};color:${statutColor.col}">${c.statut||'Planifié'}</span>
         <button onclick="deleteConteneur('${c.id}',this.closest('.incoming-card'))" style="padding:3px 8px;border:1px solid #F5CBA7;border-radius:5px;background:#FDEDEC;color:#922B21;cursor:pointer;font-size:11px;font-weight:600">× Supprimer</button>
+        <button onclick="editConteneur('${c.id}')" style="padding:3px 8px;border:1px solid #E0DFD5;border-radius:5px;background:#fff;color:#403F21;cursor:pointer;font-size:11px;font-weight:600">Modifier</button>
         <button onclick="markConteneurRecu('${c.id}',this)" style="padding:3px 8px;border:1px solid #A9DFBF;border-radius:5px;background:#EAFAF1;color:#1E8449;cursor:pointer;font-size:11px;font-weight:600">✓ Reçu</button>
       </div></div>
       ${rows}
@@ -3953,7 +3961,7 @@ function getDispoLabel(productId){
 // ══════════════════════════════════════════════════════════════
 // CONTENEUR — MODIFIER
 // ══════════════════════════════════════════════════════════════
-async function editConteneur(id){
+async function editConteneur(id, onSaved){
   if(!sb||NOT_CONFIGURED){toast('Modification disponible avec Supabase','error');return;}
   const {data,error}=await sb.from('conteneurs').select('*').eq('id',id).single();
   if(error){toast('Erreur chargement: '+error.message,'error');return;}
@@ -3968,7 +3976,7 @@ async function editConteneur(id){
         <input type="number" class="cont-rolls" data-id="${p.id}" value="${rollsMap[p.id]||0}" min="0" max="600"
           style="width:70px;padding:4px 8px;border:1px solid #E0DFD5;border-radius:5px;font-size:12px;font-family:inherit">
       </td>
-      <td style="padding:6px 8px;font-size:11px;color:#403F21;font-weight:600" class="cont-ch-${p.id}">${rollsMap[p.id]||0} ch.</td>
+      <td style="padding:6px 8px;font-size:11px;color:#403F21;font-weight:600" class="cont-ch-${p.id}">${Math.ceil((+rollsMap[p.id]||0)/6)} rolls</td>
     </tr>`).join('');
 
   overlay.innerHTML=`
@@ -3982,7 +3990,7 @@ async function editConteneur(id){
         </div>
         <div style="flex:1;display:flex;flex-direction:column;gap:5px">
           <label style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Arrivée estimée</label>
-          <input type="date" id="edit-date" value="${data.date_arrivee||''}" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
+          <input type="date" id="edit-date" value="${data.date_iso||''}" style="padding:8px 12px;border:1px solid #E0DFD5;border-radius:7px;font-size:13px;font-family:inherit">
         </div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:16px">
@@ -3995,7 +4003,7 @@ async function editConteneur(id){
           </select>
         </div>
       </div>
-      <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Rolls par modèle</div>
+      <div style="font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Chaises par modèle</div>
       <div style="overflow:auto;max-height:280px;border:1px solid #E0DFD5;border-radius:8px">
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#FAFAF7">
@@ -4006,7 +4014,7 @@ async function editConteneur(id){
           <tbody>${prodRows}</tbody>
         </table>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:#403F21;font-weight:600" id="edit-total">Total : ${data.total_rolls||0} rolls</div>
+      <div style="margin-top:10px;font-size:12px;color:#403F21;font-weight:600" id="edit-total">Total : ${Object.values(rollsMap).reduce((s,v)=>s+Math.round(+v||0),0)} chaises</div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
         <button onclick="this.closest('[style*=fixed]').remove()" style="padding:7px 14px;border:1px solid #E0DFD5;border-radius:7px;background:#fff;cursor:pointer;font-size:12px">Annuler</button>
         <button id="edit-save" style="padding:7px 14px;border:none;border-radius:7px;background:#403F21;color:#fff;cursor:pointer;font-size:12px;font-weight:600">Enregistrer</button>
@@ -4023,7 +4031,7 @@ async function editConteneur(id){
       const rolls=(ch/6).toFixed(1);
       const id=inp.getAttribute('data-id');
       const el=overlay.querySelector('.cont-ch-'+id);
-      if(el) el.textContent=ch+' ch.';
+      if(el) el.textContent=Math.ceil(ch/6)+' rolls';
     });
     const el=overlay.querySelector('#edit-total');
     if(el) el.textContent='Total : '+totalChaises+' chaises';
@@ -4032,26 +4040,25 @@ async function editConteneur(id){
 
   overlay.querySelector('#edit-save').addEventListener('click', async function(){
     const ref=overlay.querySelector('#edit-ref').value||'Conteneur';
-    const date=overlay.querySelector('#edit-date').value;
+    const iso=overlay.querySelector('#edit-date').value||null;
     const statut=overlay.querySelector('#edit-statut').value;
-    let totalRolls=0;
+    let totalChaises=0;
     const rollsParModele={};
     overlay.querySelectorAll('.cont-rolls').forEach(inp=>{
       const ch=parseInt(inp.value)||0;
-      if(ch>0){
-        const r=parseFloat((ch/6).toFixed(4));
-        rollsParModele[inp.getAttribute('data-id')]=r;
-        totalRolls+=r;
-      }
+      if(ch>0){ rollsParModele[inp.getAttribute('data-id')]=ch; totalChaises+=ch; } // en chaises, comme à la création
     });
 
     const {error}=await sb.from('conteneurs').update({
-      reference:ref, date_arrivee:date, statut, rolls_par_modele:rollsParModele, total_rolls:totalRolls
+      reference:ref, date_iso:iso, date_arrivee: iso ? new Date(iso).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) : 'Date à confirmer',
+      statut, rolls_par_modele:rollsParModele, total_chaises:totalChaises, total_rolls:Math.ceil(totalChaises/6)
     }).eq('id',id);
 
     if(error){toast('Erreur: '+error.message,'error');return;}
     overlay.remove();
     loadConteneurs(); // Refresh the list
+    try{ refreshConteneursCache(); }catch(e){}
+    if(typeof onSaved==='function') onSaved();
     toast('Conteneur mis à jour');
   });
 
@@ -7922,13 +7929,27 @@ function refreshTaskViews(){
 
 // ── Production : commandes personnalisées, attribuées à la main à un conteneur.
 // Elles viennent des lignes sur-mesure des devis acceptés (fait par la base) ou d'une fiche du configurateur importée.
-function prodStore(){ return window.__mpProd || (window.__mpProd = {orders:[], containers:[], showDone:false}); }
+function prodStore(){ return window.__mpProd || (window.__mpProd = {orders:[], containers:[], showDone:false, openId:null}); }
+const PROD_CONT_COLS = 'id,reference,statut,fin_production,date_iso,date_arrivee,created_at,rolls_par_modele,total_chaises';
+const CONTAINER_CAPACITY = 600;
+// Chaises de stock prévues dans le conteneur (rolls_par_modele stocke des chaises par modèle).
+function prodStockLines(c){
+  return Object.entries((c && c.rolls_par_modele) || {}).map(([id, v])=>({id, p: PRODUCTS.find(x=>x.id===id), ch: Math.round(+v||0)})).filter(x=>x.ch>0)
+    .sort((a,b)=>b.ch-a.ch);
+}
+function prodStockTotal(c){ return prodStockLines(c).reduce((s,x)=>s+x.ch,0); }
+function prodCustomTotal(cid){ return prodStore().orders.filter(o=>o.statut!=='livree' && o.conteneur_id===cid).reduce((s,o)=>s+(+o.qty||0),0); }
+function prodOpenContainer(id){
+  prodStore().openId = id || null;
+  renderProduction();
+  try{ window.scrollTo({top:0}); }catch(e){}
+}
 async function loadProduction(){
   if(!sb || NOT_CONFIGURED || !currentUser) return;
   const st = prodStore();
   const [o, c] = await Promise.allSettled([
     sb.from('crm_custom_orders').select('*').order('created_at',{ascending:true}).limit(500),
-    sb.from('conteneurs').select('id,reference,statut,fin_production,date_iso,date_arrivee,created_at').order('created_at',{ascending:true}).limit(100)
+    sb.from('conteneurs').select(PROD_CONT_COLS).order('created_at',{ascending:true}).limit(100)
   ]);
   if(o.status==='fulfilled' && o.value && !o.value.error) st.orders = o.value.data || [];
   if(c.status==='fulfilled' && c.value && !c.value.error) st.containers = c.value.data || [];
@@ -7972,6 +7993,11 @@ function renderProduction(){
   const host = document.getElementById('prod-main');
   if(!host) return;
   const esc = escapeHTML, st = prodStore();
+  if(st.openId){
+    const oc = st.containers.find(c=>c.id===st.openId);
+    if(oc){ host.innerHTML = prodContainerPage(oc); updateProductionBadge(); return; }
+    st.openId = null;
+  }
   const containers = prodOpenContainers();
   const active = st.orders.filter(o=>o.statut!=='livree');
   const loose = active.filter(o=>!o.conteneur_id || !st.containers.some(c=>c.id===o.conteneur_id));
@@ -7985,13 +8011,70 @@ function renderProduction(){
     html += `<section class="prod-sec"><div class="prod-head">
       <h2 style="display:flex;align-items:center;gap:2px">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)" style="font-family:var(--display);font-size:18px;font-weight:600;width:4.5em;padding:2px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--noir)"></h2>
       <label class="prod-meta" style="display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:0">Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)" style="width:auto"></label>
-      <span class="prod-meta">${n} chaise${n>1?'s':''} sur-mesure</span>
+      <span class="prod-meta">${n} sur-mesure · ${prodStockTotal(c)} stock</span>
+      <button type="button" class="btn btn-sm" style="margin-left:auto" onclick="prodOpenContainer('${esc(c.id)}')">Voir le contenu</button>
     </div>${list(rows) || '<div class="prod-list"><div class="prod-empty">Aucune commande dans ce conteneur.</div></div>'}</section>`;
   });
   if(!containers.length) html += `<div class="prod-list" style="margin-bottom:22px"><div class="prod-empty">Aucun conteneur. Crée-les avec « + Conteneur » (#1, #2…), puis attribue les commandes.</div></div>`;
   if(done.length) html += `<section class="prod-sec"><button type="button" class="btn btn-sm" style="align-self:flex-start" onclick="prodStore().showDone=!prodStore().showDone;renderProduction()">${st.showDone?'Masquer':'Voir'} les commandes livrées (${done.length})</button>${st.showDone?list(done):''}</section>`;
   host.innerHTML = html;
   updateProductionBadge();
+}
+function prodContainerPage(c){
+  const esc = escapeHTML, st = prodStore();
+  const containers = prodOpenContainers();
+  if(!containers.some(x=>x.id===c.id)) containers.push(c);
+  const custom = st.orders.filter(o=>o.statut!=='livree' && o.conteneur_id===c.id);
+  const customN = custom.reduce((s,o)=>s+(+o.qty||0),0);
+  const stock = prodStockLines(c);
+  const stockN = stock.reduce((s,x)=>s+x.ch,0);
+  const total = customN + stockN;
+  const pct = Math.min(100, Math.round(total*100/CONTAINER_CAPACITY));
+  const left = CONTAINER_CAPACITY - total;
+  const loose = st.orders.filter(o=>o.statut!=='livree' && (!o.conteneur_id || !st.containers.some(x=>x.id===o.conteneur_id)));
+  const addOpts = loose.map(o=>{
+    const t = [o.config&&o.config.shapeName, o.config&&o.config.weaveName].filter(Boolean).join(' · ') || o.label || 'Chaise sur-mesure';
+    return `<option value="${+o.id}">${esc(t)} · ${esc(o.client||'Sans fiche')} · ${+o.qty||0} ch.</option>`;
+  }).join('');
+  const statuts = ['Planifié','En transit','Reçu'];
+  const stockRows = stock.map(x=>`<div class="prod-row prod-row-stock">
+      ${x.p && x.p.img ? `<img class="prod-img" src="${esc(x.p.img)}" alt="">` : `<span class="prod-img" aria-hidden="true"></span>`}
+      <div class="prod-what"><b>${esc(x.p ? x.p.name : x.id)}</b><small>${esc(x.p && x.p.ref || '')}</small></div>
+      <span class="prod-qty">${x.ch} ch.</span>
+    </div>`).join('');
+  return `<button type="button" class="btn btn-sm" style="margin-bottom:16px" onclick="prodOpenContainer(null)">← Tous les conteneurs</button>
+  <section class="prod-sec">
+    <div class="prod-head">
+      <h2 style="display:flex;align-items:center;gap:2px">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)" style="font-family:var(--display);font-size:18px;font-weight:600;width:4.5em;padding:2px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--noir)"></h2>
+      <select aria-label="Statut" onchange="prodContainerField('${esc(c.id)}','statut',this.value)" style="width:auto;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff">${statuts.map(s=>`<option ${ (c.statut||'Planifié')===s?'selected':''}>${s}</option>`).join('')}</select>
+    </div>
+    <div class="prod-dates">
+      <label>Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)"></label>
+      <label>Arrivée prévue <input type="date" value="${esc(c.date_iso||'')}" onchange="prodContainerArrival('${esc(c.id)}',this.value||null)"></label>
+    </div>
+    <div class="prod-fill-wrap">
+      <div class="prod-fill" role="img" aria-label="Remplissage ${pct} %"><i style="width:${pct}%"></i></div>
+      <span><b>${total}</b> / ${CONTAINER_CAPACITY} chaises · ${left>=0 ? left+' places libres' : '<span style="color:var(--late)">'+(-left)+' en trop</span>'}</span>
+    </div>
+  </section>
+  <section class="prod-sec">
+    <div class="prod-head"><h2>Sur-mesure</h2><span class="prod-meta">${customN} chaise${customN>1?'s':''}</span>
+      ${loose.length ? `<select aria-label="Ajouter une commande" style="width:auto;margin-left:auto;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;max-width:340px" onchange="if(this.value) prodAssign(+this.value,'${esc(c.id)}')"><option value="">+ Ajouter une commande à produire (${loose.length})</option>${addOpts}</select>` : ''}
+    </div>
+    ${custom.length ? `<div class="prod-list">${custom.map(o=>prodRow(o, containers)).join('')}</div>` : `<div class="prod-list"><div class="prod-empty">${loose.length ? 'Ajoute une commande à produire avec le menu ci-dessus.' : 'Aucune commande sur-mesure. Elles arrivent quand un devis sur-mesure est accepté.'}</div></div>`}
+  </section>
+  <section class="prod-sec">
+    <div class="prod-head"><h2>Stock</h2><span class="prod-meta">${stockN} chaise${stockN>1?'s':''}</span>
+      <button type="button" class="btn btn-sm" style="margin-left:auto" onclick="editConteneur('${esc(c.id)}', ()=>loadProduction().then(renderProduction))">Modifier le stock</button>
+    </div>
+    ${stock.length ? `<div class="prod-list">${stockRows}</div>` : '<div class="prod-list"><div class="prod-empty">Aucune chaise de stock prévue dans ce conteneur.</div></div>'}
+  </section>`;
+}
+async function prodContainerArrival(id, iso){
+  const c = prodStore().containers.find(x=>x.id===id); if(!c) return;
+  const fields = {date_iso: iso, date_arrivee: iso ? new Date(iso).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) : 'Date à confirmer'};
+  Object.assign(c, fields);
+  if(await prodUpdate('conteneurs', id, fields)){ try{ refreshConteneursCache(); }catch(e){} renderProduction(); toast('Arrivée enregistrée'); }
 }
 async function prodUpdate(table, id, fields){
   if(!sb || NOT_CONFIGURED) return true;
@@ -8019,17 +8102,22 @@ async function prodContainerField(id, field, value){
   const c = prodStore().containers.find(x=>x.id===id); if(!c) return;
   const v = field==='reference' ? (String(value||'').trim() || c.reference) : value;
   c[field] = v;
-  if(await prodUpdate('conteneurs', id, {[field]: v})) renderProduction();
+  if(await prodUpdate('conteneurs', id, {[field]: v})){
+    if(field==='statut'){ try{ refreshConteneursCache(); }catch(e){} toast('Conteneur '+prodContainerLabel(c)+' : '+v); }
+    renderProduction();
+  }
 }
 async function prodNewContainer(){
   const st = prodStore();
   const nums = st.containers.map(c=>parseInt(String(c.reference||'').replace(/\D/g,''),10)).filter(Number.isFinite);
   const row = {reference: '#'+((nums.length?Math.max(...nums):0)+1), statut:'Planifié', total_chaises:0};
   if(sb && !NOT_CONFIGURED && currentUser){
-    const {data, error} = await sb.from('conteneurs').insert({...row, user_id: currentUser.id}).select('id,reference,statut,fin_production,date_iso,date_arrivee,created_at').single();
+    const {data, error} = await sb.from('conteneurs').insert({...row, user_id: currentUser.id}).select(PROD_CONT_COLS).single();
     if(error){ toast('Conteneur non créé : '+(error.message||error),'error'); return; }
     st.containers.push(data);
   } else st.containers.push({...row, id:'local-'+Date.now(), created_at:new Date().toISOString()});
+  renderProduction();
+  st.openId = st.containers[st.containers.length-1].id;
   renderProduction();
   toast('Conteneur '+row.reference+' créé : indique sa fin de production');
 }
