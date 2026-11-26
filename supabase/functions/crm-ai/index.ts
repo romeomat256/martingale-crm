@@ -31,10 +31,10 @@ const TOOL = {
     properties: {
       suite: {
         type: "string",
-        enum: ["devis", "rappel", "sans_suite", "contacte"],
-        description: "devis : le client attend un devis ou un chiffrage. rappel : il faut le rappeler, sans devis demandé pour l'instant. sans_suite : il n'est pas intéressé, a choisi ailleurs, annule. contacte : simple échange, rien à faire de plus.",
+        enum: ["devis", "rappel", "attente", "sans_suite", "contacte"],
+        description: "devis : le client attend un devis ou un chiffrage. rappel : il faut le rappeler bientôt, sans devis demandé pour l'instant. attente : le projet est reporté ou long (travaux, permis, financement, associés, « plus tard », « l'an prochain ») ; c'est le cas le plus courant dans le mobilier, ce n'est pas un refus. sans_suite : seulement si le client dit clairement non (pas intéressé, a choisi ailleurs, annule). contacte : simple échange, rien à faire de plus.",
       },
-      rappel_date: { type: "string", description: "Date de rappel AAAA-MM-JJ si le résumé en donne une (« lundi », « dans 15 jours », « début janvier » = le 5). Sinon chaîne vide." },
+      rappel_date: { type: "string", description: "Date de rappel AAAA-MM-JJ si le résumé en donne une (« lundi », « dans 15 jours », « début janvier » = le 5). Pour « attente » sans date donnée, dans 30 jours. Sinon chaîne vide." },
       produits: {
         type: "array",
         description: "Chaises du catalogue demandées. Seulement des id du catalogue fourni. Vide si aucun modèle n'est cité.",
@@ -94,6 +94,7 @@ Deno.serve(async (req: Request) => {
     "Tu remplis l'outil classer_appel. Tu n'inventes rien : un champ inconnu reste vide ou à 0.",
     "Les modèles se reconnaissent à leur couleur (« kaki » = Kaki Botanique, « bleues » = Bleu Atelier...). N'utilise que les id du catalogue.",
     "Un prénom, une enseigne ou une ville qui ressemble à une couleur n'est pas un modèle.",
+    "Le mobilier se vend lentement : un projet qui traîne ou qui est reporté est « attente », jamais « sans_suite ».",
     `Nous sommes le ${today} (${body.weekday || ""}), à Paris.`,
   ].join("\n");
   const user = [
@@ -141,7 +142,7 @@ Deno.serve(async (req: Request) => {
     .map((p: any) => ({ id: String(p.id), qty: Math.round(Number(p.qty)) }));
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(out.rappel_date || "")) && String(out.rappel_date) >= today ? String(out.rappel_date) : "";
   const result = {
-    suite: ["devis", "rappel", "sans_suite", "contacte"].includes(out.suite) ? out.suite : "contacte",
+    suite: ["devis", "rappel", "attente", "sans_suite", "contacte"].includes(out.suite) ? out.suite : "contacte",
     rappel_date: date,
     produits,
     qty: Math.max(Math.min(Math.round(Number(out.qty) || 0), 5000), produits.reduce((s: number, p: any) => s + p.qty, 0)),

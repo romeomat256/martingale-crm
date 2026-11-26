@@ -459,6 +459,14 @@ body.nd-open{overflow:hidden}
 .kb[hidden],#prospects-list-wrap[hidden]{display:none}
 .kb{display:grid;gap:12px;align-items:start;overflow-x:auto;padding-bottom:8px}
 .kb-A{grid-template-columns:repeat(4,minmax(230px,1fr))}
+.kb-lost{grid-column:1/-1;display:none;align-items:center;justify-content:center;gap:10px;padding:14px;border:2px dashed #E6B0AA;border-radius:10px;background:#FDF2F1;color:#922B21;font-size:13px}
+.kb-lost span{font-size:12px;opacity:.8}
+.kb.is-dragging .kb-lost{display:flex}
+.kb-lost.is-over{background:#FADBD8;border-color:#C0392B}
+.kb-lost-link{grid-column:1/-1}
+.kb-ago.is-sleep{color:#B9770E;font-weight:600}
+.kb-col[data-col="attente"]{background:#F3F1E7}
+.kb-col[data-col="attente"] .kb-card{opacity:.92}
 .kb-B{grid-template-columns:repeat(6,minmax(168px,1fr))}
 .kb-col{background:#F4F3EC;border:1px solid var(--ligne);border-radius:10px;padding:8px;min-height:120px;transition:background .12s,box-shadow .12s}
 .kb-col.is-over{background:#E9E8DA;box-shadow:inset 0 0 0 2px #403F21}
@@ -466,6 +474,7 @@ body.nd-open{overflow:hidden}
 .kb-col-h b{font-size:13px}
 .kb-col-h span{font-size:12px;color:var(--gris-l);font-weight:700}
 .kb-col[data-col="devis"] .kb-col-h b{color:#B9770E}
+.kb-col[data-col="attente"] .kb-col-h b{color:#7E7D63}
 .kb-list{display:flex;flex-direction:column;gap:7px}
 .kb-card{position:relative;display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid var(--ligne);border-radius:9px;padding:9px 11px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,.04);min-width:0}
 .kb-card:hover{border-color:#C9C8AE}
@@ -8160,25 +8169,40 @@ function docLinesLabel(d){
 // CLIENTS EN TABLEAU : des cartes qu'on glisse d'une colonne à l'autre
 // Deux versions à l'essai : A (4 colonnes, comme avant) et B (une colonne par étape).
 // ══════════════════════════════════════════════════════════════
-const KB_EN_COURS = ['Contacté','Devis envoyé','Relance','En attente chantier'];
+const KB_EN_COURS = ['Contacté','Devis envoyé','Relance'];
+const KB_SLEEP_DAYS = 30;        // sans nouvelles depuis 30 jours : le dossier passe « En attente », tout seul
+const KB_SLEEP_REMIND = 30;      // et revient dans les rappels tous les 30 jours
+// Dernier signe de vie d'un dossier : modification de la fiche, mail ou WhatsApp reçu ou envoyé.
+function kbLastContact(p){
+  const ex = (exchangeStore().byId||{})[p.id] || {};
+  return Math.max(getProspectActivity(p)||0, +ex.recu||0, +ex.envoye||0);
+}
+function kbSleeping(p){
+  if(p.devis_demande_at || ['Nouveau','Gagné','Perdu'].includes(p.statut||'Nouveau')) return false;
+  if(p.statut==='En attente chantier') return true;
+  if(!KB_EN_COURS.includes(p.statut)) return false;
+  const last = kbLastContact(p);
+  return !!last && (Date.now()-last) > KB_SLEEP_DAYS*86400000;
+}
 const KB_VARIANTS = {
   A: [
     {key:'nouveau', title:'Nouveau', has:p=>(p.statut||'Nouveau')==='Nouveau'},
-    {key:'encours', title:'En cours', has:p=>KB_EN_COURS.includes(p.statut)},
-    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'},
-    {key:'perdu', title:'Perdu', has:p=>p.statut==='Perdu'}
+    {key:'attente', title:'En attente', has:kbSleeping},
+    {key:'encours', title:'En cours', has:p=>KB_EN_COURS.includes(p.statut) || !!p.devis_demande_at},
+    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'}
   ],
   B: [
     {key:'devis', title:'Devis à préparer', has:p=>!!p.devis_demande_at && !['Gagné','Perdu'].includes(p.statut)},
+    {key:'attente', title:'En attente', has:kbSleeping},
     {key:'nouveau', title:'Nouveau', has:p=>(p.statut||'Nouveau')==='Nouveau'},
     {key:'contacte', title:'Contacté', has:p=>p.statut==='Contacté'},
-    {key:'envoye', title:'Devis envoyé', has:p=>['Devis envoyé','Relance','En attente chantier'].includes(p.statut)},
-    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'},
-    {key:'perdu', title:'Perdu', has:p=>p.statut==='Perdu'}
+    {key:'envoye', title:'Devis envoyé', has:p=>['Devis envoyé','Relance'].includes(p.statut)},
+    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'}
   ]
 };
-// Ordre d'affichage des colonnes de la version B (la colonne « Devis à préparer » est testée en premier mais montrée en 3e).
-const KB_ORDER_B = ['nouveau','contacte','devis','envoye','gagne','perdu'];
+// Ordre d'affichage des colonnes (l'ordre des tests ci-dessus décide de la colonne d'une fiche).
+const KB_SHOW = {A:['nouveau','encours','attente','gagne'], B:['nouveau','contacte','devis','envoye','attente','gagne']};
+const KB_TITLES = {nouveau:'Nouveau', encours:'En cours', contacte:'Contacté', devis:'Devis à préparer', envoye:'Devis envoyé', attente:'En attente', gagne:'Gagné', perdu:'Perdu'};
 const KB_LIMIT = 30;
 function kbPrefs(){
   let v = 'kanban', variant = 'A';
@@ -8188,25 +8212,29 @@ function kbPrefs(){
 function setClientsView(view){ try{ localStorage.setItem('mp_clients_view', view); }catch(e){} renderProspects(); }
 function setKbVariant(v){ try{ localStorage.setItem('mp_kb_variant', v); }catch(e){} renderProspects(); }
 function kbColumnOf(p, variant){
-  const cols = KB_VARIANTS[variant];
-  const c = cols.find(col=>col.has(p));
-  return c ? c.key : cols[0].key;
+  if(p.statut==='Perdu') return 'perdu';
+  const c = KB_VARIANTS[variant].find(col=>col.has(p));
+  return c ? c.key : 'nouveau';
 }
+function kbCols(variant){ return KB_SHOW[variant].map(k=>({key:k, title:KB_TITLES[k]})); }
 function kbStore(){ return window.__mpKb || (window.__mpKb = {open:{}, dragId:null}); }
 function kbCard(p, variant){
   const esc = escapeHTML;
   const prods = (p.produits||[]).map(i=>{ const pr = resolveProspectProduct(i); return pr ? pr.name+' × '+(i.qty||1) : ''; }).filter(Boolean);
   const what = prods.length ? prods.slice(0,2).join(', ')+(prods.length>2?'…':'') : (p.qty ? p.qty+' chaises' : '');
-  const showBadge = variant==='A' ? KB_EN_COURS.includes(p.statut) && p.statut!=='Contacté' : ['Relance','En attente chantier'].includes(p.statut);
-  const act = getProspectActivity(p);
-  const ago = act ? relativeTime(new Date(act).toISOString()) : '';
-  const cols = (variant==='B' ? KB_ORDER_B.map(k=>KB_VARIANTS.B.find(c=>c.key===k)) : KB_VARIANTS[variant]);
   const here = kbColumnOf(p, variant);
+  const showBadge = here==='attente' ? false : (variant==='A' ? ['Devis envoyé','Relance'].includes(p.statut) : p.statut==='Relance');
+  const last = kbLastContact(p);
+  const days = last ? Math.floor((Date.now()-last)/86400000) : null;
+  const ago = here==='attente'
+    ? (p.rappel_date ? 'relance le '+new Date(p.rappel_date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short'}) : (days!==null ? 'sans nouvelles depuis '+days+' j' : ''))
+    : (last ? relativeTime(new Date(last).toISOString()) : '');
+  const cols = [...kbCols(variant), {key:'perdu', title:'Perdu'}];
   return `<div class="kb-card" draggable="true" data-id="${esc(p.id)}" ondragstart="kbDragStart(event,'${esc(p.id)}')" ondragend="kbDragEnd(event)" onclick="openFiche('${esc(p.id)}')">
     <b>${esc(p.name||p.contact||'Sans nom')}</b>
     <span class="kb-sub">${esc([p.contact, p.ville].filter(Boolean).join(' · '))}</span>
     ${what?`<span class="kb-what">${esc(what)}</span>`:''}
-    <span class="kb-foot">${showBadge?`<span class="badge ${STATUT_CLASS[p.statut]||''}">${esc(p.statut)}</span>`:''}<span class="kb-ago">${esc(ago)}</span></span>
+    <span class="kb-foot">${showBadge?`<span class="badge ${STATUT_CLASS[p.statut]||''}">${esc(p.statut)}</span>`:''}<span class="kb-ago${here==='attente'?' is-sleep':''}">${esc(ago)}</span></span>
     <select class="kb-move" aria-label="Déplacer ${esc(p.name||'')}" onclick="event.stopPropagation()" onchange="kbDrop('${esc(p.id)}',this.value)">
       ${cols.map(c=>`<option value="${c.key}"${c.key===here?' selected':''}>${c.key===here?'Ici : ':'Vers '}${esc(c.title)}</option>`).join('')}
     </select>
@@ -8216,12 +8244,16 @@ function renderKanban(list){
   const host = document.getElementById('prospects-kanban');
   if(!host) return;
   const {variant} = kbPrefs(), st = kbStore(), esc = escapeHTML;
-  const cols = variant==='B' ? KB_ORDER_B.map(k=>KB_VARIANTS.B.find(c=>c.key===k)) : KB_VARIANTS[variant];
-  const groups = {}; cols.forEach(c=>groups[c.key] = []);
+  const cols = kbCols(variant);
+  const groups = {perdu:[]}; cols.forEach(c=>groups[c.key] = []);
   list.forEach(p=>{ const k = kbColumnOf(p, variant); (groups[k] = groups[k] || []).push(p); });
   host.className = 'kb kb-'+variant;
+  const lost = groups.perdu.length;
   host.innerHTML = cols.map(c=>{
-    const items = groups[c.key].slice().sort((a,b)=>getProspectActivity(b)-getProspectActivity(a));
+    // En attente : les rappels les plus proches en haut ; ailleurs, le plus récent en haut.
+    const items = groups[c.key].slice().sort(c.key==='attente'
+      ? (a,b)=>String(a.rappel_date||'9999').localeCompare(String(b.rappel_date||'9999')) || kbLastContact(b)-kbLastContact(a)
+      : (a,b)=>kbLastContact(b)-kbLastContact(a));
     const open = st.open[variant+':'+c.key];
     const shown = open ? items : items.slice(0, KB_LIMIT);
     return `<section class="kb-col" data-col="${c.key}" ondragover="kbDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="kbDropEvent(event,'${c.key}')">
@@ -8229,16 +8261,24 @@ function renderKanban(list){
       <div class="kb-list">${shown.map(p=>kbCard(p, variant)).join('') || '<div class="kb-empty">Glisse une carte ici</div>'}
       ${items.length>shown.length?`<button type="button" class="kb-more" onclick="kbStore().open['${variant}:${c.key}']=true;renderProspects()">Voir les ${items.length-shown.length} autres</button>`:''}</div>
     </section>`;
-  }).join('');
+  }).join('')
+  + `<div class="kb-lost" data-col="perdu" ondragover="kbDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="kbDropEvent(event,'perdu')"><b>Classer perdu</b><span>seulement si le client a dit non</span></div>`
+  + `<div class="kb-lost-link">${lost?`<button type="button" class="kb-more" onclick="kbShowLost()">${lost} dossier${lost>1?'s':''} perdu${lost>1?'s':''}, dans la liste</button>`:''}</div>`;
+}
+function kbShowLost(){
+  const f = document.getElementById('filter-statut'); if(f) f.value = 'Perdu';
+  setClientsView('list');
 }
 function kbDragStart(e, id){
   kbStore().dragId = id;
+  document.getElementById('prospects-kanban')?.classList.add('is-dragging');
   try{ e.dataTransfer.setData('text/x-crm-card', id); e.dataTransfer.effectAllowed = 'move'; }catch(err){}
   e.currentTarget?.classList.add('is-drag');
 }
 function kbDragEnd(e){
   e.currentTarget?.classList.remove('is-drag');
-  document.querySelectorAll('.kb-col.is-over').forEach(c=>c.classList.remove('is-over'));
+  document.getElementById('prospects-kanban')?.classList.remove('is-dragging');
+  document.querySelectorAll('.kb-col.is-over,.kb-lost.is-over').forEach(c=>c.classList.remove('is-over'));
   kbStore().dragId = null;
 }
 function kbDragOver(e){
@@ -8261,28 +8301,31 @@ async function kbDrop(id, col){
   const {variant} = kbPrefs();
   const from = kbColumnOf(p, variant);
   if(from===col) return;
-  const before = {statut:p.statut, devis_demande_at:p.devis_demande_at||null};
-  if(variant==='A'){
-    if(col==='nouveau') p.statut = 'Nouveau';
-    else if(col==='encours') p.statut = KB_EN_COURS.includes(p.statut) ? p.statut : 'Contacté';
-    else if(col==='gagne') p.statut = 'Gagné';
-    else if(col==='perdu') p.statut = 'Perdu';
-  }else{
-    if(col==='devis'){
-      p.devis_demande_at = p.devis_demande_at || new Date().toISOString();
-      if(!['Contacté'].includes(p.statut)) p.statut = 'Contacté';
-    }else{
-      p.devis_demande_at = null;
-      p.statut = {nouveau:'Nouveau', contacte:'Contacté', envoye:['Devis envoyé','Relance','En attente chantier'].includes(p.statut) ? p.statut : 'Devis envoyé', gagne:'Gagné', perdu:'Perdu'}[col] || p.statut;
-    }
+  const before = {statut:p.statut, devis_demande_at:p.devis_demande_at||null, rappel_date:p.rappel_date||null, rappel_note:p.rappel_note||null};
+  const inDays = n => { const d = new Date(todayParisISO()+'T12:00:00'); d.setDate(d.getDate()+n); return isoDay(d); };
+  const wasOpen = KB_EN_COURS.includes(p.statut) ? p.statut : null;
+  if(col!=='devis' && col!=='encours') p.devis_demande_at = null;
+  if(col==='nouveau') p.statut = 'Nouveau';
+  else if(col==='encours') p.statut = wasOpen || 'Contacté';
+  else if(col==='contacte') p.statut = 'Contacté';
+  else if(col==='envoye') p.statut = ['Devis envoyé','Relance'].includes(p.statut) ? p.statut : 'Devis envoyé';
+  else if(col==='devis'){ p.devis_demande_at = p.devis_demande_at || new Date().toISOString(); p.statut = 'Contacté'; }
+  else if(col==='gagne') p.statut = 'Gagné';
+  else if(col==='perdu') p.statut = 'Perdu';
+  else if(col==='attente'){
+    p.statut = 'En attente chantier';
+    if(!p.rappel_date || p.rappel_date < todayParisISO()){ p.rappel_date = inDays(KB_SLEEP_REMIND); p.rappel_note = p.rappel_note || 'Prendre des nouvelles du projet'; }
   }
-  if(p.statut===before.statut && (p.devis_demande_at||null)===before.devis_demande_at) return;
+  // Sortir d'« En attente » vers une colonne active : la fiche est touchée, elle ne retombe pas tout de suite.
+  if(from==='attente' && col!=='perdu' && col!=='gagne' && p.statut==='En attente chantier') p.statut = 'Contacté';
+  const same = p.statut===before.statut && (p.devis_demande_at||null)===before.devis_demande_at && (p.rappel_date||null)===before.rappel_date;
+  if(same && from!=='attente') return;
+  p.date_updated = new Date().toISOString();
   renderProspects();
   try{
     await upsertProspect(p);
     try{ updateBadge(); renderToday(); }catch(e){}
-    const title = (variant==='B' ? KB_VARIANTS.B : KB_VARIANTS.A).find(c=>c.key===col)?.title || col;
-    toast((p.name||'Fiche')+' → '+title);
+    toast((p.name||'Fiche')+' → '+(KB_TITLES[col]||col)+(col==='attente' && p.rappel_date ? ', relance le '+new Date(p.rappel_date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) : ''));
   }catch(e){
     Object.assign(p, before);
     renderProspects();
@@ -8530,9 +8573,10 @@ async function saveCallDone(id, btn){
       + '\nSuite : '+suite.toLowerCase()
       + (r.rappel_date ? ', rappel le '+new Date(r.rappel_date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) : '')+'.';
     await appendProspectNote(p, entry);
-    p.statut = r.suite==='sans_suite' ? 'Perdu' : 'Contacté';
-    if(r.suite==='sans_suite'){ p.devis_demande_at = null; }
-    else if(r.rappel_date){ p.rappel_date = r.rappel_date; p.rappel_note = (summary || 'Rappeler suite à l’appel').slice(0,120); }
+    p.statut = r.suite==='sans_suite' ? 'Perdu' : r.suite==='attente' ? 'En attente chantier' : 'Contacté';
+    if(r.suite==='attente' && !r.rappel_date){ const d = new Date(todayParisISO()+'T12:00:00'); d.setDate(d.getDate()+30); r.rappel_date = isoDay(d); }
+    if(r.suite==='sans_suite' || r.suite==='attente'){ p.devis_demande_at = null; }
+    if(r.suite!=='sans_suite' && r.rappel_date){ p.rappel_date = r.rappel_date; p.rappel_note = (summary || 'Rappeler suite à l’appel').slice(0,120); }
     if(r.suite==='devis'){
       p.devis_demande_at = new Date().toISOString();
       p.devis_brief = {at:p.devis_demande_at, resume:summary.slice(0,600), produits:r.produits||[], qty:r.qty||0, dept:r.dept||'', ville:r.ville||'',
@@ -8560,7 +8604,7 @@ async function saveCallDone(id, btn){
 }
 
 // ── Suite d'un appel : l'IA du serveur classe le résumé ; sans elle, des règles prennent le relais.
-const CALL_SUITES = {devis:'Devis à préparer', rappel:'À rappeler', sans_suite:'Sans suite', contacte:'Contacté'};
+const CALL_SUITES = {devis:'Devis à préparer', rappel:'À rappeler', attente:'En attente', sans_suite:'Perdu', contacte:'Contacté'};
 const FR_MONTHS = ['janvier','fevrier','mars','avril','mai','juin','juillet','aout','septembre','octobre','novembre','decembre'];
 const FR_DAYS = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 function isoDay(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -8599,10 +8643,16 @@ function classifyCallRules(summary, p){
   if(!text) return out;
   const lost = /\b(pas interess|plus interess|pas de suite|sans suite|trop cher|hors budget|pas de budget|annule|abandonn|a choisi (un |une )?autre|trouve ailleurs|deja equipe|ne veut plus|refuse)/.test(n);
   const wantsQuote = /\b(devis|chiffr|tarif|cotation|proposition|offre de prix|prix)/.test(n) || q.produits.length>0 || q.qty>0;
+  const later = /\b(plus tard|pas maintenant|pas pour (le moment|l.instant|tout de suite)|reporte|repousse|decale|en attente|attend (le|la|les|son|sa|ses)|l.an(nee)? prochaine?|travaux|chantier|permis|pas encore (decide|signe|valide)|reflechi|reflexion|budget (pas|non) (valide|vote)|associe|banque|financement)/.test(n);
   const k = n.search(/\b(rappeler|recontacter|relancer|rappel|rappelle|rappelera)\b/);
   if(k>=0) out.rappel_date = parseFrDate(n.slice(k, k+60)) || (()=>{ const d = new Date(todayParisISO()+'T12:00:00'); d.setDate(d.getDate()+3); return isoDay(d); })();
-  out.suite = lost ? 'sans_suite' : wantsQuote ? 'devis' : k>=0 ? 'rappel' : 'contacte';
+  // Un projet reporté n'est pas perdu : il passe « En attente » avec une relance. « Perdu » seulement si le client dit non.
+  out.suite = lost ? 'sans_suite' : later ? 'attente' : wantsQuote ? 'devis' : k>=0 ? 'rappel' : 'contacte';
   if(lost) out.rappel_date = '';
+  if(out.suite==='attente'){
+    const when = parseFrDate(n);
+    out.rappel_date = (when && when>todayParisISO()) ? when : (()=>{ const d = new Date(todayParisISO()+'T12:00:00'); d.setDate(d.getDate()+30); return isoDay(d); })();
+  }
   let m = n.match(/\b(?:remise|reduction|rabais|geste)[^\d%]{0,20}(\d{1,2}(?:[.,]\d)?)\s?%/) || n.match(/\b(\d{1,2}(?:[.,]\d)?)\s?%\s*(?:de\s+)?(?:remise|reduction|rabais)/);
   if(m) out.remise_pct = Math.min(50, parseFloat(m[1].replace(',','.'))||0);
   const months = FR_MONTHS.map(x=>x.replace('fevrier','f[ée]vrier').replace('aout','ao[uû]t').replace('decembre','d[ée]cembre')).join('|');
