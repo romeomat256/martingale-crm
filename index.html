@@ -4416,6 +4416,8 @@ function getDocDetailSupabaseFields(doc){
 
 // Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
 const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
+// Présentation de l'acompte sur le devis : 'lignes', 'etapes' ou 'bandeau'.
+let DOC_DEPOSIT_STYLE = 'lignes';
 // Acompte prévu par un devis : celui choisi à la création, 50 % pour les anciens devis (CGV, art. 3.2).
 function quoteDepositPct(q){
   if(!q) return 50;
@@ -4699,11 +4701,7 @@ function openDocGenerator(prospectId){
                 <label><input type="radio" name="dg-availability" value="commande"><span>Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</span></label>
               </div>
               <label class="nd-f"><span>Validité du devis</span><input type="text" id="dg-validite" value="30 jours"></label>
-              <label class="nd-f"><span>Règlement</span><select id="dg-quote-deposit" onchange="updateDocCalc()">
-                <option value="50" selected>Acompte 50 %, solde avant livraison</option>
-                <option value="30">Acompte 30 %, solde avant livraison</option>
-                <option value="0">Paiement intégral à la commande</option>
-              </select></label>
+              <label class="nd-check"><input type="checkbox" id="dg-quote-deposit" checked onchange="updateDocCalc()">Acompte 50 % à la commande, solde avant livraison</label>
             </div>
             <label class="nd-f"><span>Geste commercial (% sur le total)</span>
               <span class="nd-inline"><input type="number" id="dg-remise" value="0" min="0" max="100" oninput="updateDocCalc()" style="max-width:90px"> % <span id="dg-remise-montant" class="nd-minus"></span></span></label>
@@ -5892,6 +5890,14 @@ body{font-family:'Hanken Grotesk','Helvetica Neue',Helvetica,Arial,sans-serif;co
 .tr.g{font-weight:700;color:${DOC_ACCENT}}
 .tr.sep{padding-top:5px;margin-top:3px;border-top:1px solid #ECE9E0}
 .tot-dep{margin-top:10px}
+.dep-steps{margin-top:12px;align-self:flex-end;display:flex;align-items:stretch;gap:10px;break-inside:avoid}
+.dep-step{min-width:150px;padding:9px 14px;border:1px solid #D9D6C8;background:#F7F5F0;display:flex;flex-direction:column;gap:2px}
+.dep-step small{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#8A8A7C}
+.dep-step b{font-size:14px;color:#1F1F1A}
+.dep-step span{font-size:9.5px;color:#6B6B5E}
+.dep-arrow{align-self:center;color:#8A8A7C;font-size:13px}
+.dep-band{display:flex;justify-content:flex-end;gap:28px;padding:7px 16px;background:#E8E6DA;color:#3A3A2E;font-size:10.5px;break-inside:avoid}
+.dep-band b{font-weight:700;margin-left:6px;color:#1F1F1A}
 .band{margin-top:12px;display:flex;justify-content:flex-end;align-items:baseline;gap:22px;padding:12px 16px;background:${DOC_ACCENT};color:#F7F5F0;break-inside:avoid}
 .band span:first-child{font-size:13px}
 .band span:last-child{font-size:23px;font-weight:700;line-height:1;white-space:nowrap;letter-spacing:-.01em}
@@ -6130,11 +6136,15 @@ function buildDocHtml(ctx){
   const bandLabel = isDeposit ? L('Acompte à régler'+ttcWord,'Deposit due') : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
   const bandValue = isQuote ? A.ttc : due.ttc;
   // Échéancier sous le total du devis : acompte à la commande, solde avant livraison.
-  const depositRows = depPct ? [
-    tr(L('Acompte'+ttcWord+' à la commande ('+depPct+' %)', 'Deposit upon order ('+depPct+'%)'), money(depTTC), 'sep'),
-    tr(L('Solde'+ttcWord+' avant livraison', 'Balance before delivery'), money(Math.round((A.ttc - depTTC)*100)/100))
-  ] : [];
-
+  const depSolde = Math.round((A.ttc - depTTC)*100)/100;
+  const depStyle = ctx.depositStyle || DOC_DEPOSIT_STYLE;
+  const depositBlock = !depPct ? '' : depStyle === 'etapes'
+    ? `<div class="dep-steps"><div class="dep-step"><small>1 · ${L('À la commande','Upon order')}</small><b>${money(depTTC)}</b><span>${L('Acompte '+depPct+' %'+ttcWord,'Deposit '+depPct+'%')}</span></div><div class="dep-arrow">→</div><div class="dep-step"><small>2 · ${L('Avant livraison','Before delivery')}</small><b>${money(depSolde)}</b><span>${L('Solde '+(100-depPct)+' %'+ttcWord,'Balance '+(100-depPct)+'%')}</span></div></div>`
+    : depStyle === 'bandeau'
+    ? `<div class="dep-band"><span>${L('Acompte à la commande','Deposit upon order')} <b>${money(depTTC)}</b></span><span>${L('Solde avant livraison','Balance before delivery')} <b>${money(depSolde)}</b></span></div>`
+    : `<div class="tot tot-dep">${[
+        tr(L('Acompte'+ttcWord+' à la commande ('+depPct+' %)', 'Deposit upon order ('+depPct+'%)'), money(depTTC), 'sep'),
+        tr(L('Solde'+ttcWord+' avant livraison', 'Balance before delivery'), money(depSolde))].join('')}</div>`;
   // Mentions de TVA
   let vatNote = '';
   if(vat.isVatExempt && vat.vatRegime === VAT_REGIME_EXPORT){
@@ -6226,7 +6236,7 @@ ${DOC_TEMPLATE_CSS}
   ${rows}
   <div class="tot">${totals.join('')}</div>
   <div class="band"><span>${bandLabel}</span><span>${money(bandValue)}</span></div>
-  ${depositRows.length?`<div class="tot tot-dep">${depositRows.join('')}</div>`:''}
+  ${depositBlock}
   ${condHtml}
   <div class="grow"></div>
   ${settle}
@@ -6319,7 +6329,8 @@ function computeGeneratorDoc({numOverride=''}={}){
     ? (dgSourceQuote?.availability || 'stock')
     : (document.querySelector('input[name="dg-availability"]:checked')?.value || 'stock');
   // Acompte annoncé sur le devis (50 % par défaut). 0 = paiement intégral à la commande.
-  const depositPct = isInvoice ? quoteDepositPct(dgSourceQuote) : Math.min(90, Math.max(0, parseInt(document.getElementById('dg-quote-deposit')?.value ?? '50', 10) || 0));
+  const depEl = document.getElementById('dg-quote-deposit');
+  const depositPct = isInvoice ? quoteDepositPct(dgSourceQuote) : (depEl && !depEl.checked ? 0 : 50);
 
   const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : (numOverride || '…');
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
