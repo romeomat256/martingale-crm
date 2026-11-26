@@ -4416,8 +4416,6 @@ function getDocDetailSupabaseFields(doc){
 
 // Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
 const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
-// Présentation de l'acompte sur le devis : 'lignes', 'etapes' ou 'bandeau'.
-let DOC_DEPOSIT_STYLE = 'lignes';
 // Acompte prévu par un devis : celui choisi à la création, 50 % pour les anciens devis (CGV, art. 3.2).
 function quoteDepositPct(q){
   if(!q) return 50;
@@ -5889,15 +5887,7 @@ body{font-family:'Hanken Grotesk','Helvetica Neue',Helvetica,Arial,sans-serif;co
 .tr.b{font-weight:700;color:#1F1F1A}
 .tr.g{font-weight:700;color:${DOC_ACCENT}}
 .tr.sep{padding-top:5px;margin-top:3px;border-top:1px solid #ECE9E0}
-.tot-dep{margin-top:10px}
-.dep-steps{margin-top:12px;align-self:flex-end;display:flex;align-items:stretch;gap:10px;break-inside:avoid}
-.dep-step{min-width:150px;padding:9px 14px;border:1px solid #D9D6C8;background:#F7F5F0;display:flex;flex-direction:column;gap:2px}
-.dep-step small{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#8A8A7C}
-.dep-step b{font-size:14px;color:#1F1F1A}
-.dep-step span{font-size:9.5px;color:#6B6B5E}
-.dep-arrow{align-self:center;color:#8A8A7C;font-size:13px}
-.dep-band{display:flex;justify-content:flex-end;gap:28px;padding:7px 16px;background:#E8E6DA;color:#3A3A2E;font-size:10.5px;break-inside:avoid}
-.dep-band b{font-weight:700;margin-left:6px;color:#1F1F1A}
+.tot-dep{margin-top:8px}
 .band{margin-top:12px;display:flex;justify-content:flex-end;align-items:baseline;gap:22px;padding:12px 16px;background:${DOC_ACCENT};color:#F7F5F0;break-inside:avoid}
 .band span:first-child{font-size:13px}
 .band span:last-child{font-size:23px;font-weight:700;line-height:1;white-space:nowrap;letter-spacing:-.01em}
@@ -6133,18 +6123,14 @@ function buildDocHtml(ctx){
   const ttcWord = vat.isVatExempt ? '' : L(' TTC',' (incl. VAT)');
   const depPct = isQuote ? Math.min(90, Math.max(0, +ctx.depositPct || 0)) : 0;
   const depTTC = depPct ? Math.round(A.ttc * depPct) / 100 : 0;
-  const bandLabel = isDeposit ? L('Acompte à régler'+ttcWord,'Deposit due') : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
-  const bandValue = isQuote ? A.ttc : due.ttc;
+  if(depPct) totals.push(tr(L('Total','Total')+ttcWord, money(A.ttc), 'b sep'));
+  const bandLabel = depPct ? L('Acompte à régler'+ttcWord+' ('+depPct+' %)', 'Deposit due ('+depPct+'%)') : isDeposit ? L('Acompte à régler'+ttcWord,'Deposit due') : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
+  const bandValue = isQuote ? (depPct ? depTTC : A.ttc) : due.ttc;
   // Échéancier sous le total du devis : acompte à la commande, solde avant livraison.
   const depSolde = Math.round((A.ttc - depTTC)*100)/100;
-  const depStyle = ctx.depositStyle || DOC_DEPOSIT_STYLE;
-  const depositBlock = !depPct ? '' : depStyle === 'etapes'
-    ? `<div class="dep-steps"><div class="dep-step"><small>1 · ${L('À la commande','Upon order')}</small><b>${money(depTTC)}</b><span>${L('Acompte '+depPct+' %'+ttcWord,'Deposit '+depPct+'%')}</span></div><div class="dep-arrow">→</div><div class="dep-step"><small>2 · ${L('Avant livraison','Before delivery')}</small><b>${money(depSolde)}</b><span>${L('Solde '+(100-depPct)+' %'+ttcWord,'Balance '+(100-depPct)+'%')}</span></div></div>`
-    : depStyle === 'bandeau'
-    ? `<div class="dep-band"><span>${L('Acompte à la commande','Deposit upon order')} <b>${money(depTTC)}</b></span><span>${L('Solde avant livraison','Balance before delivery')} <b>${money(depSolde)}</b></span></div>`
-    : `<div class="tot tot-dep">${[
-        tr(L('Acompte'+ttcWord+' à la commande ('+depPct+' %)', 'Deposit upon order ('+depPct+'%)'), money(depTTC), 'sep'),
-        tr(L('Solde'+ttcWord+' avant livraison', 'Balance before delivery'), money(depSolde))].join('')}</div>`;
+  const depositBlock = depPct
+    ? `<div class="tot tot-dep">${tr(L('Solde avant livraison'+ttcWord, 'Balance before delivery'), money(depSolde))}</div>`
+    : '';
   // Mentions de TVA
   let vatNote = '';
   if(vat.isVatExempt && vat.vatRegime === VAT_REGIME_EXPORT){
