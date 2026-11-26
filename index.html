@@ -545,6 +545,29 @@ button.ag-client:hover{text-decoration:underline}
 .td-sub{display:block;font-size:11px;color:var(--gris-l);margin-top:2px}
 .td-miss{font-style:normal;color:#B9770E;font-weight:600}
 .td-ok:hover{background:var(--ok-bg);border-color:var(--ok)}
+.prod-sec{display:flex;flex-direction:column;gap:8px;margin-bottom:22px}
+.prod-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.prod-head h2{margin:0;font-family:var(--display);font-size:18px;font-weight:600}
+.prod-head .prod-meta{font-size:13px;color:var(--gris-l)}
+.prod-head input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff}
+.prod-name{font-family:var(--display);font-size:18px;font-weight:600;border:1px solid transparent !important;background:transparent !important;width:9em;padding:2px 6px !important}
+.prod-name:hover,.prod-name:focus{border-color:var(--border) !important;background:#fff !important}
+.prod-list{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.prod-row{display:grid;grid-template-columns:52px minmax(0,1.6fr) minmax(0,1fr) 70px 170px auto;gap:14px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--ligne)}
+.prod-row:last-child{border-bottom:0}
+.prod-img{width:52px;height:60px;border-radius:6px;background:#EDEAE1;object-fit:cover;display:block}
+.prod-what b{display:block;font-size:14px}
+.prod-what small{display:block;font-size:12px;color:var(--gris-l);margin-top:2px}
+.prod-colors{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:11px;color:var(--gris-f)}
+.prod-colors span{display:inline-flex;align-items:center;gap:4px}
+.prod-colors i{width:11px;height:11px;border-radius:50%;border:1px solid #C9C6B8;display:inline-block}
+.prod-client{font-size:13px;min-width:0}
+.prod-client button{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--noir);cursor:pointer;text-align:left}
+.prod-client small{display:block;font-size:12px;color:var(--gris-l)}
+.prod-qty{font-size:15px;font-weight:700;white-space:nowrap}
+.prod-row select{font:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:100%}
+.prod-empty{padding:16px;color:var(--gris-l);font-size:13px}
+@media(max-width:860px){.prod-row{grid-template-columns:52px minmax(0,1fr) auto}.prod-row .prod-client,.prod-row select{grid-column:2/4}}
 .pay-state{font-size:11px;font-weight:700;color:var(--warn)}
 .pay-state.is-paid{color:var(--vert)}
 .td-task-add{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--ligne)}
@@ -698,6 +721,7 @@ button.ag-client:hover{text-decoration:underline}
     <button type="button" class="nav-item" data-screens="agenda" onclick="go('agenda')">Agenda</button>
     <button type="button" class="nav-item" data-screens="devis commandes documents" onclick="go('devis')">Affaires <span class="nav-badge" id="badge-devis" style="display:none">0</span></button>
     <button type="button" class="nav-item" data-screens="stock" onclick="go('stock')">Stock</button>
+    <button type="button" class="nav-item" data-screens="production" onclick="go('production')">Production <span class="nav-badge" id="badge-production" style="display:none">0</span></button>
     <button type="button" class="nav-item" data-screens="params port" onclick="go('params')">Réglages</button>
   </div>
   <div id="nav-footer">
@@ -1235,6 +1259,21 @@ button.ag-client:hover{text-decoration:underline}
       </div>
     </div>
   </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ PRODUCTION -->
+<div id="s-production" class="screen">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Production</div>
+      <div class="page-subtitle">Commandes personnalisées, attribuées à un conteneur</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn" onclick="prodNewContainer()">+ Conteneur</button>
+      <label class="btn btn-primary" style="cursor:pointer">Importer une fiche du configurateur<input type="file" accept="application/pdf,.pdf" multiple hidden onchange="prodImportFiles(this.files);this.value=''"></label>
+    </div>
+  </div>
+  <div class="page-content" id="prod-main"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════ STOCK -->
@@ -2412,6 +2451,7 @@ function go(id){
   if(id==='port'){renderGrilleExamples();}
   if(id==='stock')renderStock();
   if(id==='agenda')renderAgenda();
+  if(id==='production'){ renderProduction(); loadProduction().then(renderProduction).catch(()=>{}); }
   if(id==='params'){ renderCatalogue(); try{ paramTab('produits'); }catch(e){} }
   if(id==='devis'){renderDevisList();}
   if(id==='commandes'){renderCommandes();}
@@ -7740,6 +7780,7 @@ async function loadAutomationState(){
       st.links = map;
     }
   }catch(e){ console.warn('Automatisations :', e?.message||e); }
+  try{ await loadProduction(); }catch(e){}
 }
 
 // ── À faire : tâches tirées des notes et des appels, ou ajoutées à la main.
@@ -7877,6 +7918,171 @@ function renderFicheTasks(id){
 function refreshTaskViews(){
   try{ if(typeof currentProspectId!=='undefined' && currentProspectId) renderFicheTasks(currentProspectId); }catch(e){}
   try{ if(document.getElementById('s-morning')?.classList.contains('active') || document.getElementById('td-main')) renderToday(); }catch(e){}
+}
+
+// ── Production : commandes personnalisées, attribuées à la main à un conteneur.
+// Elles viennent des lignes sur-mesure des devis acceptés (fait par la base) ou d'une fiche du configurateur importée.
+function prodStore(){ return window.__mpProd || (window.__mpProd = {orders:[], containers:[], showDone:false}); }
+async function loadProduction(){
+  if(!sb || NOT_CONFIGURED || !currentUser) return;
+  const st = prodStore();
+  const [o, c] = await Promise.allSettled([
+    sb.from('crm_custom_orders').select('*').order('created_at',{ascending:true}).limit(500),
+    sb.from('conteneurs').select('id,reference,statut,fin_production,date_iso,date_arrivee,created_at').order('created_at',{ascending:true}).limit(100)
+  ]);
+  if(o.status==='fulfilled' && o.value && !o.value.error) st.orders = o.value.data || [];
+  if(c.status==='fulfilled' && c.value && !c.value.error) st.containers = c.value.data || [];
+  updateProductionBadge();
+}
+function prodContainerLabel(c){ return c ? (c.reference || 'Conteneur') : ''; }
+function prodOpenContainers(){
+  const st = prodStore();
+  const used = new Set(st.orders.filter(o=>o.statut!=='livree' && o.conteneur_id).map(o=>o.conteneur_id));
+  return st.containers.filter(c=>c.statut!=='Reçu' || used.has(c.id))
+    .sort((a,b)=>String(a.fin_production||'9999').localeCompare(String(b.fin_production||'9999')) || String(a.reference||'').localeCompare(String(b.reference||''), 'fr', {numeric:true}));
+}
+function updateProductionBadge(){
+  const n = prodStore().orders.filter(o=>o.statut!=='livree' && !o.conteneur_id).length;
+  const b = document.getElementById('badge-production');
+  if(b){ b.textContent = n; b.style.display = n ? '' : 'none'; }
+}
+function prodColors(o){
+  const list = (o.config && Array.isArray(o.config.colors)) ? o.config.colors : [];
+  const seen = new Set();
+  return list.filter(c=>c && c.name && !seen.has(c.name) && seen.add(c.name)).slice(0,6);
+}
+function prodRow(o, containers){
+  const esc = escapeHTML;
+  const p = o.prospect_id ? prospects.find(x=>x.id===o.prospect_id) : null;
+  const cfg = o.config || {};
+  const title = [cfg.shapeName, cfg.weaveName].filter(Boolean).join(' · ') || o.label || 'Chaise sur-mesure';
+  const colors = prodColors(o).map(c=>`<span><i style="background:${esc(/^#[0-9a-f]{3,8}$/i.test(c.hex||'')?c.hex:'#EDEAE1')}"></i>${esc(c.name)}${c.pantone?' · '+esc(c.pantone):''}</span>`).join('');
+  const opts = `<option value="">Non attribuée</option>` + containers.map(c=>`<option value="${esc(c.id)}" ${o.conteneur_id===c.id?'selected':''}>${esc(prodContainerLabel(c))}</option>`).join('');
+  const done = o.statut==='livree';
+  return `<div class="prod-row">
+    ${o.img ? `<img class="prod-img" src="${esc(o.img)}" alt="">` : `<span class="prod-img" aria-hidden="true"></span>`}
+    <div class="prod-what"><b>${esc(title)}</b><small>${esc([o.ref, o.source==='import'?'fiche importée':''].filter(Boolean).join(' · '))}</small>${colors?`<div class="prod-colors">${colors}</div>`:''}</div>
+    <div class="prod-client">${p?`<button type="button" onclick="openFiche('${esc(p.id)}')">${esc(p.name||o.client||'Client')}</button>`:`<b>${esc(o.client||'Sans fiche')}</b>`}<small>${esc(o.quote_num||'')}</small></div>
+    <span class="prod-qty">${+o.qty||0} ch.</span>
+    ${done ? `<span style="font-size:13px;color:var(--gris-l)">${esc(prodContainerLabel(prodStore().containers.find(c=>c.id===o.conteneur_id))||'')}</span>` : `<select aria-label="Conteneur" onchange="prodAssign(${+o.id}, this.value)">${opts}</select>`}
+    <button type="button" class="btn btn-sm" onclick="prodDelivered(${+o.id}, ${done?'true':'false'})">${done?'Remettre en cours':'Livrée'}</button>
+  </div>`;
+}
+function renderProduction(){
+  const host = document.getElementById('prod-main');
+  if(!host) return;
+  const esc = escapeHTML, st = prodStore();
+  const containers = prodOpenContainers();
+  const active = st.orders.filter(o=>o.statut!=='livree');
+  const loose = active.filter(o=>!o.conteneur_id || !st.containers.some(c=>c.id===o.conteneur_id));
+  const done = st.orders.filter(o=>o.statut==='livree');
+  const list = rows => rows.length ? `<div class="prod-list">${rows.map(o=>prodRow(o, containers)).join('')}</div>` : '';
+  let html = '';
+  html += `<section class="prod-sec"><div class="prod-head"><h2>À attribuer</h2><span class="prod-meta">${loose.length ? loose.reduce((s,o)=>s+(+o.qty||0),0)+' chaises' : 'rien en attente'}</span></div>${list(loose) || '<div class="prod-list"><div class="prod-empty">Les chaises sur-mesure des devis acceptés arrivent ici. Tu peux aussi importer une fiche du configurateur.</div></div>'}</section>`;
+  containers.forEach(c=>{
+    const rows = active.filter(o=>o.conteneur_id===c.id);
+    const n = rows.reduce((s,o)=>s+(+o.qty||0),0);
+    html += `<section class="prod-sec"><div class="prod-head">
+      <h2 style="display:flex;align-items:center;gap:2px">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)" style="font-family:var(--display);font-size:18px;font-weight:600;width:4.5em;padding:2px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--noir)"></h2>
+      <label class="prod-meta" style="display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:0">Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)" style="width:auto"></label>
+      <span class="prod-meta">${n} chaise${n>1?'s':''} sur-mesure</span>
+    </div>${list(rows) || '<div class="prod-list"><div class="prod-empty">Aucune commande dans ce conteneur.</div></div>'}</section>`;
+  });
+  if(!containers.length) html += `<div class="prod-list" style="margin-bottom:22px"><div class="prod-empty">Aucun conteneur. Crée-les avec « + Conteneur » (#1, #2…), puis attribue les commandes.</div></div>`;
+  if(done.length) html += `<section class="prod-sec"><button type="button" class="btn btn-sm" style="align-self:flex-start" onclick="prodStore().showDone=!prodStore().showDone;renderProduction()">${st.showDone?'Masquer':'Voir'} les commandes livrées (${done.length})</button>${st.showDone?list(done):''}</section>`;
+  host.innerHTML = html;
+  updateProductionBadge();
+}
+async function prodUpdate(table, id, fields){
+  if(!sb || NOT_CONFIGURED) return true;
+  const {error} = await sb.from(table).update(fields).eq('id', id);
+  if(error){ toast('Non enregistré : '+(error.message||error),'error'); return false; }
+  return true;
+}
+async function prodAssign(id, containerId){
+  const o = prodStore().orders.find(x=>+x.id===+id); if(!o) return;
+  const before = o.conteneur_id || null;
+  o.conteneur_id = containerId || null;
+  renderProduction();
+  if(!(await prodUpdate('crm_custom_orders', id, {conteneur_id: o.conteneur_id, updated_at: new Date().toISOString()}))){ o.conteneur_id = before; renderProduction(); return; }
+  const c = prodStore().containers.find(x=>x.id===o.conteneur_id);
+  toast(c ? 'Attribuée au conteneur '+prodContainerLabel(c) : 'Remise dans « À attribuer »');
+}
+async function prodDelivered(id, undo){
+  const o = prodStore().orders.find(x=>+x.id===+id); if(!o) return;
+  o.statut = undo ? 'a_produire' : 'livree';
+  renderProduction();
+  if(!(await prodUpdate('crm_custom_orders', id, {statut: o.statut, updated_at: new Date().toISOString()}))){ o.statut = undo ? 'livree' : 'a_produire'; renderProduction(); return; }
+  if(!undo) toastAction('Commande marquée livrée', 'Annuler', ()=>prodDelivered(id, true));
+}
+async function prodContainerField(id, field, value){
+  const c = prodStore().containers.find(x=>x.id===id); if(!c) return;
+  const v = field==='reference' ? (String(value||'').trim() || c.reference) : value;
+  c[field] = v;
+  if(await prodUpdate('conteneurs', id, {[field]: v})) renderProduction();
+}
+async function prodNewContainer(){
+  const st = prodStore();
+  const nums = st.containers.map(c=>parseInt(String(c.reference||'').replace(/\D/g,''),10)).filter(Number.isFinite);
+  const row = {reference: '#'+((nums.length?Math.max(...nums):0)+1), statut:'Planifié', total_chaises:0};
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {data, error} = await sb.from('conteneurs').insert({...row, user_id: currentUser.id}).select('id,reference,statut,fin_production,date_iso,date_arrivee,created_at').single();
+    if(error){ toast('Conteneur non créé : '+(error.message||error),'error'); return; }
+    st.containers.push(data);
+  } else st.containers.push({...row, id:'local-'+Date.now(), created_at:new Date().toISOString()});
+  renderProduction();
+  toast('Conteneur '+row.reference+' créé : indique sa fin de production');
+}
+// Import d'une fiche du configurateur : on demande le client et la quantité, puis la commande arrive dans « À attribuer ».
+async function prodImportFiles(files){
+  const list = Array.from(files||[]).filter(f=>/pdf$/i.test(f.name) || f.type==='application/pdf');
+  if(!list.length){ toast('Déposer une fiche PDF du configurateur','error'); return; }
+  for(const file of list){
+    let cfg;
+    try{ toast('Lecture de la fiche…'); cfg = await readConfiguratorPdf(file); }
+    catch(e){ toast('Import impossible : '+(e.message||e),'error'); continue; }
+    await prodImportDialog(cfg);
+  }
+}
+function prodImportDialog(cfg){
+  return new Promise(resolve=>{
+    const esc = escapeHTML;
+    const preset = configToCustomProduct(cfg);
+    const guess = cfg.ent ? prospects.find(p=>qaNorm(p.name)===qaNorm(cfg.ent)) : null;
+    const opts = '<option value="">Sans fiche client</option>' + [...prospects].sort((a,b)=>getProspectActivity(b)-getProspectActivity(a)).slice(0,300)
+      .map(p=>`<option value="${esc(p.id)}" ${guess&&guess.id===p.id?'selected':''}>${esc(p.name||p.contact||'Client')}</option>`).join('');
+    const ov = document.createElement('div');
+    ov.id = 'prod-import-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(31,31,26,.35);display:flex;align-items:center;justify-content:center;z-index:400;padding:16px';
+    ov.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="pi-title" style="background:#fff;border-radius:12px;max-width:440px;width:100%;padding:20px;display:flex;flex-direction:column;gap:12px">
+      <div id="pi-title" style="font-family:var(--display);font-size:18px;font-weight:600">Commande à produire</div>
+      <div style="display:flex;gap:12px;align-items:center">${cfg.img?`<img src="${esc(cfg.img)}" alt="" style="width:64px;height:76px;object-fit:cover;border-radius:6px">`:''}<div><b>${esc(preset.name)}</b><div style="font-size:12px;color:var(--gris-l)">${esc([cfg.ref, preset.desc].filter(Boolean).join(' · '))}</div></div></div>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--gris-l)">Client<select id="pi-client" style="font:inherit;font-size:14px;padding:8px;border:1px solid var(--border);border-radius:7px">${opts}</select></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--gris-l)">Quantité<input id="pi-qty" type="number" min="1" step="1" value="1" style="font:inherit;font-size:14px;padding:8px;border:1px solid var(--border);border-radius:7px"></label>
+      <div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" class="btn" id="pi-cancel">Annuler</button><button type="button" class="btn btn-primary" id="pi-ok">Ajouter</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = v=>{ ov.remove(); resolve(v); };
+    ov.querySelector('#pi-cancel').onclick = ()=>close(null);
+    ov.querySelector('#pi-ok').onclick = async ()=>{
+      const pid = ov.querySelector('#pi-client').value || null;
+      const p = pid ? prospects.find(x=>x.id===pid) : null;
+      const qty = Math.max(1, parseInt(ov.querySelector('#pi-qty').value,10) || 1);
+      const row = {prospect_id: p && isUuid(p.id) ? p.id : null, client: p ? (p.name||p.contact) : (cfg.ent||null), ref: cfg.ref||null,
+        label: preset.name, config: preset.config, img: cfg.img||null, qty, source:'import'};
+      let saved = {...row, id: Date.now(), statut:'a_produire', created_at: new Date().toISOString()};
+      if(sb && !NOT_CONFIGURED && currentUser){
+        const {data, error} = await sb.from('crm_custom_orders').insert(row).select('*').single();
+        if(error){ toast('Non enregistrée : '+(error.message||error),'error'); return; }
+        saved = data;
+      }
+      prodStore().orders.push(saved);
+      renderProduction();
+      toast(preset.name+' ajoutée dans « À attribuer »');
+      close(saved);
+    };
+    setTimeout(()=>ov.querySelector('#pi-qty')?.focus(), 0);
+  });
 }
 
 // ── Mails d'inconnus à vérifier, propositions de l'IA sur les mails des clients
