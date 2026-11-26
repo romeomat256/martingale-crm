@@ -568,6 +568,55 @@ button.ag-client:hover{text-decoration:underline}
 .prod-row select{font:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:100%}
 .prod-empty{padding:16px;color:var(--gris-l);font-size:13px}
 .prod-row-stock{grid-template-columns:52px minmax(0,1fr) auto}
+.prod-board{display:flex;gap:16px;align-items:flex-start;overflow-x:auto;padding-bottom:10px}
+.prod-col{flex:0 0 292px;background:#F3F1EA;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:180px;box-sizing:border-box;transition:outline-color .15s}
+.prod-col.drop{outline:2px dashed var(--vert);outline-offset:-2px;background:#ECEADF}
+.prod-col-ghost{background:transparent;border:1.5px dashed var(--border)}
+.prod-col-head{display:flex;flex-direction:column;gap:4px;padding:2px 2px 4px}
+.prod-col-head>b{font-family:var(--display);font-size:17px;font-weight:600}
+.prod-col-head>span{font-size:12px;color:var(--gris-l)}
+.prod-col-head .prod-name{font-size:17px;width:4em}
+.prod-col-date{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--gris-l);margin:0}
+.prod-col-date input{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:#fff;width:auto}
+.prod-drop{position:relative;border:1.5px dashed #B9B5A4;border-radius:10px;padding:14px;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;background:#FBFAF7;cursor:pointer;font-size:13px}
+.prod-drop span{font-size:12px;color:var(--gris-l)}
+.prod-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.prod-card{display:flex;flex-direction:column;width:100%;padding:0;border:1px solid var(--border);border-radius:10px;background:#fff;overflow:hidden;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:box-shadow .15s,transform .15s}
+.prod-card:hover{box-shadow:0 4px 14px rgba(31,31,26,.10)}
+.prod-card:focus-visible{outline:2px solid var(--vert);outline-offset:2px}
+.prod-card.dragging{opacity:.45}
+.prod-card.done{opacity:.7}
+.prod-card-img{display:flex;align-items:center;justify-content:center;height:150px;background:#EDEAE1}
+.prod-card-img img{width:100%;height:100%;object-fit:contain;display:block}
+.prod-card-img svg{width:44px;height:54px}
+.prod-card-body{display:flex;flex-direction:column;gap:4px;padding:10px 12px 12px}
+.prod-card-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:14px}
+.prod-card-qty{white-space:nowrap}
+.prod-card-client{font-size:13px;color:var(--gris-f)}
+.prod-card-dots{display:flex;gap:4px;margin-top:2px}
+.prod-card-dots i,.prod-detail-colors i{width:14px;height:14px;border-radius:50%;border:1px solid #C9C6B8;display:inline-block;flex:none}
+.prod-done{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.prod-detail-ov{position:fixed;inset:0;background:rgba(31,31,26,.38);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px}
+.prod-detail{position:relative;background:#fff;border-radius:14px;width:min(920px,100%);max-height:92vh;overflow:auto;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+.prod-detail-x{position:absolute;top:10px;right:12px;width:36px;height:36px;border:0;border-radius:8px;background:rgba(255,255,255,.9);font-size:22px;line-height:1;cursor:pointer;z-index:1}
+.prod-detail-img{background:#EDEAE1;display:flex;align-items:center;justify-content:center;min-height:420px;padding:16px;color:var(--gris-l);font-size:13px;text-align:center}
+.prod-detail-img img{max-width:100%;max-height:78vh;object-fit:contain;display:block}
+.prod-detail-body{padding:26px 26px 22px;display:flex;flex-direction:column;gap:18px}
+.prod-detail-body h2{margin:0;font-family:var(--display);font-size:24px;font-weight:600}
+.prod-detail-body small{display:block;color:var(--gris-l);font-size:12px;margin-top:3px}
+.prod-detail-body dl{display:grid;grid-template-columns:110px 1fr;gap:10px 12px;margin:0;font-size:14px;align-items:center}
+.prod-detail-body dt{color:var(--gris-l);font-size:13px}
+.prod-detail-body dd{margin:0}
+.prod-detail-body dd input{font:inherit;width:80px;padding:6px 8px;border:1px solid var(--border);border-radius:7px}
+.prod-detail-body dd select,.prod-detail-body textarea{font:inherit;font-size:14px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:100%;box-sizing:border-box}
+.prod-detail-lab{font-size:13px;color:var(--gris-l);margin:0}
+.prod-detail-colors{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.prod-detail-colors li{display:flex;align-items:center;gap:10px;font-size:14px}
+.prod-detail-colors i{width:22px;height:22px;border-radius:6px}
+.prod-detail-colors small{display:inline;margin:0 0 0 6px}
+.prod-link{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--noir);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.prod-detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+@media(max-width:760px){.prod-detail{grid-template-columns:1fr}.prod-detail-img{min-height:240px}}
 .prod-dates{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--gris-l)}
 .prod-dates label{display:inline-flex;align-items:center;gap:8px;margin:0}
 .prod-dates input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:auto}
@@ -1273,11 +1322,10 @@ button.ag-client:hover{text-decoration:underline}
   <div class="page-header">
     <div>
       <div class="page-title">Production</div>
-      <div class="page-subtitle">Commandes personnalisées, attribuées à un conteneur</div>
+      <div class="page-subtitle">Une carte par chaise personnalisée. Glisse-la dans son conteneur.</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button type="button" class="btn" onclick="prodNewContainer()">+ Conteneur</button>
-      <label class="btn btn-primary" style="cursor:pointer">Importer une fiche du configurateur<input type="file" accept="application/pdf,.pdf" multiple hidden onchange="prodImportFiles(this.files);this.value=''"></label>
     </div>
   </div>
   <div class="page-content" id="prod-main"></div>
@@ -7929,7 +7977,7 @@ function refreshTaskViews(){
 
 // ── Production : commandes personnalisées, attribuées à la main à un conteneur.
 // Elles viennent des lignes sur-mesure des devis acceptés (fait par la base) ou d'une fiche du configurateur importée.
-function prodStore(){ return window.__mpProd || (window.__mpProd = {orders:[], containers:[], showDone:false, openId:null}); }
+function prodStore(){ return window.__mpProd || (window.__mpProd = {orders:[], containers:[], showDone:false, detailId:null}); }
 const PROD_CONT_COLS = 'id,reference,statut,fin_production,date_iso,date_arrivee,created_at,rolls_par_modele,total_chaises';
 const CONTAINER_CAPACITY = 600;
 // Chaises de stock prévues dans le conteneur (rolls_par_modele stocke des chaises par modèle).
@@ -7939,11 +7987,6 @@ function prodStockLines(c){
 }
 function prodStockTotal(c){ return prodStockLines(c).reduce((s,x)=>s+x.ch,0); }
 function prodCustomTotal(cid){ return prodStore().orders.filter(o=>o.statut!=='livree' && o.conteneur_id===cid).reduce((s,o)=>s+(+o.qty||0),0); }
-function prodOpenContainer(id){
-  prodStore().openId = id || null;
-  renderProduction();
-  try{ window.scrollTo({top:0}); }catch(e){}
-}
 async function loadProduction(){
   if(!sb || NOT_CONFIGURED || !currentUser) return;
   const st = prodStore();
@@ -7989,92 +8032,137 @@ function prodRow(o, containers){
     <button type="button" class="btn btn-sm" onclick="prodDelivered(${+o.id}, ${done?'true':'false'})">${done?'Remettre en cours':'Livrée'}</button>
   </div>`;
 }
+function prodTitle(o){ const cfg = o.config || {}; return [cfg.shapeName, cfg.weaveName].filter(Boolean).join(' · ') || o.label || 'Chaise sur-mesure'; }
+function prodDot(c){ return `<i style="background:${escapeHTML(/^#[0-9a-f]{3,8}$/i.test(c.hex||'')?c.hex:'#EDEAE1')}"></i>`; }
+function prodCard(o){
+  const esc = escapeHTML;
+  const p = o.prospect_id ? prospects.find(x=>x.id===o.prospect_id) : null;
+  const dots = prodColors(o).map(c=>prodDot(c)).join('');
+  return `<button type="button" class="prod-card${o.statut==='livree'?' done':''}" draggable="${o.statut==='livree'?'false':'true'}" data-id="${+o.id}"
+      ondragstart="event.dataTransfer.setData('text/x-prod', '${+o.id}');event.dataTransfer.effectAllowed='move';this.classList.add('dragging')" ondragend="this.classList.remove('dragging')"
+      onclick="prodOpenOrder(${+o.id})" aria-label="${esc(prodTitle(o))}, ${esc(p?p.name:(o.client||''))}, ${+o.qty||0} chaises">
+    <span class="prod-card-img">${o.img ? `<img src="${esc(o.img)}" alt="" loading="lazy">` : `<svg viewBox="0 0 40 48" fill="none" stroke="#B9B5A4" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M10 4 L10 24 M30 4 L30 24 M10 4 C16 1 24 1 30 4 M8 24 L32 24 M10 24 L8 46 M30 24 L32 46 M12 34 L28 34"></path></svg>`}</span>
+    <span class="prod-card-body">
+      <span class="prod-card-top"><b>${esc(prodTitle(o))}</b><b class="prod-card-qty">${+o.qty||0} ch.</b></span>
+      <span class="prod-card-client">${esc(p?(p.name||o.client||'Client'):(o.client||'Sans fiche'))}</span>
+      ${dots?`<span class="prod-card-dots">${dots}</span>`:''}
+    </span>
+  </button>`;
+}
+function prodColumn(key, head, rows, extra){
+  return `<section class="prod-col" data-col="${escapeHTML(key)}" ondragover="prodDragOver(event,this)" ondragleave="this.classList.remove('drop')" ondrop="prodDrop(event,this)">
+    ${head}${extra||''}
+    ${rows.length ? rows.map(prodCard).join('') : `<div class="prod-empty">${key==='loose' ? 'Rien en attente.' : 'Glisse une carte ici.'}</div>`}
+  </section>`;
+}
+function prodDragOver(e, col){
+  if(e.dataTransfer && (e.dataTransfer.types.includes('text/x-prod') || e.dataTransfer.types.includes('Files'))){ e.preventDefault(); col.classList.add('drop'); }
+}
+function prodDrop(e, col){
+  e.preventDefault(); col.classList.remove('drop');
+  const key = col.getAttribute('data-col');
+  if(e.dataTransfer.files && e.dataTransfer.files.length){ prodImportFiles(e.dataTransfer.files, key==='loose'?null:key); return; }
+  const id = +e.dataTransfer.getData('text/x-prod'); if(!id) return;
+  const o = prodStore().orders.find(x=>+x.id===id); if(!o) return;
+  const target = key==='loose' ? null : key;
+  if((o.conteneur_id||null)===target) return;
+  prodAssign(id, target||'');
+}
 function renderProduction(){
   const host = document.getElementById('prod-main');
   if(!host) return;
   const esc = escapeHTML, st = prodStore();
-  if(st.openId){
-    const oc = st.containers.find(c=>c.id===st.openId);
-    if(oc){ host.innerHTML = prodContainerPage(oc); updateProductionBadge(); return; }
-    st.openId = null;
-  }
   const containers = prodOpenContainers();
   const active = st.orders.filter(o=>o.statut!=='livree');
   const loose = active.filter(o=>!o.conteneur_id || !st.containers.some(c=>c.id===o.conteneur_id));
   const done = st.orders.filter(o=>o.statut==='livree');
-  const list = rows => rows.length ? `<div class="prod-list">${rows.map(o=>prodRow(o, containers)).join('')}</div>` : '';
-  let html = '';
-  html += `<section class="prod-sec"><div class="prod-head"><h2>À attribuer</h2><span class="prod-meta">${loose.length ? loose.reduce((s,o)=>s+(+o.qty||0),0)+' chaises' : 'rien en attente'}</span></div>${list(loose) || '<div class="prod-list"><div class="prod-empty">Les chaises sur-mesure des devis acceptés arrivent ici. Tu peux aussi importer une fiche du configurateur.</div></div>'}</section>`;
+  const sum = rows => rows.reduce((s,o)=>s+(+o.qty||0),0);
+  const plural = (n, w) => n+' '+w+(n>1?'s':'');
+  let html = '<div class="prod-board">';
+  html += prodColumn('loose', `<div class="prod-col-head"><b>À attribuer</b><span>${loose.length ? plural(sum(loose),'chaise') : 'rien en attente'}</span></div>`, loose,
+    `<label class="prod-drop"><b>Importer une fiche personnalisée</b><span>Glisse ici le PDF du configurateur</span><input type="file" accept="application/pdf,.pdf" multiple onchange="prodImportFiles(this.files);this.value=''"></label>`);
   containers.forEach(c=>{
     const rows = active.filter(o=>o.conteneur_id===c.id);
-    const n = rows.reduce((s,o)=>s+(+o.qty||0),0);
-    html += `<section class="prod-sec"><div class="prod-head">
-      <h2 style="display:flex;align-items:center;gap:2px">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)" style="font-family:var(--display);font-size:18px;font-weight:600;width:4.5em;padding:2px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--noir)"></h2>
-      <label class="prod-meta" style="display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:0">Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)" style="width:auto"></label>
-      <span class="prod-meta">${n} sur-mesure · ${prodStockTotal(c)} stock</span>
-      <button type="button" class="btn btn-sm" style="margin-left:auto" onclick="prodOpenContainer('${esc(c.id)}')">Voir le contenu</button>
-    </div>${list(rows) || '<div class="prod-list"><div class="prod-empty">Aucune commande dans ce conteneur.</div></div>'}</section>`;
+    html += prodColumn(c.id, `<div class="prod-col-head">
+      <b style="display:flex;align-items:center">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)"></b>
+      <label class="prod-col-date">Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)"></label>
+      <span>${rows.length ? plural(sum(rows),'chaise')+' · '+plural(rows.length,'commande') : 'vide'}</span>
+    </div>`, rows);
   });
-  if(!containers.length) html += `<div class="prod-list" style="margin-bottom:22px"><div class="prod-empty">Aucun conteneur. Crée-les avec « + Conteneur » (#1, #2…), puis attribue les commandes.</div></div>`;
-  if(done.length) html += `<section class="prod-sec"><button type="button" class="btn btn-sm" style="align-self:flex-start" onclick="prodStore().showDone=!prodStore().showDone;renderProduction()">${st.showDone?'Masquer':'Voir'} les commandes livrées (${done.length})</button>${st.showDone?list(done):''}</section>`;
+  if(!containers.length) html += `<section class="prod-col prod-col-ghost"><div class="prod-empty">Aucun conteneur. Crée-les avec « + Conteneur » (#1, #2…).</div></section>`;
+  html += '</div>';
+  if(done.length) html += `<section class="prod-sec" style="margin-top:22px"><button type="button" class="btn btn-sm" style="align-self:flex-start" onclick="prodStore().showDone=!prodStore().showDone;renderProduction()">${st.showDone?'Masquer':'Voir'} les commandes livrées (${done.length})</button>${st.showDone?`<div class="prod-done">${done.map(prodCard).join('')}</div>`:''}</section>`;
   host.innerHTML = html;
   updateProductionBadge();
+  if(st.detailId) prodRenderDetail();
 }
-function prodContainerPage(c){
-  const esc = escapeHTML, st = prodStore();
-  const containers = prodOpenContainers();
-  if(!containers.some(x=>x.id===c.id)) containers.push(c);
-  const custom = st.orders.filter(o=>o.statut!=='livree' && o.conteneur_id===c.id);
-  const customN = custom.reduce((s,o)=>s+(+o.qty||0),0);
-  const stock = prodStockLines(c);
-  const stockN = stock.reduce((s,x)=>s+x.ch,0);
-  const total = customN + stockN;
-  const pct = Math.min(100, Math.round(total*100/CONTAINER_CAPACITY));
-  const left = CONTAINER_CAPACITY - total;
-  const loose = st.orders.filter(o=>o.statut!=='livree' && (!o.conteneur_id || !st.containers.some(x=>x.id===o.conteneur_id)));
-  const addOpts = loose.map(o=>{
-    const t = [o.config&&o.config.shapeName, o.config&&o.config.weaveName].filter(Boolean).join(' · ') || o.label || 'Chaise sur-mesure';
-    return `<option value="${+o.id}">${esc(t)} · ${esc(o.client||'Sans fiche')} · ${+o.qty||0} ch.</option>`;
+// Détail d'une carte : visuel en grand, couleurs, client, conteneur
+function prodOpenOrder(id){ prodStore().detailId = id; prodRenderDetail(); }
+function prodCloseOrder(){ prodStore().detailId = null; document.getElementById('prod-detail')?.remove(); document.removeEventListener('keydown', prodDetailKey); }
+function prodDetailKey(e){ if(e.key==='Escape') prodCloseOrder(); }
+function prodRenderDetail(){
+  const st = prodStore(), esc = escapeHTML;
+  const o = st.orders.find(x=>+x.id===+st.detailId);
+  if(!o){ prodCloseOrder(); return; }
+  const p = o.prospect_id ? prospects.find(x=>x.id===o.prospect_id) : null;
+  const cfg = o.config || {};
+  const conts = prodOpenContainers();
+  const cur = st.containers.find(c=>c.id===o.conteneur_id);
+  if(cur && !conts.some(c=>c.id===cur.id)) conts.push(cur);
+  const opts = `<option value="">À attribuer</option>` + conts.map(c=>`<option value="${esc(c.id)}" ${o.conteneur_id===c.id?'selected':''}>Conteneur ${esc(prodContainerLabel(c))}</option>`).join('');
+  const colors = (Array.isArray(cfg.colors)?cfg.colors:[]).filter(c=>c && c.name).map(c=>{
+    const part = c.part || c.zone || c.label || c.role || '';
+    return `<li>${prodDot(c)}<span><b>${esc(c.name)}</b>${c.pantone?` <small>Pantone ${esc(c.pantone)}</small>`:''}${part?`<small>${esc(part)}</small>`:''}</span></li>`;
   }).join('');
-  const statuts = ['Planifié','En transit','Reçu'];
-  const stockRows = stock.map(x=>`<div class="prod-row prod-row-stock">
-      ${x.p && x.p.img ? `<img class="prod-img" src="${esc(x.p.img)}" alt="">` : `<span class="prod-img" aria-hidden="true"></span>`}
-      <div class="prod-what"><b>${esc(x.p ? x.p.name : x.id)}</b><small>${esc(x.p && x.p.ref || '')}</small></div>
-      <span class="prod-qty">${x.ch} ch.</span>
-    </div>`).join('');
-  return `<button type="button" class="btn btn-sm" style="margin-bottom:16px" onclick="prodOpenContainer(null)">← Tous les conteneurs</button>
-  <section class="prod-sec">
-    <div class="prod-head">
-      <h2 style="display:flex;align-items:center;gap:2px">Conteneur <input class="prod-name" value="${esc(prodContainerLabel(c))}" aria-label="Nom du conteneur" title="Renommer" onchange="prodContainerField('${esc(c.id)}','reference',this.value)" style="font-family:var(--display);font-size:18px;font-weight:600;width:4.5em;padding:2px 6px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--noir)"></h2>
-      <select aria-label="Statut" onchange="prodContainerField('${esc(c.id)}','statut',this.value)" style="width:auto;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff">${statuts.map(s=>`<option ${ (c.statut||'Planifié')===s?'selected':''}>${s}</option>`).join('')}</select>
+  const done = o.statut==='livree';
+  let ov = document.getElementById('prod-detail');
+  if(!ov){
+    ov = document.createElement('div'); ov.id = 'prod-detail'; ov.className = 'prod-detail-ov';
+    ov.addEventListener('click', e=>{ if(e.target===ov) prodCloseOrder(); });
+    document.body.appendChild(ov);
+    document.addEventListener('keydown', prodDetailKey);
+  }
+  ov.innerHTML = `<div class="prod-detail" role="dialog" aria-modal="true" aria-labelledby="pd-title">
+    <button type="button" class="prod-detail-x" aria-label="Fermer" onclick="prodCloseOrder()">×</button>
+    <div class="prod-detail-img">${o.img ? `<img src="${esc(o.img)}" alt="${esc(prodTitle(o))}">` : '<span>Pas de visuel. Importe la fiche du configurateur pour l’avoir.</span>'}</div>
+    <div class="prod-detail-body">
+      <div><h2 id="pd-title">${esc(prodTitle(o))}</h2><small>${esc([o.ref, o.quote_num || (o.source==='import'?'fiche importée':'')].filter(Boolean).join(' · '))}</small></div>
+      <dl>
+        <dt>Client</dt><dd>${p?`<button type="button" class="prod-link" onclick="prodCloseOrder();openFiche('${esc(p.id)}')">${esc(p.name||o.client||'Client')}</button>`:esc(o.client||'Sans fiche')}</dd>
+        <dt>Quantité</dt><dd><input type="number" min="1" step="1" value="${+o.qty||1}" aria-label="Quantité" onchange="prodSetQty(${+o.id}, this.value)"> chaises</dd>
+        ${cfg.shapeName?`<dt>Structure</dt><dd>${esc(cfg.shapeName)}</dd>`:''}
+        ${cfg.weaveName?`<dt>Tressage</dt><dd>${esc(cfg.weaveName)}</dd>`:''}
+        <dt>Conteneur</dt><dd>${done ? esc(cur?'Conteneur '+prodContainerLabel(cur):'') : `<select aria-label="Conteneur" onchange="prodAssign(${+o.id}, this.value)">${opts}</select>`}</dd>
+      </dl>
+      ${colors?`<div><div class="prod-detail-lab">Couleurs</div><ul class="prod-detail-colors">${colors}</ul></div>`:''}
+      <label class="prod-detail-lab" style="display:flex;flex-direction:column;gap:6px">Note<textarea rows="2" placeholder="Une précision pour cette commande" onchange="prodSetNote(${+o.id}, this.value)">${esc(o.note||'')}</textarea></label>
+      <div class="prod-detail-actions">
+        <button type="button" class="btn btn-primary" onclick="prodDelivered(${+o.id}, ${done?'true':'false'})">${done?'Remettre en cours':'Marquer livrée'}</button>
+        <button type="button" class="btn" onclick="prodDeleteOrder(${+o.id})">Supprimer</button>
+      </div>
     </div>
-    <div class="prod-dates">
-      <label>Fin de production <input type="date" value="${esc(c.fin_production||'')}" onchange="prodContainerField('${esc(c.id)}','fin_production',this.value||null)"></label>
-      <label>Arrivée prévue <input type="date" value="${esc(c.date_iso||'')}" onchange="prodContainerArrival('${esc(c.id)}',this.value||null)"></label>
-    </div>
-    <div class="prod-fill-wrap">
-      <div class="prod-fill" role="img" aria-label="Remplissage ${pct} %"><i style="width:${pct}%"></i></div>
-      <span><b>${total}</b> / ${CONTAINER_CAPACITY} chaises · ${left>=0 ? left+' places libres' : '<span style="color:var(--late)">'+(-left)+' en trop</span>'}</span>
-    </div>
-  </section>
-  <section class="prod-sec">
-    <div class="prod-head"><h2>Sur-mesure</h2><span class="prod-meta">${customN} chaise${customN>1?'s':''}</span>
-      ${loose.length ? `<select aria-label="Ajouter une commande" style="width:auto;margin-left:auto;font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;max-width:340px" onchange="if(this.value) prodAssign(+this.value,'${esc(c.id)}')"><option value="">+ Ajouter une commande à produire (${loose.length})</option>${addOpts}</select>` : ''}
-    </div>
-    ${custom.length ? `<div class="prod-list">${custom.map(o=>prodRow(o, containers)).join('')}</div>` : `<div class="prod-list"><div class="prod-empty">${loose.length ? 'Ajoute une commande à produire avec le menu ci-dessus.' : 'Aucune commande sur-mesure. Elles arrivent quand un devis sur-mesure est accepté.'}</div></div>`}
-  </section>
-  <section class="prod-sec">
-    <div class="prod-head"><h2>Stock</h2><span class="prod-meta">${stockN} chaise${stockN>1?'s':''}</span>
-      <button type="button" class="btn btn-sm" style="margin-left:auto" onclick="editConteneur('${esc(c.id)}', ()=>loadProduction().then(renderProduction))">Modifier le stock</button>
-    </div>
-    ${stock.length ? `<div class="prod-list">${stockRows}</div>` : '<div class="prod-list"><div class="prod-empty">Aucune chaise de stock prévue dans ce conteneur.</div></div>'}
-  </section>`;
+  </div>`;
 }
-async function prodContainerArrival(id, iso){
-  const c = prodStore().containers.find(x=>x.id===id); if(!c) return;
-  const fields = {date_iso: iso, date_arrivee: iso ? new Date(iso).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) : 'Date à confirmer'};
-  Object.assign(c, fields);
-  if(await prodUpdate('conteneurs', id, fields)){ try{ refreshConteneursCache(); }catch(e){} renderProduction(); toast('Arrivée enregistrée'); }
+async function prodSetQty(id, v){
+  const o = prodStore().orders.find(x=>+x.id===+id); if(!o) return;
+  const q = Math.max(1, parseInt(v,10)||1), before = o.qty;
+  o.qty = q; renderProduction();
+  if(!(await prodUpdate('crm_custom_orders', id, {qty:q, updated_at:new Date().toISOString()}))){ o.qty = before; renderProduction(); }
+}
+async function prodSetNote(id, v){
+  const o = prodStore().orders.find(x=>+x.id===+id); if(!o) return;
+  o.note = String(v||'').trim() || null;
+  if(await prodUpdate('crm_custom_orders', id, {note:o.note, updated_at:new Date().toISOString()})) toast('Note enregistrée');
+}
+async function prodDeleteOrder(id){
+  const st = prodStore(), o = st.orders.find(x=>+x.id===+id); if(!o) return;
+  if(!confirm('Supprimer la commande '+prodTitle(o)+' ('+(+o.qty||0)+' ch.) ?')) return;
+  if(sb && !NOT_CONFIGURED){
+    const {error} = await sb.from('crm_custom_orders').delete().eq('id', id);
+    if(error){ toast('Non supprimée : '+(error.message||error),'error'); return; }
+  }
+  st.orders = st.orders.filter(x=>+x.id!==+id);
+  prodCloseOrder(); renderProduction(); toast('Commande supprimée');
 }
 async function prodUpdate(table, id, fields){
   if(!sb || NOT_CONFIGURED) return true;
@@ -8117,22 +8205,21 @@ async function prodNewContainer(){
     st.containers.push(data);
   } else st.containers.push({...row, id:'local-'+Date.now(), created_at:new Date().toISOString()});
   renderProduction();
-  st.openId = st.containers[st.containers.length-1].id;
   renderProduction();
   toast('Conteneur '+row.reference+' créé : indique sa fin de production');
 }
 // Import d'une fiche du configurateur : on demande le client et la quantité, puis la commande arrive dans « À attribuer ».
-async function prodImportFiles(files){
+async function prodImportFiles(files, containerId){
   const list = Array.from(files||[]).filter(f=>/pdf$/i.test(f.name) || f.type==='application/pdf');
   if(!list.length){ toast('Déposer une fiche PDF du configurateur','error'); return; }
   for(const file of list){
     let cfg;
     try{ toast('Lecture de la fiche…'); cfg = await readConfiguratorPdf(file); }
     catch(e){ toast('Import impossible : '+(e.message||e),'error'); continue; }
-    await prodImportDialog(cfg);
+    await prodImportDialog(cfg, containerId||null);
   }
 }
-function prodImportDialog(cfg){
+function prodImportDialog(cfg, containerId){
   return new Promise(resolve=>{
     const esc = escapeHTML;
     const preset = configToCustomProduct(cfg);
@@ -8157,7 +8244,7 @@ function prodImportDialog(cfg){
       const p = pid ? prospects.find(x=>x.id===pid) : null;
       const qty = Math.max(1, parseInt(ov.querySelector('#pi-qty').value,10) || 1);
       const row = {prospect_id: p && isUuid(p.id) ? p.id : null, client: p ? (p.name||p.contact) : (cfg.ent||null), ref: cfg.ref||null,
-        label: preset.name, config: preset.config, img: cfg.img||null, qty, source:'import'};
+        label: preset.name, config: preset.config, img: cfg.img||null, qty, source:'import', conteneur_id: containerId||null};
       let saved = {...row, id: Date.now(), statut:'a_produire', created_at: new Date().toISOString()};
       if(sb && !NOT_CONFIGURED && currentUser){
         const {data, error} = await sb.from('crm_custom_orders').insert(row).select('*').single();
@@ -8166,7 +8253,8 @@ function prodImportDialog(cfg){
       }
       prodStore().orders.push(saved);
       renderProduction();
-      toast(preset.name+' ajoutée dans « À attribuer »');
+      const tc = containerId ? prodStore().containers.find(c=>c.id===containerId) : null;
+      toast(preset.name+(tc ? ' ajoutée au conteneur '+prodContainerLabel(tc) : ' ajoutée dans « À attribuer »'));
       close(saved);
     };
     setTimeout(()=>ov.querySelector('#pi-qty')?.focus(), 0);
