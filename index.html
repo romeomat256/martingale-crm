@@ -351,7 +351,7 @@ body.nd-open{overflow:hidden}
 .nd-card legend{padding:0 6px;font-weight:700;font-size:14px;color:var(--noir)}
 .nd-lab{font-size:12px;color:var(--gris-l)}
 .pp-wrap{position:relative}
-#dg-prospect-sel[hidden]{display:none!important}
+.pp-select{margin-top:6px;width:100%}
 .pp-input{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:#fff}
 .pp-input:focus{outline:none;border-color:#403F21}
 .pp-input:disabled{opacity:.6}
@@ -450,6 +450,37 @@ body.nd-open{overflow:hidden}
 .td-act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .td-act a.btn{text-decoration:none;display:inline-flex;align-items:center}
 .td-ok{border-color:var(--ok);color:var(--ok);font-weight:700}
+/* Clients en tableau */
+.kb-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.kb-seg{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--border);border-radius:9px;background:#fff}
+.kb-seg span{font-size:11px;color:var(--gris-l);padding:0 6px 0 4px}
+.kb-seg button{font-family:inherit;font-size:12px;border:0;background:none;padding:5px 11px;border-radius:6px;cursor:pointer;color:var(--noir)}
+.kb-seg button.on{background:#403F21;color:#fff}
+.kb[hidden],#prospects-list-wrap[hidden]{display:none}
+.kb{display:grid;gap:12px;align-items:start;overflow-x:auto;padding-bottom:8px}
+.kb-A{grid-template-columns:repeat(4,minmax(230px,1fr))}
+.kb-B{grid-template-columns:repeat(6,minmax(168px,1fr))}
+.kb-col{background:#F4F3EC;border:1px solid var(--ligne);border-radius:10px;padding:8px;min-height:120px;transition:background .12s,box-shadow .12s}
+.kb-col.is-over{background:#E9E8DA;box-shadow:inset 0 0 0 2px #403F21}
+.kb-col-h{display:flex;justify-content:space-between;align-items:baseline;padding:4px 6px 8px}
+.kb-col-h b{font-size:13px}
+.kb-col-h span{font-size:12px;color:var(--gris-l);font-weight:700}
+.kb-col[data-col="devis"] .kb-col-h b{color:#B9770E}
+.kb-list{display:flex;flex-direction:column;gap:7px}
+.kb-card{position:relative;display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid var(--ligne);border-radius:9px;padding:9px 11px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,.04);min-width:0}
+.kb-card:hover{border-color:#C9C8AE}
+.kb-card.is-drag{opacity:.4}
+.kb-card b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-sub{font-size:11px;color:var(--gris-l);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-what{font-size:12px;color:var(--gris-f);overflow-wrap:anywhere}
+.kb-foot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px}
+.kb-foot .badge{font-size:9px}
+.kb-ago{font-size:10px;color:var(--gris-l);margin-left:auto}
+.kb-move{display:none;margin-top:6px;font-family:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:#fff}
+.kb-empty{font-size:12px;color:var(--gris-l);text-align:center;padding:18px 4px;border:1px dashed #D4D3B8;border-radius:8px}
+.kb-more{font-family:inherit;font-size:12px;border:0;background:none;color:#403F21;text-decoration:underline;cursor:pointer;padding:6px}
+@media(hover:none){.kb-move{display:block}.kb-card{cursor:pointer}}
+@media(max-width:700px){.kb-A,.kb-B{grid-template-columns:repeat(var(--kbn,4),260px)}.kb-B{--kbn:6}.kb-test span{display:none}}
 /* Agenda */
 .ag-nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .ag-q{font-family:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;width:200px;background:#fff}
@@ -871,6 +902,7 @@ button.ag-client:hover{text-decoration:underline}
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button type="button" class="btn" onclick="openQuickAdd()" title="Coller ou déposer des notes : le CRM crée la fiche">Ajout rapide</button><button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button></div>
   </div>
   <div class="page-content">
+    <div class="kb-bar" id="kb-bar"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <input type="text" placeholder="Rechercher..." style="width:160px" id="search-input" oninput="filterProspects()">
       <select style="width:auto" id="filter-profil" onchange="filterProspects()">
@@ -904,7 +936,8 @@ button.ag-client:hover{text-decoration:underline}
         <button class="btn btn-sm" id="refresh-prospects" onclick="refreshProspects()" title="Actualiser les prospects" aria-label="Actualiser les prospects">↻</button>
       </div>
     </div>
-    <div class="table-wrap">
+    <div id="prospects-kanban" class="kb"></div>
+    <div class="table-wrap" id="prospects-list-wrap">
       <table>
         <thead>
           <tr>
@@ -2387,6 +2420,14 @@ function renderProspects(){
   if(!tbody)return;
   const count=document.getElementById('prospects-count');
   if(count)count.textContent=list.length+' prospects';
+  // Tableau de cartes ou liste
+  const kbp=kbPrefs(), bar=document.getElementById('kb-bar');
+  if(bar) bar.innerHTML=`<div class="kb-seg" role="group" aria-label="Affichage"><button type="button" class="${kbp.view==='kanban'?'on':''}" aria-pressed="${kbp.view==='kanban'}" onclick="setClientsView('kanban')">Tableau</button><button type="button" class="${kbp.view==='list'?'on':''}" aria-pressed="${kbp.view==='list'}" onclick="setClientsView('list')">Liste</button></div>`
+    +(kbp.view==='kanban'?`<div class="kb-seg kb-test" role="group" aria-label="Version du tableau"><span>À l’essai :</span><button type="button" class="${kbp.variant==='A'?'on':''}" aria-pressed="${kbp.variant==='A'}" onclick="setKbVariant('A')">Test A · 4 colonnes</button><button type="button" class="${kbp.variant==='B'?'on':''}" aria-pressed="${kbp.variant==='B'}" onclick="setKbVariant('B')">Test B · par étape</button></div>`:'');
+  const kbHost=document.getElementById('prospects-kanban'), listWrap=document.getElementById('prospects-list-wrap');
+  if(kbHost) kbHost.hidden = kbp.view!=='kanban';
+  if(listWrap) listWrap.hidden = kbp.view==='kanban';
+  if(kbp.view==='kanban'){ try{ renderKanban(list); }catch(e){ console.error('Tableau :', e); } }
   tbody.innerHTML=list.map(p=>{
     const sc=p.score>0?`<div class="pbar"><div class="pbar-bg"><div class="pbar-fill" style="width:${Math.min(p.score,100)}%"></div></div><div class="pbar-n">${p.score}</div></div>`:'<span style="color:var(--gris-l)">—</span>';
     const rs=p.rappel==='Aujourd\'hui'?' style="color:var(--rouge);font-weight:600"':p.rappel==='Demain'?' style="color:var(--orange);font-weight:600"':'';
@@ -4505,7 +4546,7 @@ function openDocGenerator(prospectId){
           <legend>Client</legend>
           <label class="nd-lab" for="dg-prospect-search">Client existant</label>
           <div id="dg-prospect-picker" class="pp-wrap"></div>
-          <select id="dg-prospect-sel" onchange="prefillFromProspect(this.value)" hidden>
+          <select id="dg-prospect-sel" class="pp-select" onchange="prefillFromProspect(this.value);syncProspectSearch(this.value)" aria-label="Ou choisir dans la liste">
             <option value="">Choisir un client du CRM</option>
           </select>
           <span class="nd-lab">Ou chercher dans l’annuaire des entreprises (remplit adresse, SIREN, TVA)</span>
@@ -8116,6 +8157,140 @@ function docLinesLabel(d){
 }
 
 // ══════════════════════════════════════════════════════════════
+// CLIENTS EN TABLEAU : des cartes qu'on glisse d'une colonne à l'autre
+// Deux versions à l'essai : A (4 colonnes, comme avant) et B (une colonne par étape).
+// ══════════════════════════════════════════════════════════════
+const KB_EN_COURS = ['Contacté','Devis envoyé','Relance','En attente chantier'];
+const KB_VARIANTS = {
+  A: [
+    {key:'nouveau', title:'Nouveau', has:p=>(p.statut||'Nouveau')==='Nouveau'},
+    {key:'encours', title:'En cours', has:p=>KB_EN_COURS.includes(p.statut)},
+    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'},
+    {key:'perdu', title:'Perdu', has:p=>p.statut==='Perdu'}
+  ],
+  B: [
+    {key:'devis', title:'Devis à préparer', has:p=>!!p.devis_demande_at && !['Gagné','Perdu'].includes(p.statut)},
+    {key:'nouveau', title:'Nouveau', has:p=>(p.statut||'Nouveau')==='Nouveau'},
+    {key:'contacte', title:'Contacté', has:p=>p.statut==='Contacté'},
+    {key:'envoye', title:'Devis envoyé', has:p=>['Devis envoyé','Relance','En attente chantier'].includes(p.statut)},
+    {key:'gagne', title:'Gagné', has:p=>p.statut==='Gagné'},
+    {key:'perdu', title:'Perdu', has:p=>p.statut==='Perdu'}
+  ]
+};
+// Ordre d'affichage des colonnes de la version B (la colonne « Devis à préparer » est testée en premier mais montrée en 3e).
+const KB_ORDER_B = ['nouveau','contacte','devis','envoye','gagne','perdu'];
+const KB_LIMIT = 30;
+function kbPrefs(){
+  let v = 'kanban', variant = 'A';
+  try{ v = localStorage.getItem('mp_clients_view') || 'kanban'; variant = localStorage.getItem('mp_kb_variant') || 'A'; }catch(e){}
+  return {view: v==='list' ? 'list' : 'kanban', variant: variant==='B' ? 'B' : 'A'};
+}
+function setClientsView(view){ try{ localStorage.setItem('mp_clients_view', view); }catch(e){} renderProspects(); }
+function setKbVariant(v){ try{ localStorage.setItem('mp_kb_variant', v); }catch(e){} renderProspects(); }
+function kbColumnOf(p, variant){
+  const cols = KB_VARIANTS[variant];
+  const c = cols.find(col=>col.has(p));
+  return c ? c.key : cols[0].key;
+}
+function kbStore(){ return window.__mpKb || (window.__mpKb = {open:{}, dragId:null}); }
+function kbCard(p, variant){
+  const esc = escapeHTML;
+  const prods = (p.produits||[]).map(i=>{ const pr = resolveProspectProduct(i); return pr ? pr.name+' × '+(i.qty||1) : ''; }).filter(Boolean);
+  const what = prods.length ? prods.slice(0,2).join(', ')+(prods.length>2?'…':'') : (p.qty ? p.qty+' chaises' : '');
+  const showBadge = variant==='A' ? KB_EN_COURS.includes(p.statut) && p.statut!=='Contacté' : ['Relance','En attente chantier'].includes(p.statut);
+  const act = getProspectActivity(p);
+  const ago = act ? relativeTime(new Date(act).toISOString()) : '';
+  const cols = (variant==='B' ? KB_ORDER_B.map(k=>KB_VARIANTS.B.find(c=>c.key===k)) : KB_VARIANTS[variant]);
+  const here = kbColumnOf(p, variant);
+  return `<div class="kb-card" draggable="true" data-id="${esc(p.id)}" ondragstart="kbDragStart(event,'${esc(p.id)}')" ondragend="kbDragEnd(event)" onclick="openFiche('${esc(p.id)}')">
+    <b>${esc(p.name||p.contact||'Sans nom')}</b>
+    <span class="kb-sub">${esc([p.contact, p.ville].filter(Boolean).join(' · '))}</span>
+    ${what?`<span class="kb-what">${esc(what)}</span>`:''}
+    <span class="kb-foot">${showBadge?`<span class="badge ${STATUT_CLASS[p.statut]||''}">${esc(p.statut)}</span>`:''}<span class="kb-ago">${esc(ago)}</span></span>
+    <select class="kb-move" aria-label="Déplacer ${esc(p.name||'')}" onclick="event.stopPropagation()" onchange="kbDrop('${esc(p.id)}',this.value)">
+      ${cols.map(c=>`<option value="${c.key}"${c.key===here?' selected':''}>${c.key===here?'Ici : ':'Vers '}${esc(c.title)}</option>`).join('')}
+    </select>
+  </div>`;
+}
+function renderKanban(list){
+  const host = document.getElementById('prospects-kanban');
+  if(!host) return;
+  const {variant} = kbPrefs(), st = kbStore(), esc = escapeHTML;
+  const cols = variant==='B' ? KB_ORDER_B.map(k=>KB_VARIANTS.B.find(c=>c.key===k)) : KB_VARIANTS[variant];
+  const groups = {}; cols.forEach(c=>groups[c.key] = []);
+  list.forEach(p=>{ const k = kbColumnOf(p, variant); (groups[k] = groups[k] || []).push(p); });
+  host.className = 'kb kb-'+variant;
+  host.innerHTML = cols.map(c=>{
+    const items = groups[c.key].slice().sort((a,b)=>getProspectActivity(b)-getProspectActivity(a));
+    const open = st.open[variant+':'+c.key];
+    const shown = open ? items : items.slice(0, KB_LIMIT);
+    return `<section class="kb-col" data-col="${c.key}" ondragover="kbDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="kbDropEvent(event,'${c.key}')">
+      <header class="kb-col-h"><b>${esc(c.title)}</b><span>${items.length}</span></header>
+      <div class="kb-list">${shown.map(p=>kbCard(p, variant)).join('') || '<div class="kb-empty">Glisse une carte ici</div>'}
+      ${items.length>shown.length?`<button type="button" class="kb-more" onclick="kbStore().open['${variant}:${c.key}']=true;renderProspects()">Voir les ${items.length-shown.length} autres</button>`:''}</div>
+    </section>`;
+  }).join('');
+}
+function kbDragStart(e, id){
+  kbStore().dragId = id;
+  try{ e.dataTransfer.setData('text/x-crm-card', id); e.dataTransfer.effectAllowed = 'move'; }catch(err){}
+  e.currentTarget?.classList.add('is-drag');
+}
+function kbDragEnd(e){
+  e.currentTarget?.classList.remove('is-drag');
+  document.querySelectorAll('.kb-col.is-over').forEach(c=>c.classList.remove('is-over'));
+  kbStore().dragId = null;
+}
+function kbDragOver(e){
+  if(!kbStore().dragId) return;
+  e.preventDefault();
+  try{ e.dataTransfer.dropEffect = 'move'; }catch(err){}
+  e.currentTarget.classList.add('is-over');
+}
+function kbDragLeave(e){ if(!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('is-over'); }
+function kbDropEvent(e, col){
+  const id = kbStore().dragId;
+  e.preventDefault();
+  e.currentTarget.classList.remove('is-over');
+  if(id) kbDrop(id, col);
+}
+// Ce que le dépôt dans une colonne change sur la fiche.
+async function kbDrop(id, col){
+  const p = prospects.find(x=>x.id===id);
+  if(!p) return;
+  const {variant} = kbPrefs();
+  const from = kbColumnOf(p, variant);
+  if(from===col) return;
+  const before = {statut:p.statut, devis_demande_at:p.devis_demande_at||null};
+  if(variant==='A'){
+    if(col==='nouveau') p.statut = 'Nouveau';
+    else if(col==='encours') p.statut = KB_EN_COURS.includes(p.statut) ? p.statut : 'Contacté';
+    else if(col==='gagne') p.statut = 'Gagné';
+    else if(col==='perdu') p.statut = 'Perdu';
+  }else{
+    if(col==='devis'){
+      p.devis_demande_at = p.devis_demande_at || new Date().toISOString();
+      if(!['Contacté'].includes(p.statut)) p.statut = 'Contacté';
+    }else{
+      p.devis_demande_at = null;
+      p.statut = {nouveau:'Nouveau', contacte:'Contacté', envoye:['Devis envoyé','Relance','En attente chantier'].includes(p.statut) ? p.statut : 'Devis envoyé', gagne:'Gagné', perdu:'Perdu'}[col] || p.statut;
+    }
+  }
+  if(p.statut===before.statut && (p.devis_demande_at||null)===before.devis_demande_at) return;
+  renderProspects();
+  try{
+    await upsertProspect(p);
+    try{ updateBadge(); renderToday(); }catch(e){}
+    const title = (variant==='B' ? KB_VARIANTS.B : KB_VARIANTS.A).find(c=>c.key===col)?.title || col;
+    toast((p.name||'Fiche')+' → '+title);
+  }catch(e){
+    Object.assign(p, before);
+    renderProspects();
+    toast('Déplacement non enregistré : '+(e?.message||e),'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // AGENDA : tout ce qui s'est passé avec les clients, jour par jour (et les rappels à venir)
 // ══════════════════════════════════════════════════════════════
 const AG_TYPES = {
@@ -11186,6 +11361,11 @@ function prospectPickerMatches(q){
     return {p, score};
   }).filter(Boolean).sort((a,b)=>b.score-a.score || (a.p.name||'').localeCompare(b.p.name||'')).slice(0,12).map(x=>x.p);
 }
+function syncProspectSearch(id){
+  const p = prospects.find(x=>x.id===id), input = document.getElementById('dg-prospect-search');
+  if(input) input.value = p ? (p.name||p.contact||'') : '';
+  if(id) window.__mpDgProspectId = id;
+}
 function mountProspectPicker(selectedId){
   const host = document.getElementById('dg-prospect-picker');
   if(!host) return;
@@ -11238,8 +11418,13 @@ function populateDocProspectSelect(selectedId){
     .filter(p=>p.name)
     .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   
-  sel.innerHTML = '<option value="">— Sélectionner un prospect —</option>' +
-    sorted.map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${escapeHTML(p.name)}${p.contact?' · '+p.contact:''}${p.ville?' ('+p.ville+')':''}</option>`).join('');
+  // Les 12 derniers clients (dernière activité) en tête, puis tous les clients de A à Z.
+  const recent = [...prospects].filter(p=>p.name)
+    .sort((a,b)=>(getProspectActivity(b)||0)-(getProspectActivity(a)||0)).slice(0,12);
+  const opt = p => `<option value="${p.id}" ${p.id===selectedId?'selected':''}>${escapeHTML(p.name)}${p.contact?' · '+escapeHTML(p.contact):''}${p.ville?' ('+escapeHTML(p.ville)+')':''}</option>`;
+  sel.innerHTML = '<option value="">Ou choisir dans la liste : derniers clients en premier</option>'
+    + '<optgroup label="Derniers clients">' + recent.map(opt).join('') + '</optgroup>'
+    + '<optgroup label="Tous les clients, de A à Z">' + sorted.map(p=>opt(p).replace(' selected','')).join('') + '</optgroup>';
 }
 
 function prefillFromProspect(prospectId){
