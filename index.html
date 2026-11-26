@@ -545,6 +545,8 @@ button.ag-client:hover{text-decoration:underline}
 .td-sub{display:block;font-size:11px;color:var(--gris-l);margin-top:2px}
 .td-miss{font-style:normal;color:#B9770E;font-weight:600}
 .td-ok:hover{background:var(--ok-bg);border-color:var(--ok)}
+.pay-state{font-size:11px;font-weight:700;color:var(--warn)}
+.pay-state.is-paid{color:var(--vert)}
 .td-task-add{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--ligne)}
 .td-task-add input{flex:1;min-width:0;padding:8px 11px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fff}
 .fiche-task{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--ligne);font-size:13px}
@@ -4413,7 +4415,26 @@ function getDocDetailSupabaseFields(doc){
 }
 
 // Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
-const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability'];
+const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
+// Acompte prévu par un devis : celui choisi à la création, 50 % pour les anciens devis (CGV, art. 3.2).
+function quoteDepositPct(q){
+  if(!q) return 50;
+  const v = q.depositPct ?? q.doc_meta?.depositPct;
+  return v === undefined || v === null || v === '' ? 50 : Math.min(90, Math.max(0, +v || 0));
+}
+// Ce que le client a déjà réglé sur un devis : virements rapprochés du devis et de ses factures.
+function quotePaymentState(q){
+  if(!q || !q.num) return null;
+  const ttc = +q.ttc || 0;
+  const nums = new Set([q.num, ...getQuoteInvoices(q.num).map(i=>i.num)]);
+  const rows = bankStore().rows.filter(r=>r.status==='rapproche' && nums.has(r.document_num));
+  const paid = Math.round(rows.reduce((s,r)=>s+(+r.amount||0),0)*100)/100;
+  if(!paid || !ttc) return paid ? {paid, ttc, rest:0, pct:100, label:'Payé '+formatDocMoney(paid)} : null;
+  const rest = Math.max(0, Math.round((ttc - paid)*100)/100);
+  const pct = Math.min(100, Math.round(paid/ttc*100));
+  if(rest <= 0.05) return {paid, ttc, rest:0, pct:100, label:'Payé en totalité'};
+  return {paid, ttc, rest, pct, label:'Acompte reçu '+formatDocMoney(paid)+' ('+pct+' %) · reste '+formatDocMoney(rest)};
+}
 function getDocMetaFields(record){
   const meta = {};
   DOC_META_KEYS.forEach(k=>{ if(record[k] !== undefined && record[k] !== null) meta[k] = record[k]; });
@@ -4678,6 +4699,11 @@ function openDocGenerator(prospectId){
                 <label><input type="radio" name="dg-availability" value="commande"><span>Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</span></label>
               </div>
               <label class="nd-f"><span>Validité du devis</span><input type="text" id="dg-validite" value="30 jours"></label>
+              <label class="nd-f"><span>Règlement</span><select id="dg-quote-deposit" onchange="updateDocCalc()">
+                <option value="50" selected>Acompte 50 %, solde avant livraison</option>
+                <option value="30">Acompte 30 %, solde avant livraison</option>
+                <option value="0">Paiement intégral à la commande</option>
+              </select></label>
             </div>
             <label class="nd-f"><span>Geste commercial (% sur le total)</span>
               <span class="nd-inline"><input type="number" id="dg-remise" value="0" min="0" max="100" oninput="updateDocCalc()" style="max-width:90px"> % <span id="dg-remise-montant" class="nd-minus"></span></span></label>
@@ -5865,6 +5891,7 @@ body{font-family:'Hanken Grotesk','Helvetica Neue',Helvetica,Arial,sans-serif;co
 .tr.b{font-weight:700;color:#1F1F1A}
 .tr.g{font-weight:700;color:${DOC_ACCENT}}
 .tr.sep{padding-top:5px;margin-top:3px;border-top:1px solid #ECE9E0}
+.tot-dep{margin-top:10px}
 .band{margin-top:12px;display:flex;justify-content:flex-end;align-items:baseline;gap:22px;padding:12px 16px;background:${DOC_ACCENT};color:#F7F5F0;break-inside:avoid}
 .band span:first-child{font-size:13px}
 .band span:last-child{font-size:23px;font-weight:700;line-height:1;white-space:nowrap;letter-spacing:-.01em}
@@ -6098,8 +6125,15 @@ function buildDocHtml(ctx){
     if(!en) totals.push(tr(vatLabel, money(due.tva)));
   }
   const ttcWord = vat.isVatExempt ? '' : L(' TTC',' (incl. VAT)');
+  const depPct = isQuote ? Math.min(90, Math.max(0, +ctx.depositPct || 0)) : 0;
+  const depTTC = depPct ? Math.round(A.ttc * depPct) / 100 : 0;
   const bandLabel = isDeposit ? L('Acompte à régler'+ttcWord,'Deposit due') : L('Net à payer','Total due')+(en ? (vat.isVatExempt ? '' : ttcWord) : ttcWord);
   const bandValue = isQuote ? A.ttc : due.ttc;
+  // Échéancier sous le total du devis : acompte à la commande, solde avant livraison.
+  const depositRows = depPct ? [
+    tr(L('Acompte'+ttcWord+' à la commande ('+depPct+' %)', 'Deposit upon order ('+depPct+'%)'), money(depTTC), 'sep'),
+    tr(L('Solde'+ttcWord+' avant livraison', 'Balance before delivery'), money(Math.round((A.ttc - depTTC)*100)/100))
+  ] : [];
 
   // Mentions de TVA
   let vatNote = '';
@@ -6117,11 +6151,12 @@ function buildDocHtml(ctx){
   if(isQuote){
     const intl = !!vat.isInternational || locale.currency !== 'EUR';
     const avail = ctx.availability === 'commande'
-      ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines. Règlement par virement, sans escompte.`,
-          `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks. Payment by international bank transfer (SWIFT), no early-payment discount.`)
-      : L(`Produits en stock : expédition sous 48 h${intl?'':', livraison sous 5 jours ouvrés'}. Règlement intégral à la commande, par virement, sans escompte.`,
-          'In-stock products: shipped within 48 hours. Full payment upon order by international bank transfer (SWIFT), no early-payment discount.');
-    const parts = [avail];
+      ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines.${depPct?'':' Règlement par virement, sans escompte.'}`,
+          `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks.${depPct?'':' Payment by international bank transfer (SWIFT), no early-payment discount.'}`)
+      : L(`Produits en stock : expédition sous 48 h${intl?'':', livraison sous 5 jours ouvrés'}. ${depPct?'':'Règlement intégral à la commande, par virement, sans escompte.'}`,
+          `In-stock products: shipped within 48 hours.${depPct?'':' Full payment upon order by international bank transfer (SWIFT), no early-payment discount.'}`);
+    const parts = [avail.trim()];
+    if(depPct) parts.push(L(`Acompte de ${depPct} % à la commande, solde avant livraison, par virement, sans escompte.`, `${depPct}% deposit upon order, balance before delivery, by bank transfer, no early-payment discount.`));
     if(en){
       parts.push(`Prices in ${locale.currency}, converted at 1 EUR = ${Number(ctx.fx).toFixed(4)} ${locale.currency}${ctx.fxDate?' (rate of '+ctx.fxDate+')':''}.`);
       if(US && US.included){
@@ -6191,6 +6226,7 @@ ${DOC_TEMPLATE_CSS}
   ${rows}
   <div class="tot">${totals.join('')}</div>
   <div class="band"><span>${bandLabel}</span><span>${money(bandValue)}</span></div>
+  ${depositRows.length?`<div class="tot tot-dep">${depositRows.join('')}</div>`:''}
   ${condHtml}
   <div class="grow"></div>
   ${settle}
@@ -6282,6 +6318,8 @@ function computeGeneratorDoc({numOverride=''}={}){
   const availability = isInvoice
     ? (dgSourceQuote?.availability || 'stock')
     : (document.querySelector('input[name="dg-availability"]:checked')?.value || 'stock');
+  // Acompte annoncé sur le devis (50 % par défaut). 0 = paiement intégral à la commande.
+  const depositPct = isInvoice ? quoteDepositPct(dgSourceQuote) : Math.min(90, Math.max(0, parseInt(document.getElementById('dg-quote-deposit')?.value ?? '50', 10) || 0));
 
   const docNum = isInvoice ? '__MP_INVOICE_NUMBER__' : (numOverride || '…');
   const today = isInvoice ? '__MP_INVOICE_DATE__' : new Date().toLocaleDateString(docLocale.intl,{day:docLocale.code==='FR'?'2-digit':'numeric',month:'long',year:'numeric'});
@@ -6295,7 +6333,7 @@ function computeGeneratorDoc({numOverride=''}={}){
     type, locale: docLocale, docNum, issueDate: today, validite,
     recipient: {contact, company, addr, livraison,
       siren: invoiceDetails?.clientSiren || '', vat: invoiceDetails?.clientVat || '', purchaseOrder: invoiceDetails?.purchaseOrder || ''},
-    lines: docAmounts.lines, A: docAmounts, shipping, vat: vatSettings, availability, due: dueCur || due, eurDue: dueCur ? due : null,
+    lines: docAmounts.lines, A: docAmounts, shipping, vat: vatSettings, availability, depositPct, due: dueCur || due, eurDue: dueCur ? due : null,
     invoice: isInvoice ? {dueMode: invoiceDetails.dueMode, dueDate: invoiceDetails.dueDate, operationDate: invoiceDetails.operationDate,
       quoteNum: dgSourceQuote?.num || '', capital: invoiceDetails.seller.capital} : null,
     fx: docFx, quoteFx: isInvoice && dgSourceQuote ? dgSourceQuote.num : '',
@@ -6303,14 +6341,14 @@ function computeGeneratorDoc({numOverride=''}={}){
   });
   return {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
     lines,firstLine,prodId,qty,prod,sousTotalBrut,sousTotal,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
-    typeLabel,availability,docNum,today,docHTML};
+    typeLabel,availability,depositPct,docNum,today,docHTML};
 }
 
 // Fiche d'enregistrement d'un document, à partir du calcul du générateur.
 function buildGeneratorRecord(G, prospectId){
   const {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
     lines,prodId,qty,prod,sousTotalBrut,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
-    typeLabel,availability,docNum} = G;
+    typeLabel,availability,depositPct,docNum} = G;
   const generatedAt = new Date();
   const lineItems = getDocLineItemsFromGenerator(lines);
   const clientName = contact || company;
@@ -6348,6 +6386,7 @@ function buildGeneratorRecord(G, prospectId){
     ...getVatStorageFields(vatSettings),
     prospectId: prospectId,
     availability,
+    ...(type==='DEV'?{depositPct}:{}),
     ...(isInvoice?{invoiceDetails}:{}),
     ...(isEnglishQuote?(()=>{const conv=curAmounts;return {docLocale: docLocale.code, docCurrency: docLocale.currency, fxRate: docFx, ttcCurrency: dueCur ? dueCur.ttc : conv.ttc, htCurrency: dueCur ? dueCur.ht : conv.baseHT, ...(dueCur?{orderTTCCurrency: dueCur.orderTTC}:{}), ...(conv.us?{usDutyRate: conv.us.dutyRate, usDuties: conv.duties, usClearance: conv.clearance, usSalesTaxRate: conv.us.salesTaxRate, usSalesTax: conv.salesTax, usDutiesIncluded: conv.us.included}:{})};})():{}),
     createdAt: generatedAt.toISOString(),
@@ -8169,7 +8208,7 @@ function renderBillingShell(q, reason){
   const receipts = isOrder ? [] : receiptsForQuote(q.num);
   const paid = receipts.reduce((s,r)=>s+(+r.amount||0),0);
   const deposits = isOrder ? [] : getQuoteInvoices(q.num).filter(i=>i.type==='FAC');
-  const pct = (paid>0 && +q.ttc>0) ? Math.round(paid/q.ttc*100) : 50;
+  const pct = (paid>0 && +q.ttc>0) ? Math.round(paid/q.ttc*100) : (quoteDepositPct(q) || 50);
   const context = [
     reason,
     paid ? 'Reçu en banque : '+formatDocMoney(paid)+(receipts[0]?' le '+frDay(receipts[0].date).replace(/\.$/,''):'')+'.' : '',
@@ -9770,7 +9809,7 @@ function renderDevisList(){
       </td>
       <td style="font-weight:600;color:var(--vert)">${fmt(d.ttc)}${vatSettings.isVatExempt?`<div style="font-size:10px;color:#1E8449;margin-top:2px">TVA 0%</div>`:''}</td>
       <td style="font-size:11px;color:var(--gris-l)">${d.date||'—'}</td>
-      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isArchivedDoc(d)&&d.remplacePar?`<div style="font-size:10px;color:var(--gris-l);margin-top:3px">${d.motif==='version retenue'?'non retenu, '+escapeHTML(d.remplacePar)+' choisi':'par '+escapeHTML(d.remplacePar)}</div>`:''}${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
+      <td><span class="badge ${statutClass}">${d.statut||'—'}</span>${isArchivedDoc(d)&&d.remplacePar?`<div style="font-size:10px;color:var(--gris-l);margin-top:3px">${d.motif==='version retenue'?'non retenu, '+escapeHTML(d.remplacePar)+' choisi':'par '+escapeHTML(d.remplacePar)}</div>`:''}${isDevis&&!isArchivedDoc(d)?(()=>{const ps=quotePaymentState(d);return ps?`<div class="pay-state${ps.rest?'':' is-paid'}" style="margin-top:3px">${escapeHTML(ps.label)}</div>`:'';})():''}${isDevis?(()=>{const inv=getQuoteInvoices(d.num);return inv.length?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">'+inv.map(i=>escapeHTML(i.num)+(i.type==='FAC'?' (acompte)':'')).join('<br>')+'</div>':'';})():(d.sourceQuoteNum?'<div style="font-size:10px;color:var(--gris-l);margin-top:3px">Devis '+escapeHTML(d.sourceQuoteNum)+'</div>':'')}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           ${canAccept?`<button class="btn btn-sm" style="background:#EAFAF1;color:#1E8449;border-color:#A9DFBF" onclick="accepterDevis('${d.id||d.num}')">✓ Accepté</button>`:''}
@@ -11533,6 +11572,7 @@ function renderHistorique(prospectId){
         d.statut || 'Envoyé',
         creator ? 'par '+creator : ''
       ].filter(Boolean).join(' · ');
+      const payState = isQuote && !isArchivedDoc(d) ? quotePaymentState(d) : null;
       const num = String(d.num||'');
       const open = num ? `openStoredDocument('${escapeHTML(num.replace(/['\\]/g,''))}')` : '';
       return {
@@ -11542,6 +11582,7 @@ function renderHistorique(prospectId){
           <div class="tl-body" style="min-width:0">
             <div class="tl-text" style="overflow-wrap:anywhere"><span class="badge ${typeCls}" style="font-size:9px;margin-right:5px">${escapeHTML(d.typeLabel||d.type||'DOC')}</span>${escapeHTML(num||'—')} · ${formatDocMoney(d.ttc)}</div>
             <div class="tl-sub" style="overflow-wrap:anywhere">${escapeHTML(details)}</div>
+            ${payState?`<div class="tl-sub pay-state${payState.rest?'':' is-paid'}">${escapeHTML(payState.label)}</div>`:''}
             ${num?`<div class="doc-thumb" data-doc-num="${escapeHTML(num)}" aria-hidden="true"><span class="doc-thumb-note">Aperçu…</span></div>`:''}
           </div>
           <div class="tl-date">${escapeHTML(d.date||'')}</div>
