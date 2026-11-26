@@ -199,6 +199,17 @@ textarea{resize:vertical;line-height:1.6}
 .qa-cap span{font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
 .qa-products{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:30px}
 .qa-hint{font-size:12px;color:#1E8449;margin-top:8px}
+.qa-company{margin-top:12px}
+.qa-company[hidden]{display:none}
+.qa-company>label{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gris-l);margin-bottom:6px}
+.qa-company>label span{font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
+.qa-co{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;font-family:inherit;background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;cursor:pointer}
+.qa-co b{font-size:13px;color:#1A1A1A}
+.qa-co span{font-size:11px;color:var(--gris-l);overflow-wrap:anywhere}
+.qa-co:hover{border-color:#403F21}
+.qa-co.is-on{border-color:#1E8449;background:#EAFAF1}
+.qa-co.is-on b::before{content:'✓ ';color:#1E8449}
+.qa-co-none{font-size:12px;color:var(--gris-l)}
 .qa-dup{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border:1px solid #F5CBA7;background:#FEF5E7;border-radius:8px;font-size:12px;color:#7E5109}
 .qa-dup[hidden],.qa-hint[hidden]{display:none}
 .qa-dup div{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -608,6 +619,7 @@ body.nd-open{overflow:hidden}
         <select id="qa-statut"><option>Contacté</option><option>Nouveau</option><option>Devis envoyé</option></select></div>
     </div>
     <div class="field"><label>Chaises demandées</label><div id="qa-products" class="qa-products"></div></div>
+    <div id="qa-company" class="qa-company" hidden></div>
     <div id="qa-hint" class="qa-hint" hidden></div>
     <div id="qa-dup" class="qa-dup" hidden></div>
     <div class="modal-footer">
@@ -4620,6 +4632,9 @@ function mapCompanyResult(r){
     address,
     city: titleCaseFr(siege.libelle_commune||''),
     dept: String(siege.departement || (siege.code_postal||'').slice(0,2) || ''),
+    etabCity: titleCaseFr(etab.libelle_commune||''),
+    etabDept: String(etab.departement || (etab.code_postal||'').slice(0,2) || ''),
+    etabAddress: String(etab.adresse||'').replace(/\s+(\d{5})\s+/, ', $1 ').trim(),
     closed: r.etat_administratif === 'C',
     activity: r.libelle_activite_principale || r.activite_principale || ''
   };
@@ -7222,6 +7237,7 @@ async function qaReadDrop(dt){
 
 function openQuickAdd(initialText){
   const st = qaStore(); st.dirty = {}; st.parsed = null; st.busy = false; st.dupId = null;
+  st.company = null; st.coKey = ''; st.coList = []; st.coState = ''; st.coSeq = (st.coSeq||0)+1; clearTimeout(st.coTimer);
   const el = id => document.getElementById(id);
   if(!el('modal-quick')) return;
   el('qa-text').value = typeof initialText==='string' ? initialText : '';
@@ -7242,12 +7258,14 @@ function qaRefresh(keepParsed){
   el('qa-products').innerHTML = r.produits.length
     ? r.produits.map(i=>{ const p = PRODUCTS.find(x=>x.id===i.id); return '<span class="prod-tag">'+escapeHTML(p?p.name:i.id)+' × '+i.qty+'</span>'; }).join(' ')
     : (r.qty ? '<span class="prod-tag">'+r.qty+' chaises, modèle à préciser</span>' : '<span class="td-mute">Aucune chaise repérée dans le texte</span>');
+  const v = id => el(id).value.trim();
+  qaCompanyLookup();
+  qaRenderCompany();
   const hint = el('qa-hint');
-  hint.hidden = !r.siren;
+  hint.hidden = !(r.siren && !st.company && st.coState!=='cherche');
   hint.textContent = r.siren ? 'SIREN '+r.siren+' repéré : la société sera complétée depuis l’annuaire.' : '';
   // Client déjà connu ?
-  const v = id => el(id).value.trim();
-  const dup = findProspectDuplicates({name:v('qa-name'), email:v('qa-email'), tel:v('qa-tel'), dept:v('qa-dept'), siren:r.siren}, null)[0] || null;
+  const dup = findProspectDuplicates({name:v('qa-name'), email:v('qa-email'), tel:v('qa-tel'), dept:v('qa-dept'), siren:(st.company && st.company.siren) || r.siren}, null)[0] || null;
   st.dupId = dup ? dup.id : null;
   const box = el('qa-dup');
   box.hidden = !dup;
@@ -7258,6 +7276,75 @@ function qaRefresh(keepParsed){
   btn.textContent = dup ? 'Créer une nouvelle fiche quand même' : 'Créer la fiche';
   btn.className = dup ? 'btn' : 'btn btn-primary';
 }
+// Annuaire des entreprises : la société est cherchée à partir du SIREN écrit, sinon de l'enseigne et de la ville.
+// Elle n'est retenue d'office que si un seul résultat porte ce nom dans cette ville ; sinon c'est à choisir.
+function qaRankCompanies(list, name, ville, dept){
+  const words = v => qaNorm(v).replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean);
+  const generic = ['les','des','the','and','restaurant','brasserie','hotel','cafe','bar','bistrot','bistro','sarl','sas','eurl','sasu'];
+  const all = words(name).filter(w=>w.length>=3 && !['les','des','the','and'].includes(w));
+  const wanted = all.filter(w=>!generic.includes(w));
+  const city = words(ville).join(' ');
+  return (list||[]).map(c=>{
+    const hay = ' '+words((c.enseigne||'')+' '+(c.legalName||'')).join(' ')+' ';
+    const has = w => hay.includes(' '+w+' ');
+    // « proche » : les mots propres au nom y sont ; « exact » : tous les mots y sont, type d'établissement compris.
+    const nameOk = wanted.length>0 && wanted.every(has);
+    const exact = nameOk && all.every(has);
+    const cityOk = !!city && [c.city, c.etabCity].some(x=>words(x).join(' ')===city);
+    const deptOk = !!dept && [c.dept, c.etabDept].some(x=>String(x)===String(dept));
+    return {c, nameOk, exact, cityOk, deptOk, score:(exact?5:(nameOk?3:0))+(cityOk?3:(deptOk?2:0))-(c.closed?5:0)};
+  }).sort((a,b)=>b.score-a.score);
+}
+function qaCompanyLookup(){
+  const st = qaStore(), el = id => document.getElementById(id);
+  const r = st.parsed || {};
+  const name = el('qa-name').value.trim(), ville = el('qa-ville').value.trim(), dept = el('qa-dept').value.trim();
+  const query = r.siren || (name.length>=3 ? (name+' '+ville).trim() : '');
+  const key = query+'|'+dept;
+  if(key===st.coKey) return;
+  st.coKey = key; st.company = null; st.coList = []; clearTimeout(st.coTimer);
+  const mine = st.coSeq = (st.coSeq||0)+1;
+  if(!query){ st.coState = ''; return; }
+  st.coState = 'cherche';
+  st.coTimer = setTimeout(async ()=>{
+    let res = [];
+    try{ res = await searchCompanies(query); }catch(e){ if(mine===st.coSeq){ st.coState = 'erreur'; qaRefresh(true); } return; }
+    if(mine!==st.coSeq) return;
+    if(r.siren){
+      const exact = res.find(c=>c.siren===r.siren);
+      st.coList = exact ? [exact] : []; st.company = exact || null;
+    }else{
+      const ranked = qaRankCompanies(res, name, ville, dept).filter(x=>x.score>0 && x.nameOk);
+      st.coList = ranked.slice(0,4).map(x=>x.c);
+      const top = ranked[0], next = ranked[1];
+      const sure = top && top.exact && !top.c.closed && (top.cityOk || (!ville && top.deptOk)) && (!next || next.score < top.score);
+      st.company = sure ? top.c : null;
+    }
+    st.coState = st.coList.length ? 'liste' : 'rien';
+    qaRefresh(true);
+  }, 600);
+}
+function qaPickCompany(i){
+  const st = qaStore();
+  const c = st.coList[i];
+  st.company = (c && st.company && st.company.siren===c.siren) ? null : (c || null);
+  qaRefresh(true);
+}
+function qaRenderCompany(){
+  const st = qaStore(), box = document.getElementById('qa-company');
+  if(!box) return;
+  if(!st.coState || st.coState==='erreur'){ box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  if(st.coState==='cherche'){ box.innerHTML = '<label>Société dans l’annuaire</label><div class="qa-co-none">Recherche en cours…</div>'; return; }
+  if(st.coState==='rien'){ box.innerHTML = '<label>Société dans l’annuaire</label><div class="qa-co-none">Aucune société trouvée à ce nom. La fiche sera créée sans SIRET, tu pourras la compléter depuis la fiche.</div>'; return; }
+  box.innerHTML = '<label>Société dans l’annuaire <span>'+(st.company ? 'retenue, clique pour l’enlever' : 'clique sur la bonne, ou laisse vide')+'</span></label>'
+    + st.coList.map((c,i)=>{
+        const title = c.enseigne && !sameDocText(c.enseigne, c.legalName) ? titleCaseFr(c.enseigne)+' · '+c.legalName : c.legalName;
+        const where = (c.etabAddress && c.etabAddress!==c.address) ? c.etabAddress+' (siège : '+(c.city||'')+')' : c.address;
+        return '<button type="button" class="qa-co'+(st.company && st.company.siren===c.siren ? ' is-on' : '')+'" onclick="qaPickCompany('+i+')"><b>'+escapeHTML(title||'Société')+(c.closed?' (fermée)':'')+'</b><span>'+escapeHTML([where, 'SIREN '+c.siren].filter(Boolean).join(' · '))+'</span></button>';
+      }).join('');
+}
+
 async function qaSubmit(toExisting){
   const st = qaStore(); if(st.busy) return;
   const el = id => document.getElementById(id), v = id => el(id).value.trim();
@@ -7276,6 +7363,7 @@ async function qaSubmit(toExisting){
       const add = {};
       [['tel','qa-tel'],['email','qa-email'],['contact','qa-contact'],['ville','qa-ville'],['dept','qa-dept']].forEach(([k,id])=>{ if(!p[k] && v(id)) add[k] = v(id); });
       if(Object.keys(add).length){ Object.assign(p, add); try{ upsertProspect(p); }catch(e){} }
+      if(st.company && !p.siren) await saveProspectCompany(p, st.company);
       closeModal('modal-quick');
       openFiche(p.id);
       toast('Note ajoutée à la fiche de '+(p.name||p.contact||'ce client'));
@@ -7291,6 +7379,12 @@ async function qaSubmit(toExisting){
       produits:r.produits, qty:r.qty||0, budget:'', score: r.qty>0 ? Math.min(Math.round(r.qty*pm*10),100) : 0,
       statut:v('qa-statut')||'Contacté', rappel:'À définir', groupe_wa:false, notes:entry, date_created:now.toISOString()
     };
+    const co = st.company;
+    if(co && co.siren){
+      Object.assign(newP, companyFieldsFrom(co));
+      if(!newP.ville) newP.ville = co.etabCity || co.city || '';
+      if(!newP.dept){ const d2 = co.etabDept || co.dept || ''; if(/^\d{2,3}$/.test(d2)) newP.dept = d2; }
+    }
     let created;
     if(sb && !NOT_CONFIGURED && currentUser){
       const {data,error} = await sb.from('prospects').insert({...newP, user_id:currentUser.id, date_updated:now.toISOString()}).select().single();
@@ -7307,7 +7401,7 @@ async function qaSubmit(toExisting){
     try{ updateBadge(); renderDashboard(); renderToday(); }catch(e){}
     openFiche(created.id);
     toast('Fiche créée : '+name);
-    if(r.siren) autoCompleteCompany(created).then(done=>{ if(done && currentProspectId===created.id) populateFiche(created.id); }).catch(()=>{});
+    if(r.siren && !co) autoCompleteCompany(created).then(done=>{ if(done && currentProspectId===created.id) populateFiche(created.id); }).catch(()=>{});
   }catch(e){
     toast('Fiche non créée : '+(e?.message||e),'error');
   }finally{
