@@ -190,6 +190,19 @@ textarea{resize:vertical;line-height:1.6}
 .modal{background:var(--blanc);border-radius:12px;padding:28px 32px;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:15px;font-weight:600;color:var(--noir);margin-bottom:20px}
 .modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.qa-modal{width:640px}
+.qa-sub{font-size:12px;color:var(--gris-l);margin:-6px 0 12px;line-height:1.5}
+.qa-text{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;line-height:1.5;padding:12px 14px;border:2px dashed #C9C8AE;border-radius:10px;background:#FBFAF5;resize:vertical;min-height:120px}
+.qa-text:focus{outline:none;border-color:#403F21;background:#fff}
+.qa-text.is-drop{border-color:#403F21;background:#F1F0E2}
+.qa-cap{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gris-l);margin:16px 0 10px}
+.qa-cap span{font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
+.qa-products{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:30px}
+.qa-hint{font-size:12px;color:#1E8449;margin-top:8px}
+.qa-dup{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border:1px solid #F5CBA7;background:#FEF5E7;border-radius:8px;font-size:12px;color:#7E5109}
+.qa-dup[hidden],.qa-hint[hidden]{display:none}
+.qa-dup div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.qa-dup span{overflow-wrap:anywhere}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--vert-moyen);border-radius:3px}
 @media(max-width:900px){#nav{width:180px}#main{margin-left:180px}}
 .drafts{background:#FBF8EF;border:1px solid #EADFC2;border-radius:12px;padding:14px 16px;margin-bottom:16px}
@@ -576,6 +589,33 @@ body.nd-open{overflow:hidden}
 <div id="toast"></div>
 
 <!-- MODAL NOUVEAU PROSPECT -->
+<div class="modal-overlay" id="modal-quick">
+  <div class="modal qa-modal">
+    <div class="modal-title">Ajout rapide</div>
+    <p class="qa-sub">Écris, colle ou dépose ce que tu as : notes d’appel, message, signature de mail, carte de visite (.vcf). Le CRM en tire la fiche.</p>
+    <textarea id="qa-text" class="qa-text" rows="6" oninput="qaRefresh()" placeholder="Ex. : Appel de Julien Morel, Brasserie du Port à La Rochelle, 06 12 34 56 78. Veut 24 chaises Kaki Botanique pour avril."></textarea>
+    <div class="qa-cap">Ce que le CRM a compris <span>corrige si besoin</span></div>
+    <div class="grid-2">
+      <div class="field"><label>Établissement</label><input type="text" id="qa-name" oninput="qaEdited('name')"></div>
+      <div class="field"><label>Interlocuteur</label><input type="text" id="qa-contact" oninput="qaEdited('contact')"></div>
+      <div class="field"><label>Téléphone</label><input type="text" id="qa-tel" oninput="qaEdited('tel')"></div>
+      <div class="field"><label>E-mail</label><input type="text" id="qa-email" oninput="qaEdited('email')"></div>
+      <div class="field"><label>Ville</label><input type="text" id="qa-ville" oninput="qaEdited('ville')"></div>
+      <div class="field"><label>Département</label><input type="text" id="qa-dept" maxlength="3" oninput="qaEdited('dept')"></div>
+      <div class="field"><label>Origine</label>
+        <select id="qa-source" onchange="qaEdited('source')"><option>Téléphone</option><option>WhatsApp</option><option>Bouche-à-oreille</option><option>Instagram</option><option>Site web</option><option>Approche directe</option><option>Autre</option></select></div>
+      <div class="field"><label>Statut</label>
+        <select id="qa-statut"><option>Contacté</option><option>Nouveau</option><option>Devis envoyé</option></select></div>
+    </div>
+    <div class="field"><label>Chaises demandées</label><div id="qa-products" class="qa-products"></div></div>
+    <div id="qa-hint" class="qa-hint" hidden></div>
+    <div id="qa-dup" class="qa-dup" hidden></div>
+    <div class="modal-footer">
+      <button type="button" class="btn" onclick="closeModal('modal-quick')">Annuler</button>
+      <button type="button" class="btn btn-primary" id="qa-create" onclick="qaSubmit(false)">Créer la fiche</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-prospect">
   <div class="modal">
     <div class="modal-title" id="modal-prospect-title">Nouveau prospect</div>
@@ -593,7 +633,7 @@ body.nd-open{overflow:hidden}
         <select id="np-profil"><option>Restaurateur</option><option>Restaurateur premium</option><option>Architecte d'intérieur</option></select></div>
       <div class="field"><label>Nb d'établissements (premium)</label><input type="number" id="np-etab" value="1" min="0"></div>
       <div class="field"><label>Source d'acquisition</label>
-        <select id="np-source"><option>Google Ads</option><option>Bouche-à-oreille</option><option>Instagram</option><option>Pinterest</option><option>Site web</option><option>Shopify - Demande devis</option><option>Approche directe</option><option>Autre</option></select></div>
+        <select id="np-source"><option>Google Ads</option><option>Bouche-à-oreille</option><option>Instagram</option><option>Pinterest</option><option>Site web</option><option>Shopify - Demande devis</option><option>Approche directe</option><option>Téléphone</option><option>WhatsApp</option><option>Autre</option></select></div>
     </div>
     <div class="field"><label>Produit(s) d'intérêt</label>
       <div id="np-produits-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
@@ -622,7 +662,10 @@ body.nd-open{overflow:hidden}
       <div class="page-kicker" id="td-date"></div>
       <div class="page-title" id="td-title">Aujourd’hui</div>
     </div>
-    <div class="td-chips" id="td-chips"></div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">
+      <div class="td-chips" id="td-chips"></div>
+      <button type="button" class="btn btn-primary" onclick="openQuickAdd()" title="Coller ou déposer des notes : le CRM crée la fiche">Ajout rapide</button>
+    </div>
   </div>
   <div class="page-content">
     <div class="td-wrap">
@@ -647,7 +690,7 @@ body.nd-open{overflow:hidden}
         </div>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button type="button" class="btn" onclick="openQuickAdd()" title="Coller ou déposer des notes : le CRM crée la fiche">Ajout rapide</button><button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button></div>
   </div>
   <div class="page-content">
 
@@ -726,7 +769,7 @@ body.nd-open{overflow:hidden}
       <div class="page-title">Clients</div>
       <div class="page-subtitle" id="prospects-count">0 prospect</div>
     </div>
-    <button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button type="button" class="btn" onclick="openQuickAdd()" title="Coller ou déposer des notes : le CRM crée la fiche">Ajout rapide</button><button class="btn btn-primary" onclick="openNewProspect()">+ Nouveau prospect</button></div>
   </div>
   <div class="page-content">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
@@ -1715,7 +1758,7 @@ const SHIPPING_RULES = {
 };
 const STATUT_CLASS={Nouveau:'b-new',Contacté:'b-contact','Devis envoyé':'b-devis',Relance:'b-relance','En attente chantier':'b-attente',Gagné:'b-won',Perdu:'b-lost'};
 const PROFIL_CLASS={'Restaurateur premium':'b-pre','Restaurateur':'b-res','Architecte d\'intérieur':'b-arc'};
-const SOURCE_COLORS={'Google Ads':'#3498DB','Bouche-à-oreille':'#27AE60','Instagram':'#E91E8C','Pinterest':'#E60023','Site web':'#8E44AD','Shopify - Demande devis':'#96BF48','Approche directe':'#E67E22'};
+const SOURCE_COLORS={'Google Ads':'#3498DB','Bouche-à-oreille':'#27AE60','Instagram':'#E91E8C','Pinterest':'#E60023','Site web':'#8E44AD','Shopify - Demande devis':'#96BF48','Approche directe':'#E67E22','Téléphone':'#16A085','WhatsApp':'#25D366'};
 
 let prospects = [];
 let currentProspectId = null;
@@ -6980,6 +7023,331 @@ function renderSyncCard(){
     <button type="button" class="btn btn-primary sync-btn" data-sync-btn onclick="syncEverything()" ${st.busy?'disabled':''}>${st.busy?'Mise à jour…':'Tout mettre à jour'}</button>
     <span class="td-mute">${s && s.tache_horaire===false ? 'Le passage automatique est arrêté.' : 'Automatique toutes les heures, de 7 h à 21 h.'}</span>`;
 }
+
+// ══════════════════════════════════════════════════════════════
+// AJOUT RAPIDE : écrire, coller ou déposer des notes, le CRM en tire la fiche
+// ══════════════════════════════════════════════════════════════
+const QA_FIELDS = ['name','contact','tel','email','ville','dept'];
+const QA_APPROX = {dizaine:10, douzaine:12, quinzaine:15, vingtaine:20, trentaine:30, quarantaine:40, cinquantaine:50, soixantaine:60, centaine:100};
+const QA_GENERIC_MAIL = ['gmail','googlemail','hotmail','outlook','live','msn','yahoo','ymail','orange','wanadoo','free','sfr','neuf','laposte','icloud','me','mac','bbox','proton','protonmail','aol','gmx','numericable','bouyguestelecom'];
+const QA_KW = "restaurant|brasserie|bistrot?|caf[ée]|h[ôo]tel|bar|auberge|pizzeria|cr[êe]perie|traiteur|camping|domaine|ch[âa]teau|hostellerie|guinguette|rooftop|boulangerie|p[âa]tisserie|cave|club|plage|maison|chez";
+function qaStore(){ return window.__mpQuick || (window.__mpQuick = {dirty:{}, parsed:null, busy:false, dupId:null}); }
+function qaNorm(v){ return String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
+function qaStem(w){ return String(w||'').replace(/s$/,'').replace(/e$/,''); }
+
+function qaFormatPhone(raw){
+  let d = String(raw||'').replace(/[^\d+]/g,'');
+  d = d.replace(/^\+330?/,'0').replace(/^00330?/,'0');
+  if(/^0\d{9}$/.test(d)) return d.replace(/(\d{2})(?=\d)/g,'$1 ').trim();
+  return String(raw||'').replace(/\s+/g,' ').trim();
+}
+
+// Carte de visite (.vcf) : remise sous forme de lignes lisibles par l'analyse.
+function qaFromVcard(text){
+  const get = key => { const m = text.match(new RegExp('^'+key+'(?:;[^:\\n]*)?:(.*)$','im')); return m ? m[1].trim() : ''; };
+  const all = key => (text.match(new RegExp('^'+key+'(?:;[^:\\n]*)?:(.*)$','img'))||[]).map(l=>l.replace(/^[^:]*:/,'').trim());
+  const fn = get('FN') || get('N').split(';').slice(0,2).reverse().join(' ').trim();
+  const org = get('ORG').replace(/;+/g,' ').trim();
+  const adr = get('ADR').split(';').map(x=>x.trim());
+  const lines = [];
+  if(org) lines.push('Société : '+org);
+  if(fn) lines.push('Contact : '+fn);
+  all('TEL').slice(0,2).forEach(t=>lines.push('Tél : '+t));
+  all('EMAIL').slice(0,1).forEach(m=>lines.push(m));
+  if(adr.length>=6) lines.push([adr[2], [adr[5], adr[3]].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+  const note = get('NOTE'); if(note) lines.push(note.replace(/\\n/g,'\n'));
+  return lines.join('\n');
+}
+
+// Chaises du catalogue citées dans le texte, avec leur quantité quand elle est donnée.
+function qaProducts(text, globalQty){
+  let chairs = []; try{ chairs = getCatalogChairs(); }catch(e){}
+  const split = v => qaNorm(v).replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean);
+  const tokens = split(text), stems = tokens.map(qaStem);
+  const skip = ['chaise','martingale','bistrot','rotin','chair'];
+  const neverAlone = ['caf','crem','atelier','printemp','miel'];      // mots trop courants pour désigner seuls un modèle
+  const colours = ['ros','orang','noir','bleu','jaun'];               // couleurs : acceptées avec une quantité ou le mot « chaise »
+  const owners = {}, names = [];
+  chairs.forEach(p=>{
+    const w = split(p.name).filter(x=>x.length>=4 && !skip.includes(x));
+    names.push({id:p.id, words:w});
+    w.forEach(x=>{ const s = qaStem(x); (owners[s] = owners[s] || new Set()).add(p.id); });
+  });
+  const owner = i => { const o = owners[stems[i]]; return o && o.size===1 ? [...o][0] : null; };
+  const qtyBefore = (i, id) => { for(let k=i-1;k>=Math.max(0,i-4);k--){ if(tokens[k]==='qqsep') break; if(/^\d{1,4}$/.test(tokens[k])) return +tokens[k]; const o = owner(k); if(o && o!==id) break; } return 0; };
+  const qtyAfter = (i, id) => { for(let k=i+1;k<=Math.min(tokens.length-1,i+3);k++){ if(tokens[k]==='qqsep') break; if(/^x?\d{1,4}$/.test(tokens[k])) return +tokens[k].replace('x',''); if(tokens[k]==='x') continue; if(owner(k)===id) continue; break; } return 0; };
+  const chairNear = i => tokens.slice(Math.max(0,i-3), i).some(t=>/^chaises?$/.test(t));
+  const hits = {};
+  // 1. nom complet du modèle
+  names.forEach(n=>{
+    if(!n.words.length) return;
+    for(let i=0;i<=stems.length-n.words.length;i++){
+      if(n.words.every((w,j)=>stems[i+j]===qaStem(w))){ hits[n.id] = {qty: qtyBefore(i,n.id) || qtyAfter(i+n.words.length-1,n.id), i}; break; }
+    }
+  });
+  // 2. un mot qui ne désigne qu'un modèle
+  stems.forEach((s,i)=>{
+    const id = owner(i); if(!id || hits[id]) return;
+    if(neverAlone.includes(s)) return;
+    const before = qtyBefore(i,id);
+    if(colours.includes(s)){ if(!before && !chairNear(i)) return; hits[id] = {qty:before, i}; return; }
+    hits[id] = {qty: before || qtyAfter(i,id), i};
+  });
+  const list = Object.keys(hits).sort((a,b)=>hits[a].i-hits[b].i).map(id=>({id, qty:hits[id].qty}));
+  if(list.length===1 && !list[0].qty) list[0].qty = globalQty || 1;
+  list.forEach(l=>{ if(!l.qty) l.qty = 1; });
+  return list;
+}
+
+// Analyse d'un texte libre : qui, où, comment le joindre, ce qu'il veut. Rien n'est inventé : un champ non trouvé reste vide.
+function parseQuickText(input){
+  const out = {name:'', contact:'', tel:'', email:'', ville:'', dept:'', type:'Autre', profil:'Restaurateur', source:'Téléphone', produits:[], qty:0, siren:''};
+  let text = String(input||'').replace(/\r/g,'').trim();
+  if(!text) return out;
+  if(/BEGIN:VCARD/i.test(text)) text = qaFromVcard(text);
+  const cap = "[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+";
+  let rest = text;
+
+  // E-mail (les adresses de la maison ne sont pas celles du client)
+  const mails = (rest.match(/[\w.+-]+\x40[\w-]+(?:\.[\w-]+)+/g)||[]).filter(m=>!/martingaleparis\.fr$/i.test(m));
+  if(mails.length) out.email = mails[0].toLowerCase();
+  rest = rest.replace(/[\w.+-]+\x40[\w-]+(?:\.[\w-]+)+/g,' qqsep ');
+
+  // Téléphone
+  const phoneRe = /(?:(?:\+|00)33[\s.\-]?(?:\(0\)[\s.\-]?)?|0)[1-9](?:[\s.\-]?\d{2}){4}(?!\d)/g;
+  const phones = rest.match(phoneRe)||[];
+  if(phones.length) out.tel = qaFormatPhone(phones[0]);
+  rest = rest.replace(phoneRe,' qqsep ');
+  if(!out.tel){ const intl = rest.match(/\+\d[\d\s.\-]{7,16}\d/); if(intl){ out.tel = intl[0].replace(/\s+/g,' ').trim(); rest = rest.replace(intl[0],' qqsep '); } }
+
+  // SIREN ou SIRET
+  try{ out.siren = findSirenInText(text) || ''; }catch(e){}
+  rest = rest.replace(/\b\d{3}[\s.]?\d{3}[\s.]?\d{3}(?:[\s.]?\d{5})?\b/g,' qqsep ');
+
+  // Ville et département
+  const cut = v => String(v||'').replace(/\s+(?:t[ée]l|france|cedex|mob|port|mail|fax)\b.*$/i,'').trim().split(/\s+/).slice(0,4).join(' ');
+  let m = rest.match(/\b(\d{5})[ \t]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ \t-]{1,40})/);
+  if(m){ out.ville = cut(m[2]); out.cp = m[1]; }
+  else if((m = rest.match(new RegExp("("+cap+"(?:[ -]"+cap+"){0,2})[ \\t]*\\(?(\\d{5})\\)?")))){ out.ville = m[1]; out.cp = m[2]; }
+  else if((m = rest.match(new RegExp("(?:^|[\\s,;(])(?:à|sur|situ[ée]e? à|bas[ée]e? à)[ \\t]+("+cap+"(?:[ -]"+cap+"){0,2})")))){ out.ville = m[1]; }
+  if(out.cp){ out.dept = /^97/.test(out.cp) ? out.cp.slice(0,3) : out.cp.slice(0,2); rest = rest.replace(out.cp,' qqsep '); }
+  else if((m = rest.match(/\(\s*(\d{2})\s*\)/) || rest.match(/\bd[ée]p(?:artement|t)?\.?\s*(\d{2,3})\b/i))) out.dept = m[1];
+  if(out.ville){
+    out.ville = out.ville.replace(/[.,;]+$/,'').trim();
+    if(out.ville===out.ville.toLowerCase() || out.ville===out.ville.toUpperCase()) out.ville = titleCaseFr(out.ville);
+  }
+
+  // Quantité et modèles
+  const q = rest.match(/(\d{1,4})\s*(?:chaises?|assises?|pi[eè]ces?|pcs|unit[ée]s?|fauteuils?|tabourets?)(?![A-Za-zÀ-ÿ])/i);
+  let globalQty = q ? +q[1] : 0;
+  if(!globalQty){ const a = qaNorm(rest).match(/\b(dizaine|douzaine|quinzaine|vingtaine|trentaine|quarantaine|cinquantaine|soixantaine|centaine)\b/); if(a) globalQty = QA_APPROX[a[1]]; }
+  out.produits = qaProducts(rest, globalQty);
+  out.qty = Math.max(globalQty, out.produits.reduce((s,i)=>s+(+i.qty||0),0));
+
+  // Établissement
+  const productNames = (()=>{ try{ return getCatalogChairs().map(p=>qaNorm(p.name)); }catch(e){ return []; } })();
+  const stop = /\s+(?:à|a|au|veut|voudrait|souhaite|cherche|recherche|demande|qui|pour|avec|situ[ée]e?|bas[ée]e?|dans|sur|m['’]a|nous|t[ée]l|qqsep|\d).*$/i;
+  const tidy = v => String(v||'').replace(stop,'').replace(/\s+/g,' ').replace(/[\s\-–:]+$/,'').trim();
+  m = rest.match(/(?:soci[ée]t[ée]|entreprise|[ée]tablissement|enseigne|raison sociale)\s*[:=]\s*([^\n,;]+)/i);
+  if(m) out.name = m[1].trim();
+  if(!out.name){
+    const re = new RegExp("(?:^|[\\s,;:(])((?:le |la |l['’]|les |au |du )?(?:"+QA_KW+")[ \\t]+[^\\n,;.:()]{2,45})","gi");
+    let k;
+    while((k = re.exec(rest))){
+      let cand = tidy(k[1]).replace(/^(?:au|du)\s+/i,'');
+      const after = cand.replace(new RegExp("^(?:le |la |l['’]|les )?(?:"+QA_KW+")\\s*","i"),'');
+      if(after.length < 2) continue;
+      if(productNames.some(n=>qaNorm(cand).indexOf(n)===0)) continue;
+      out.name = cand.charAt(0).toUpperCase()+cand.slice(1);
+      break;
+    }
+  }
+  const low = qaNorm(out.name+' '+rest);
+  out.type = /\bbrasserie\b/.test(low) ? 'Brasserie' : /\b(restaurant|pizzeria|creperie|auberge|traiteur|guinguette)\b/.test(low) ? 'Restaurant'
+    : /\b(hotel|hostellerie|camping|domaine|chateau)\b/.test(low) ? 'Hôtel' : /\b(cafe|bar|bistro|bistrot|cave)\b/.test(qaNorm(out.name)) ? 'Café'
+    : /\b(bureau|bureaux|coworking)\b/.test(low) ? 'Bureau' : 'Autre';
+  if(/\b(architecte|decorat|designer|agence d)/.test(low)) out.profil = "Architecte d'intérieur";
+
+  // Interlocuteur
+  m = rest.match(/(?:contact|interlocuteur|interlocutrice|g[ée]rante?|responsable|patron(?:ne)?|propri[ée]taire|nom)\s*[:=]\s*([^\n,;]+)/i);
+  if(m) out.contact = m[1].trim();
+  if(!out.contact && (m = rest.match(new RegExp("(?:^|[\\s,;:(])(?:M\\.|Mr\\.?|Mme|Madame|Monsieur|Mlle)\\s+("+cap+"(?:\\s+"+cap+")?)")))) out.contact = m[1];
+  if(!out.contact && (m = rest.match(new RegExp("(?:je suis|s['’]appelle|[Aa]ppel d['’]|[Aa]ppel de|de la part de|c['’]est)\\s*("+cap+"(?:\\s+"+cap+")?)")))) out.contact = m[1];
+  if(!out.contact){
+    const first = rest.split('\n').map(l=>l.trim()).filter(Boolean)[0] || '';
+    if(new RegExp("^"+cap+"(?:\\s+"+cap+"){1,2}$").test(first) && !new RegExp("^(?:le |la |l['’]|les )?(?:"+QA_KW+")(?=\\s|$)","i").test(first)) out.contact = first;
+  }
+  if(out.contact && out.ville && qaNorm(out.contact)===qaNorm(out.ville)) out.ville = '';
+
+  // Faute de mieux, le nom de domaine d'une adresse professionnelle donne l'enseigne
+  if(!out.name && out.email){
+    const label = out.email.split('\x40')[1].split('.')[0];
+    if(label && !QA_GENERIC_MAIL.includes(label)) out.name = titleCaseFr(label.replace(/[-_]+/g,' '));
+  }
+
+  // Origine
+  const t = qaNorm(text);
+  out.source = /whats ?app/.test(t) ? 'WhatsApp' : /\binsta(gram)?\b/.test(t) ? 'Instagram'
+    : /(bouche a oreille|recommand|de la part de)/.test(t) ? 'Bouche-à-oreille' : 'Téléphone';
+  delete out.cp;
+  return out;
+}
+
+// Fichier déposé : texte brut, carte de visite ou mail enregistré. Les images et PDF ne sont pas lus.
+function qaCleanFileText(text, name){
+  let t = String(text||'');
+  if(/\.eml$/i.test(name||'')){
+    const head = t.split(/\r?\n\r?\n/)[0] || '';
+    const from = (head.match(/^From:\s*(.*)$/im)||[])[1] || '', subject = (head.match(/^Subject:\s*(.*)$/im)||[])[1] || '';
+    const body = t.slice(head.length).replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/=\r?\n/g,'').replace(/&nbsp;/g,' ');
+    t = [from && 'De : '+from, subject && 'Objet : '+subject, body].filter(Boolean).join('\n');
+  }
+  return t.replace(/\r/g,'').replace(/\n{3,}/g,'\n\n').slice(0, 6000).trim();
+}
+async function qaReadDrop(dt){
+  if(!dt) return '';
+  const parts = [];
+  let plain = ''; try{ plain = dt.getData('text/plain') || ''; }catch(e){}
+  const files = Array.from(dt.files||[]);
+  if(plain && !files.length) parts.push(plain);
+  for(const f of files){
+    if(/^(image|audio|video)\//.test(f.type||'') || /\.(png|jpe?g|heic|webp|gif|pdf|docx?|xlsx?|mp3|m4a|wav)$/i.test(f.name||'')){
+      toast('« '+f.name+' » : les images, PDF et audios ne sont pas encore lus. Écris ou colle le texte.','error'); continue;
+    }
+    if(f.size > 300000){ toast('« '+f.name+' » est trop gros pour être lu ici.','error'); continue; }
+    try{ parts.push(qaCleanFileText(await f.text(), f.name)); }catch(e){}
+  }
+  return parts.join('\n').trim();
+}
+
+function openQuickAdd(initialText){
+  const st = qaStore(); st.dirty = {}; st.parsed = null; st.busy = false; st.dupId = null;
+  const el = id => document.getElementById(id);
+  if(!el('modal-quick')) return;
+  el('qa-text').value = typeof initialText==='string' ? initialText : '';
+  QA_FIELDS.forEach(k=>{ el('qa-'+k).value = ''; });
+  el('qa-statut').value = 'Contacté';
+  el('qa-source').value = 'Téléphone';
+  openModal('modal-quick');
+  qaRefresh();
+  setTimeout(()=>{ try{ el('qa-text').focus(); }catch(e){} }, 60);
+}
+function qaEdited(key){ qaStore().dirty[key] = true; qaRefresh(true); }
+function qaRefresh(keepParsed){
+  const st = qaStore(), el = id => document.getElementById(id);
+  const text = el('qa-text').value;
+  const r = (keepParsed && st.parsed) ? st.parsed : (st.parsed = parseQuickText(text));
+  QA_FIELDS.forEach(k=>{ if(!st.dirty[k]) el('qa-'+k).value = r[k] || ''; });
+  if(!st.dirty.source) el('qa-source').value = r.source;
+  el('qa-products').innerHTML = r.produits.length
+    ? r.produits.map(i=>{ const p = PRODUCTS.find(x=>x.id===i.id); return '<span class="prod-tag">'+escapeHTML(p?p.name:i.id)+' × '+i.qty+'</span>'; }).join(' ')
+    : (r.qty ? '<span class="prod-tag">'+r.qty+' chaises, modèle à préciser</span>' : '<span class="td-mute">Aucune chaise repérée dans le texte</span>');
+  const hint = el('qa-hint');
+  hint.hidden = !r.siren;
+  hint.textContent = r.siren ? 'SIREN '+r.siren+' repéré : la société sera complétée depuis l’annuaire.' : '';
+  // Client déjà connu ?
+  const v = id => el(id).value.trim();
+  const dup = findProspectDuplicates({name:v('qa-name'), email:v('qa-email'), tel:v('qa-tel'), dept:v('qa-dept'), siren:r.siren}, null)[0] || null;
+  st.dupId = dup ? dup.id : null;
+  const box = el('qa-dup');
+  box.hidden = !dup;
+  box.innerHTML = dup ? '<div><b>Ce client existe déjà.</b><span>'+escapeHTML(prospectDupLabel(dup))+'</span></div><button type="button" class="btn btn-sm btn-primary" id="qa-append" onclick="qaSubmit(true)">Ajouter la note à sa fiche</button>' : '';
+  const ok = text.trim().length>0 && !!(v('qa-name')||v('qa-contact')||v('qa-tel')||v('qa-email'));
+  const btn = el('qa-create');
+  btn.disabled = !ok || st.busy;
+  btn.textContent = dup ? 'Créer une nouvelle fiche quand même' : 'Créer la fiche';
+  btn.className = dup ? 'btn' : 'btn btn-primary';
+}
+async function qaSubmit(toExisting){
+  const st = qaStore(); if(st.busy) return;
+  const el = id => document.getElementById(id), v = id => el(id).value.trim();
+  const text = v('qa-text');
+  if(!text){ toast('Rien à enregistrer','error'); return; }
+  const r = st.parsed || parseQuickText(text);
+  const now = new Date();
+  const entry = '['+now.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})+'] '+(v('qa-source')==='Téléphone'?'Appel':'Ajout rapide')+' : '+text;
+  st.busy = true; el('qa-create').disabled = true; if(el('qa-append')) el('qa-append').disabled = true;
+  try{
+    if(toExisting){
+      const p = prospects.find(x=>x.id===st.dupId);
+      if(!p) throw new Error('Fiche introuvable');
+      await appendProspectNote(p, entry);
+      // Ce qui manquait sur la fiche est complété, rien n'est écrasé.
+      const add = {};
+      [['tel','qa-tel'],['email','qa-email'],['contact','qa-contact'],['ville','qa-ville'],['dept','qa-dept']].forEach(([k,id])=>{ if(!p[k] && v(id)) add[k] = v(id); });
+      if(Object.keys(add).length){ Object.assign(p, add); try{ upsertProspect(p); }catch(e){} }
+      closeModal('modal-quick');
+      openFiche(p.id);
+      toast('Note ajoutée à la fiche de '+(p.name||p.contact||'ce client'));
+      return;
+    }
+    const name = v('qa-name') || v('qa-contact') || v('qa-tel') || v('qa-email');
+    if(!name) throw new Error('Il faut au moins un nom, un téléphone ou un e-mail.');
+    const pm = r.profil.includes('premium') ? 1.5 : r.profil.includes('Architecte') ? 1.2 : 1.0;
+    const dept = v('qa-dept');
+    const newP = {
+      name, contact:v('qa-contact'), tel:v('qa-tel'), email:v('qa-email').toLowerCase(), ville:v('qa-ville'),
+      dept: dept ? dept.padStart(2,'0') : '', type:r.type, profil:r.profil, etablissements:1, source:v('qa-source'),
+      produits:r.produits, qty:r.qty||0, budget:'', score: r.qty>0 ? Math.min(Math.round(r.qty*pm*10),100) : 0,
+      statut:v('qa-statut')||'Contacté', rappel:'À définir', groupe_wa:false, notes:entry, date_created:now.toISOString()
+    };
+    let created;
+    if(sb && !NOT_CONFIGURED && currentUser){
+      const {data,error} = await sb.from('prospects').insert({...newP, user_id:currentUser.id, date_updated:now.toISOString()}).select().single();
+      if(error) throw error;
+      created = {...newP, ...(data||{})};
+      prospects.unshift(created);
+      try{ prospectSnapshots[created.id] = prospectSyncFields(created); }catch(e){}
+    }else{
+      created = {...newP, id:'temp-'+Date.now()};
+      prospects.unshift(created);
+    }
+    saveLocal();
+    closeModal('modal-quick');
+    try{ updateBadge(); renderDashboard(); renderToday(); }catch(e){}
+    openFiche(created.id);
+    toast('Fiche créée : '+name);
+    if(r.siren) autoCompleteCompany(created).then(done=>{ if(done && currentProspectId===created.id) populateFiche(created.id); }).catch(()=>{});
+  }catch(e){
+    toast('Fiche non créée : '+(e?.message||e),'error');
+  }finally{
+    st.busy = false;
+    if(document.getElementById('modal-quick')?.classList.contains('open')) qaRefresh(true);
+  }
+}
+
+// Dépôt : dans la fenêtre d'ajout rapide, ou n'importe où dans le CRM quand rien d'autre n'est ouvert.
+(function(){
+  if(typeof window==='undefined' || !window.addEventListener) return;
+  const quickOpen = () => !!document.getElementById('modal-quick')?.classList.contains('open');
+  const blocked = () => !!document.querySelector('.modal-overlay.open:not(#modal-quick), #doc-generator-overlay, #billing-overlay');
+  const usable = e => { const t = e.dataTransfer && e.dataTransfer.types ? Array.from(e.dataTransfer.types) : []; return t.includes('Files') || t.includes('text/plain'); };
+  const allowed = e => {
+    if(!usable(e)) return false;
+    if(quickOpen()) return true;
+    if(blocked() || typeof currentUser==='undefined' || !currentUser) return false;
+    return !(e.target && e.target.closest && e.target.closest('input,textarea,select,[contenteditable="true"]'));
+  };
+  window.addEventListener('dragover', e=>{
+    if(!allowed(e)) return;
+    e.preventDefault();
+    try{ e.dataTransfer.dropEffect = 'copy'; }catch(err){}
+    document.getElementById('qa-text')?.classList.toggle('is-drop', quickOpen());
+  });
+  window.addEventListener('dragleave', ()=>{ document.getElementById('qa-text')?.classList.remove('is-drop'); });
+  window.addEventListener('drop', async e=>{
+    if(!allowed(e)) return;
+    e.preventDefault();
+    document.getElementById('qa-text')?.classList.remove('is-drop');
+    const text = await qaReadDrop(e.dataTransfer);
+    if(!text) return;
+    if(quickOpen()){
+      const ta = document.getElementById('qa-text');
+      ta.value = (ta.value.trim() ? ta.value.trim()+'\n' : '') + text;
+      qaRefresh();
+    }else openQuickAdd(text);
+  });
+})();
 
 // ══════════════════════════════════════════════════════════════
 // AUTOMATISATIONS : stock vers Shopify, devis consultés, société de la fiche, doublons
