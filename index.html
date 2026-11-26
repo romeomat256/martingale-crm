@@ -545,6 +545,13 @@ button.ag-client:hover{text-decoration:underline}
 .td-sub{display:block;font-size:11px;color:var(--gris-l);margin-top:2px}
 .td-miss{font-style:normal;color:#B9770E;font-weight:600}
 .td-ok:hover{background:var(--ok-bg);border-color:var(--ok)}
+.td-task-add{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--ligne)}
+.td-task-add input{flex:1;min-width:0;padding:8px 11px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fff}
+.fiche-task{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--ligne);font-size:13px}
+.fiche-task:last-child{border-bottom:0}
+.fiche-task span{flex:1;min-width:0}
+.fiche-task small{color:var(--gris-l);font-size:11px;white-space:nowrap}
+.fiche-task small.is-late{color:var(--rouge);font-weight:700}
 .td-more{border:0;background:none;text-align:left;padding:12px 18px;font-size:13px;font-weight:700;color:var(--vert);cursor:pointer;border-top:1px solid var(--ligne)}
 .td-empty{padding:28px;background:#fff;border:1px solid var(--border);border-radius:10px;color:var(--gris-l)}
 .td-card{display:flex;flex-direction:column;gap:12px;padding:20px;background:#fff;border:1px solid var(--border);border-radius:10px}
@@ -1001,10 +1008,16 @@ button.ag-client:hover{text-decoration:underline}
           <div class="grid-2" id="fiche-info-grid" style="margin-bottom:0"></div>
         </div>
 
+        <!-- À FAIRE DE LA FICHE -->
+        <div class="card" id="fiche-tasks-card" hidden>
+          <div class="card-title">À faire</div>
+          <div id="fiche-tasks"></div>
+        </div>
+
         <!-- NOTE RAPIDE -->
         <div class="card">
           <div class="card-title">Note rapide</div>
-          <textarea id="fiche-note" rows="3" placeholder="Ajouter une note sur cet échange..."></textarea>
+          <textarea id="fiche-note" rows="3" placeholder="Ajouter une note sur cet échange... Une phrase comme « envoyer le devis vendredi » va aussi dans À faire."></textarea>
           <button class="btn" id="save-prospect-note" style="width:100%;margin-top:8px" onclick="saveNote()">Enregistrer la note</button>
         </div>
       </div>
@@ -3595,7 +3608,9 @@ async function saveNote(){
       if(ta.value.trim()===note) ta.value='';
     }
     renderProspects();
-    toast('Note sauvegardée');
+    let added = [];
+    try{ added = await createTasksFromText(note, p, 'note'); }catch(e){ console.warn('À faire :', e); }
+    if(!announceTasks(added)) toast('Note sauvegardée');
   }catch(e){
     toast('Note non enregistrée : '+e.message,'error');
   }finally{
@@ -7666,12 +7681,14 @@ async function loadAutomationState(){
   if(!sb || NOT_CONFIGURED || !currentUser) return;
   const st = autoStore();
   try{
-    const [m, l, mc, sg] = await Promise.allSettled([
+    const [m, l, mc, sg, tk] = await Promise.allSettled([
       sb.from('shopify_stock_moves').select('id,order_id,quote_num,client,direction,lines,unknown,status,note,created_at,done_at').order('id',{ascending:false}).limit(300),
       sb.from('document_links').select('document_num,views,first_viewed_at,last_viewed_at,accepted_at,accepted_name').limit(1000),
       sb.from('mail_candidates').select('id,from_addr,from_name,subject,resume,content,sent_at,nature,confiance,source,fiche').eq('status','a_verifier').order('sent_at',{ascending:false}).limit(50),
-      sb.from('crm_suggestions').select('id,prospect_id,message_id,kind,raison,extrait,confiance,source,created_at').eq('status','propose').order('created_at',{ascending:false}).limit(50)
+      sb.from('crm_suggestions').select('id,prospect_id,message_id,kind,raison,extrait,confiance,source,created_at').eq('status','propose').order('created_at',{ascending:false}).limit(50),
+      sb.from('crm_tasks').select('id,prospect_id,titre,echeance,kind,origine,extrait,fait_at,created_at').is('fait_at',null).order('created_at',{ascending:true}).limit(300)
     ]);
+    if(tk.status==='fulfilled' && tk.value && !tk.value.error) st.tasks = tk.value.data || [];
     if(mc.status==='fulfilled' && mc.value && !mc.value.error) st.candidates = mc.value.data || [];
     if(sg.status==='fulfilled' && sg.value && !sg.value.error) st.suggestions = sg.value.data || [];
     if(m.status==='fulfilled' && m.value && !m.value.error) st.moves = m.value.data || [];
@@ -7687,6 +7704,127 @@ async function loadAutomationState(){
       st.links = map;
     }
   }catch(e){ console.warn('Automatisations :', e?.message||e); }
+}
+
+// ── À faire : tâches tirées des notes et des appels, ou ajoutées à la main.
+// Une phrase qui commence par une action (« envoyer… », « rappeler… », « il faut… », « penser à… ») devient une tâche,
+// avec sa date si elle est dite (« vendredi », « le 12/12 », « dans 15 jours »).
+const TASK_PREFIX = /^\s*(?:[-•*→>]+\s*)?(?:(?:il faut|faut|je dois|on doit|pens(?:er|e) à|pens(?:er|e) a|ne pas oublier(?: de| d['’])?|n['’]oublie pas(?: de| d['’])?|à faire|a faire|todo|to do|tâche|tache)\s*:?\s*)/i;
+const TASK_VERB = /^(?:envoyer|renvoyer|rappeler|relancer|appeler|recontacter|contacter|refaire|faire|preparer|chiffrer|commander|livrer|expedier|verifier|demander|confirmer|passer|caler|planifier|prevoir|organiser|reserver|transmettre|mettre a jour|modifier|corriger|valider|facturer|emettre|recuperer|ecrire|repondre|proposer|presenter|montrer|partager|faire suivre|terminer|finir|imprimer|deposer|signer)\b/;
+const TASK_SUBJECT = /^(?:je|on|j['’ ]?)\s*(?:lui |leur |vous |les |le |la |l['’ ])?(?:envoie|renvoie|rappelle|relance|appelle|fais|prepare|chiffre|passe|verifie|confirme|transmets|ecris|reponds|propose|recontacte|dois)\b/;
+function taskKind(n){ return /\b(devis|chiffr|cotation)/.test(n) ? 'devis' : /\b(rappel|relanc|appel|recontact|telephon)/.test(n) ? 'rappel' : /\b(envoy|envoi|expedi|livr|echantillon|catalogue)/.test(n) ? 'envoi' : 'autre'; }
+function extractTasksFromText(text, todayISO){
+  const out = [], seen = new Set();
+  String(text||'').split(/\n+|(?<=[.!?;])\s+/).forEach(raw=>{
+    const seg = raw.replace(/^\s*\[[^\]]*\]\s*/,'').trim();
+    if(seg.length < 6 || seg.length > 300) return;
+    const prefixed = TASK_PREFIX.test(seg) && seg.replace(TASK_PREFIX,'').trim().length >= 4;
+    const body = seg.replace(TASK_PREFIX,'').trim();
+    const n = qaNorm(body).replace(/[’']/g,"'");
+    if(!(prefixed || TASK_VERB.test(n) || TASK_SUBJECT.test(n))) return;
+    let titre = body.replace(/[\s.;!]+$/,'');
+    titre = titre.charAt(0).toUpperCase() + titre.slice(1);
+    const key = qaNorm(titre);
+    if(seen.has(key)) return; seen.add(key);
+    out.push({titre: titre.slice(0,200), echeance: parseFrDate(body, todayISO) || null, kind: taskKind(n), extrait: seg.slice(0,300)});
+  });
+  return out.slice(0,8);
+}
+function crmTasks(){ return (autoStore().tasks || []).filter(t=>!t.fait_at); }
+function tasksForProspect(id){ return crmTasks().filter(t=>t.prospect_id===id); }
+function taskDayDiff(t){ if(!t.echeance) return null; return Math.round((new Date(t.echeance+'T12:00:00') - new Date(todayParisISO()+'T12:00:00'))/86400000); }
+function tasksDue(){
+  return crmTasks().filter(t=>{ const d = taskDayDiff(t); return d===null || d<=0; })
+    .sort((a,b)=>{ const da=taskDayDiff(a), db=taskDayDiff(b); return (da===null?1:da) - (db===null?1:db) || String(a.created_at).localeCompare(String(b.created_at)); });
+}
+function tasksSoon(){ return crmTasks().filter(t=>{ const d = taskDayDiff(t); return d!==null && d>0 && d<=7; }).sort((a,b)=>taskDayDiff(a)-taskDayDiff(b)); }
+function taskWhen(t){
+  const d = taskDayDiff(t);
+  if(d===null) return {label:'sans date', cls:''};
+  if(d<0) return {label: d===-1 ? 'en retard d’1 j' : 'en retard de '+(-d)+' j', cls:'is-late'};
+  if(d===0) return {label:'aujourd’hui', cls:'is-warn'};
+  if(d===1) return {label:'demain', cls:''};
+  return {label: new Date(t.echeance+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}), cls:''};
+}
+async function createTasksFromText(text, p, origine, {skipKinds=[]}={}){
+  const found = extractTasksFromText(text).filter(t=>!skipKinds.includes(t.kind));
+  if(!found.length) return [];
+  const open = new Set(crmTasks().filter(t=>t.prospect_id===(p&&p.id||null)).map(t=>qaNorm(t.titre)));
+  const rows = found.filter(t=>!open.has(qaNorm(t.titre))).map(t=>({prospect_id: p && isUuid(p.id) ? p.id : null, titre:t.titre, echeance:t.echeance, kind:t.kind, origine, extrait:t.extrait}));
+  if(!rows.length) return [];
+  let saved = rows.map((r,i)=>({...r, id:'local-'+Date.now()+'-'+i, created_at:new Date().toISOString(), fait_at:null}));
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {data, error} = await sb.from('crm_tasks').insert(rows).select('id,prospect_id,titre,echeance,kind,origine,extrait,fait_at,created_at');
+    if(error){ console.error('À faire :', error); toast('Tâche non enregistrée : '+(error.message||error),'error'); return []; }
+    saved = data || [];
+  }
+  const st = autoStore(); st.tasks = [...(st.tasks||[]), ...saved];
+  refreshTaskViews();
+  return saved;
+}
+function announceTasks(saved){
+  if(!saved || !saved.length) return false;
+  const label = saved.length>1 ? saved.length+' tâches ajoutées à « À faire »' : '« '+saved[0].titre.slice(0,60)+' » ajouté à « À faire »';
+  toastAction(label, 'Annuler', ()=>removeTasks(saved.map(t=>t.id)));
+  return true;
+}
+async function removeTasks(ids){
+  const st = autoStore(); st.tasks = (st.tasks||[]).filter(t=>!ids.includes(t.id));
+  refreshTaskViews();
+  const real = ids.filter(id=>!String(id).startsWith('local-'));
+  if(real.length && sb && !NOT_CONFIGURED){ const {error} = await sb.from('crm_tasks').delete().in('id', real); if(error) console.error('À faire :', error); }
+  toast(ids.length>1 ? 'Tâches retirées' : 'Tâche retirée');
+}
+async function completeTask(id, undo){
+  const t = (autoStore().tasks||[]).find(x=>String(x.id)===String(id));
+  if(!t) return;
+  t.fait_at = undo ? null : new Date().toISOString();
+  refreshTaskViews();
+  if(sb && !NOT_CONFIGURED && !String(t.id).startsWith('local-')){
+    const {error} = await sb.from('crm_tasks').update({fait_at:t.fait_at}).eq('id', t.id);
+    if(error){ console.error('À faire :', error); toast('Non enregistré : '+(error.message||error),'error'); }
+  }
+  if(!undo) toastAction('Fait : '+t.titre.slice(0,60), 'Annuler', ()=>completeTask(id, true));
+}
+async function addQuickTask(ev){
+  if(ev) ev.preventDefault();
+  const inp = document.getElementById('td-task-input');
+  const text = String(inp?.value||'').trim();
+  if(!text) return;
+  // La fiche nommée dans la phrase est rattachée (nom d'au moins 4 lettres).
+  const n = ' '+qaNorm(text).replace(/[^a-z0-9]+/g,' ')+' ';
+  const p = prospects.filter(x=>x.name && qaNorm(x.name).replace(/[^a-z0-9]+/g,' ').trim().length>=4)
+    .find(x=>n.includes(' '+qaNorm(x.name).replace(/[^a-z0-9]+/g,' ').trim()+' ')) || null;
+  const titre = text.charAt(0).toUpperCase()+text.slice(1);
+  const row = {prospect_id: p && isUuid(p.id) ? p.id : null, titre: titre.slice(0,200), echeance: parseFrDate(text)||null, kind: taskKind(qaNorm(text)), origine:'manuel', extrait:null};
+  let saved = {...row, id:'local-'+Date.now(), created_at:new Date().toISOString(), fait_at:null};
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {data, error} = await sb.from('crm_tasks').insert(row).select('id,prospect_id,titre,echeance,kind,origine,extrait,fait_at,created_at').single();
+    if(error){ toast('Tâche non enregistrée : '+(error.message||error),'error'); return; }
+    saved = data;
+  }
+  const st = autoStore(); st.tasks = [...(st.tasks||[]), saved];
+  if(inp) inp.value = '';
+  refreshTaskViews();
+  toast('Ajouté à « À faire »'+(p ? ' pour '+p.name : '')+(saved.echeance ? ', '+taskWhen(saved).label : ''));
+  setTimeout(()=>document.getElementById('td-task-input')?.focus(), 0);
+}
+function taskAction(t){
+  const p = t.prospect_id ? prospects.find(x=>x.id===t.prospect_id) : null;
+  if(t.kind==='devis' && p) return `<button type="button" class="btn btn-sm" onclick="openDocGenerator('${escapeHTML(p.id)}')">Faire le devis</button>`;
+  if(t.kind==='rappel' && p && p.tel) return `<a class="btn btn-sm" href="tel:${escapeHTML(String(p.tel).replace(/\s/g,''))}">Appeler</a>`;
+  return '';
+}
+function renderFicheTasks(id){
+  const card = document.getElementById('fiche-tasks-card'), box = document.getElementById('fiche-tasks');
+  if(!card || !box) return;
+  const list = tasksForProspect(id).sort((a,b)=>(taskDayDiff(a)??999)-(taskDayDiff(b)??999));
+  card.hidden = !list.length;
+  box.innerHTML = list.map(t=>{ const w = taskWhen(t); return `<div class="fiche-task"><span>${escapeHTML(t.titre)}</span><small class="${w.cls}">${escapeHTML(w.label)}</small>${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${escapeHTML(String(t.id))}')">Fait</button></div>`; }).join('');
+}
+function refreshTaskViews(){
+  try{ if(typeof currentProspectId!=='undefined' && currentProspectId) renderFicheTasks(currentProspectId); }catch(e){}
+  try{ if(document.getElementById('s-morning')?.classList.contains('active') || document.getElementById('td-main')) renderToday(); }catch(e){}
 }
 
 // ── Mails d'inconnus à vérifier, propositions de l'IA sur les mails des clients
@@ -7738,6 +7876,8 @@ function markProspectQuoted(rec){
   const p = prospects.find(x=>x.id===rec.prospectId);
   if(!p) return;
   // Comme la base : devis créé = « Devis envoyé » (même en attente ou perdu) et activité du jour ; un client gagné reste gagné.
+  // Les tâches « devis » de la fiche sont cochées (la base fait de même).
+  (autoStore().tasks||[]).forEach(t=>{ if(t.prospect_id===p.id && t.kind==='devis' && !t.fait_at) t.fait_at = new Date().toISOString(); });
   p.devis_demande_at = null;
   p.date_updated = new Date().toISOString();
   if((p.statut||'Nouveau')!=='Gagné') p.statut = 'Devis envoyé';
@@ -8699,7 +8839,11 @@ async function saveCallDone(id, btn){
     st.open = null; st.text = ''; st.date = '';
     try{ updateBadge(); renderDashboard(); }catch(e){}
     renderToday();
-    toast((p.name||p.contact||'Fiche')+' : '+suite.toLowerCase()+(r.rappel_date && r.suite!=='sans_suite' ? ', rappel prévu' : '')+(r.source==='ia' ? ' (classé par l’IA)' : ''));
+    let added = [];
+    if(summary && r.suite!=='sans_suite'){ try{ added = await createTasksFromText(summary, p, 'appel', {skipKinds:['rappel','devis']}); }catch(e){ console.warn('À faire :', e); } }
+    const callMsg = (p.name||p.contact||'Fiche')+' : '+suite.toLowerCase()+(r.rappel_date && r.suite!=='sans_suite' ? ', rappel prévu' : '')+(r.source==='ia' ? ' (classé par l’IA)' : '');
+    if(added.length) toastAction(callMsg+' · '+(added.length>1 ? added.length+' tâches' : '1 tâche')+' dans « À faire »', 'Annuler les tâches', ()=>removeTasks(added.map(t=>t.id)));
+    else toast(callMsg);
   }catch(e){
     toast('Non enregistré : '+(e?.message||e),'error');
     if(btn){ btn.disabled = false; btn.textContent = 'Valider'; }
@@ -8738,6 +8882,7 @@ function parseFrDate(text, todayISO){
   }
   if((m = t.match(new RegExp('\\b(1er|\\d{1,2})\\s+('+FR_MONTHS.join('|')+')\\b')))) return fix(base.getFullYear(), FR_MONTHS.indexOf(m[2]), m[1]==='1er' ? 1 : +m[1]);
   if((m = t.match(new RegExp('\\b(debut|mi|fin)[- ]('+FR_MONTHS.join('|')+')\\b')))) return fix(base.getFullYear(), FR_MONTHS.indexOf(m[2]), {debut:5, mi:15, fin:25}[m[1]]);
+  if(/\b(aujourd ?hui|ce soir|ce matin|cet apres[- ]midi|avant ce soir)\b/.test(t)) return add(0);
   return '';
 }
 function classifyCallRules(summary, p){
@@ -8885,13 +9030,15 @@ function renderToday(){
   // 9. Mails d'inconnus à vérifier, propositions sur les mails des clients
   const toCheck=mailCandidates();
   const suggs=crmSuggestions();
+  // 10. À faire
+  const taskDue=tasksDue(), taskSoon=tasksSoon();
 
-  const total=nouveaux.length+(petits.length?1:0)+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
+  const total=nouveaux.length+(petits.length?1:0)+taskDue.length+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(petits.length,'petite'+(petits.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(taskDue.length,'à faire')+chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(petits.length,'petite'+(petits.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -8905,6 +9052,20 @@ function renderToday(){
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideSuggestion(${+x.id},'ignorer',this)">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideSuggestion(${+x.id},'appliquer',this)">${esc(SUGG_LABELS[x.kind]||'Appliquer')}</button></div>
     </div>`;}).join(''));
+  // À faire : toujours affiché, pour pouvoir ajouter une tâche d'une phrase.
+  const taskRow=t=>{const p=t.prospect_id?prospects.find(y=>y.id===t.prospect_id):null;const w=taskWhen(t);return `
+    <div class="td-row">
+      ${p?`<button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Fiche')}</b><span>${esc(p.statut||'')}</span></button>`:`<div class="td-who" style="cursor:default"><b>Sans fiche</b><span>${esc(t.origine==='manuel'?'ajoutée à la main':'')}</span></div>`}
+      <span class="td-what">${esc(t.titre)}${t.origine!=='manuel'&&t.extrait&&t.extrait!==t.titre?'<small class="td-sub">'+esc(t.origine==='appel'?'appel':'note')+' : « '+esc(t.extrait.slice(0,120))+' »</small>':''}</span>
+      <span class="td-when ${w.cls}">${esc(w.label)}</span>
+      <div class="td-act">${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${esc(String(t.id))}')">Fait</button></div>
+    </div>`;};
+  html+=`<section class="td-sec" id="td-tasks"><div class="td-sec-h"><h2>À faire</h2><span>tiré de tes notes et de tes appels</span></div><div class="td-list">
+    <form class="td-task-add" onsubmit="addQuickTask(event)"><input id="td-task-input" type="text" autocomplete="off" placeholder="Ajouter une tâche : « envoyer le catalogue à Place Verte vendredi »" aria-label="Ajouter une tâche"><button type="submit" class="btn btn-sm">Ajouter</button></form>
+    ${taskDue.slice(0,10).map(taskRow).join('')}
+    ${taskDue.length>10?`<div class="td-more" style="cursor:default">${taskDue.length-10} autres tâches ensuite</div>`:''}
+    ${taskSoon.length?`<div class="td-more" style="cursor:default;font-weight:500;color:var(--gris-f)">À venir cette semaine : ${taskSoon.slice(0,4).map(t=>esc(t.titre.slice(0,50))+' ('+esc(taskWhen(t).label)+')').join(', ')}${taskSoon.length>4?', et '+(taskSoon.length-4)+' autres':''}</div>`:''}
+  </div></section>`;
   html+=section('Mails à vérifier','nouveaux contacts, peut-être des clients', toCheck.slice(0,6).map(c=>{const d=daysSince(c.sent_at);const f=c.fiche||{};return `
     <div class="td-row">
       <div class="td-who" style="cursor:default"><b>${esc(f.name||c.from_name||String(c.from_addr||'').replace(/.*</,'').replace(/>.*/,'')||'Inconnu')}</b><span>${esc([f.contact||c.from_name, f.ville].filter(Boolean).join(' · '))}</span></div>
@@ -9225,6 +9386,7 @@ function renderDashboard(){
 function populateFiche(id){
   const p = prospects.find(x=>x.id===id);
   if(!p) return;
+  try{ renderFicheTasks(id); }catch(e){}
   
   // Title
   const el = i => document.getElementById(i);
