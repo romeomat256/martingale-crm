@@ -7634,11 +7634,13 @@ function markProspectQuoted(rec){
   if(!rec || rec.type!=='DEV' || !rec.prospectId || isArchivedDoc(rec)) return;
   const p = prospects.find(x=>x.id===rec.prospectId);
   if(!p) return;
-  if(p.devis_demande_at){ p.devis_demande_at = null; saveLocal(); try{ renderToday(); }catch(e){} }
-  if(!['Nouveau','Contacté'].includes(p.statut||'Nouveau')) return;
-  p.statut = 'Devis envoyé';
+  // Comme la base : devis créé = « Devis envoyé » (même en attente ou perdu) et activité du jour ; un client gagné reste gagné.
+  p.devis_demande_at = null;
+  p.date_updated = new Date().toISOString();
+  if((p.statut||'Nouveau')!=='Gagné') p.statut = 'Devis envoyé';
   saveLocal();
   try{ renderToday(); }catch(e){}
+  try{ if(document.getElementById('s-prospects')?.classList.contains('active')) renderProspects(); }catch(e){}
 }
 
 // ── Stock : commande pro partie, stock Shopify ajusté par le serveur
