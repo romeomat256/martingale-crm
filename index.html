@@ -589,6 +589,10 @@ button.ag-client:hover{text-decoration:underline}
 .fiche-rename:hover{background:var(--vert-pale);color:var(--noir)}
 .fiche-name-input{font:inherit;font-size:inherit;font-weight:inherit;color:inherit;border:1px solid var(--border);border-radius:7px;padding:2px 8px;width:min(520px,60vw);background:#fff}
 .dict-btn{display:inline-flex;align-items:center;gap:6px}
+.fiche-arch{margin-top:6px;border-top:1px solid var(--border)}
+.fiche-arch-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--gris-f)}
+.fiche-arch-row small{display:block;font-size:10px;color:var(--gris-l);margin-top:2px}
+.fiche-arch-act{display:flex;gap:4px}
 .sd-greet{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:-4px}
 .sd-greet .is-on{background:var(--vert);border-color:var(--vert);color:#fff}
 .dict-btn[hidden]{display:none}
@@ -10277,7 +10281,10 @@ function populateFiche(id){
   const summary = el('fiche-commercial-summary');
   if(summary){
     const fmt = v => v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
-    const mesDevis = devisList.filter(d=>d.prospectId===id);
+    // Seule la version en cours s'affiche ; les versions remplacées, doublons et devis jetés sont rangés dessous.
+    const mesDevisTous = devisList.filter(d=>d.prospectId===id);
+    const mesDevis = mesDevisTous.filter(d=>!isArchivedDoc(d));
+    const mesArchives = mesDevisTous.filter(isArchivedDoc);
     const mesCmd = commandesList.filter(c=>c.prospect_id===id);
     
     const stockItems = '';
@@ -10331,7 +10338,8 @@ function populateFiche(id){
         <div style="font-size:10px;font-weight:600;color:var(--gris-l);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Devis</div>
         ${devisHtml}
         <button class="btn btn-sm" style="width:100%;margin-top:8px;font-size:11px" onclick="openDocGenerator('${id}')">+ Créer un document</button>
-        <button class="btn btn-sm" style="width:100%;margin-top:8px;font-size:11px" onclick="window.CrmDocuments?.show('${id}')">Documents archivés</button>
+        ${mesArchives.length?`<button type="button" class="btn btn-sm" style="width:100%;margin-top:8px;font-size:11px" aria-expanded="${!!(window.__ficheArch||{})[id]}" onclick="(window.__ficheArch=window.__ficheArch||{})['${id}']=!window.__ficheArch['${id}'];populateFiche('${id}')">${(window.__ficheArch||{})[id]?'Masquer':'Voir'} les anciennes versions (${mesArchives.length})</button>
+        ${(window.__ficheArch||{})[id]?`<div class="fiche-arch">${mesArchives.map(d=>`<div class="fiche-arch-row"><span><b>${escapeHTML(d.num)}</b> <span class="badge ${DEVIS_STATUT_CLASS[d.statut]||''}" style="font-size:9px">${escapeHTML(d.statut)}</span>${d.remplacePar?`<small>${d.motif==='version retenue'?'non retenu, '+escapeHTML(d.remplacePar)+' choisi':'remplacé par '+escapeHTML(d.remplacePar)}</small>`:''}</span><span>${d.ttc?fmt(+d.ttc):''}</span><span class="fiche-arch-act"><button type="button" class="btn btn-sm" onclick="openStoredDocument('${escapeHTML(d.num)}')">Voir</button><button type="button" class="btn btn-sm" onclick="restoreArchivedDoc('${escapeHTML(d.id||d.num)}').then(()=>populateFiche('${id}'))">Restaurer</button></span></div>`).join('')}</div>`:''}`:''}
       </div>
       ${mesCmd.length?`<div>
         <div style="font-size:10px;font-weight:600;color:var(--gris-l);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Commande active</div>
@@ -10748,7 +10756,6 @@ function renderDevisList(){
           ${(d.invoiceIssuedAt||isDevis)?`<button class="btn btn-sm" title="Envoyer au client un lien vers le document" onclick="openSendDocument('${d.id||d.num}')">Envoyer</button>`:''}
           ${d.invoiceIssuedAt?(d.pennylane?.invoice_id?`<span class="badge b-won" title="Facture enregistrée dans Pennylane">${d.pennylane.paid?'Payée · Pennylane':'Pennylane ✓'}</span>`:`<button class="btn btn-sm" title="Envoyer la facture dans Pennylane" onclick="pushInvoiceToPennylaneById('${d.id||d.num}',this)">→ Pennylane</button>`):''}
           ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Réimprimer la facture" onclick="reprintInvoice('${d.id||d.num}')">Réimprimer</button>`:''}
-          ${d.invoiceIssuedAt?`<button class="btn btn-sm" title="Archiver le PDF sans émettre une nouvelle facture" onclick="window.CrmDocuments?.invoice('${d.id}')">Archiver le PDF</button>`:''}
           ${!d.invoiceIssuedAt?`<button class="btn btn-sm" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="deleteDevis('${d.id||d.num}',this.closest('tr'))">✕</button>`:''}
         </div>
       </td>
