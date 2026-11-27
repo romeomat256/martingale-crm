@@ -589,6 +589,8 @@ button.ag-client:hover{text-decoration:underline}
 .fiche-rename:hover{background:var(--vert-pale);color:var(--noir)}
 .fiche-name-input{font:inherit;font-size:inherit;font-weight:inherit;color:inherit;border:1px solid var(--border);border-radius:7px;padding:2px 8px;width:min(520px,60vw);background:#fff}
 .dict-btn{display:inline-flex;align-items:center;gap:6px}
+.sd-greet{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:-4px}
+.sd-greet .is-on{background:var(--vert);border-color:var(--vert);color:#fff}
 .dict-btn[hidden]{display:none}
 .dict-btn.on{background:#A33A2A;border-color:#A33A2A;color:#fff}
 .dict-btn.on svg{animation:dictPulse 1.2s ease-in-out infinite}
@@ -5806,11 +5808,27 @@ function quoteMailFacts(d){
 function quoteMailSignature(en){
   const me = (typeof memberName==='function' && typeof myAuthId==='function') ? (memberName(myAuthId())||'') : '';
   if(me && !/rom[ée]o/i.test(me)) return me+'\nMartingale Paris';
-  return 'Roméo MATHIEU\n06 72 25 84 00\n'+(en?'Sales Manager':'Responsable Commercial');
+  return 'Roméo MATHIEU\n'+(en?'Sales Manager':'Responsable commercial')+'\nMARTINGALE\n06 72 25 84 00';
+}
+// « Bonjour Monsieur Martinet » si la civilité est écrite sur le contact, sinon le prénom ; la fenêtre d'envoi propose les autres.
+function sendGreetings(d){
+  const en = d.docLocale==='US'||d.docLocale==='UK';
+  let raw = String(d.contactName||'').trim().replace(/\s+/g,' ');
+  let civ = '';
+  const m = raw.match(/^(m\.|mr\.?|monsieur|mme\.?|madame|mlle|mrs\.?|ms\.?)\s+/i);
+  if(m){ civ = /^(mme|madame|mlle|mrs|ms)/i.test(m[1]) ? 'F' : 'M'; raw = raw.slice(m[0].length); }
+  const parts = raw.split(' ').filter(Boolean);
+  const first = parts[0] || '', last = parts.length>1 ? parts[parts.length-1] : '';
+  const hello = en ? 'Hello' : 'Bonjour';
+  const opts = [];
+  if(last){ opts.push({k:'M', t: hello+' '+(en?'Mr ':'Monsieur ')+last}); opts.push({k:'F', t: hello+' '+(en?'Ms ':'Madame ')+last}); }
+  if(first) opts.push({k:'P', t: hello+' '+first});
+  opts.push({k:'N', t: hello});
+  const def = (civ && last) ? opts.find(o=>o.k===civ) : (first ? opts.find(o=>o.k==='P') : opts[opts.length-1]);
+  return {opts, def: def.t};
 }
 function defaultSendMessage(d){
   const en = d.docLocale==='US'||d.docLocale==='UK';
-  const first = String(d.contactName||'').trim().split(/\s+/)[0]||'';
   if(d.type==='DEV'){
     const f = quoteMailFacts(d);
     const join = (arr, and) => arr.length<2 ? (arr[0]||'') : arr.slice(0,-1).join(', ')+' '+and+' '+arr[arr.length-1];
@@ -5818,32 +5836,26 @@ function defaultSendMessage(d){
     if(f.custom.length && !f.catalog.length) what = en ? f.total+' custom Martingale chairs' : f.total+' chaises personnalisées';
     else if(f.chairs.length && f.chairs.length<=3 && f.chairs.every(l=>f.name(l))) what = join(f.chairs.map(l=>(+l.qty)+(en?' ':' chaises ')+f.name(l)+(en?' chairs':'')), en?'and':'et');
     else what = f.total ? (en ? f.total+' Martingale chairs' : f.total+' chaises Martingale') : (en ? 'your Martingale chairs' : 'vos chaises Martingale');
-    const dep = typeof quoteDepositPct==='function' ? quoteDepositPct(d) : 50;
     let delay;
     if(f.custom.length) delay = en
-      ? 'As a reminder, production and delivery take 16 weeks for custom models. We start production as soon as your order is confirmed.'
-      : 'Pour rappel, le délai de fabrication et de livraison est de 16 semaines pour les modèles personnalisés. Nous lançons la production dès la confirmation de votre commande.';
+      ? 'Please note that custom models are made to order, with a production and delivery time of about 16 weeks.'
+      : 'À noter que les modèles personnalisés sont fabriqués sur commande, avec un délai de fabrication et de livraison d’environ 16 semaines.';
     else if(f.inStock) delay = en
-      ? 'These models are in stock: shipped within 48 hours, delivered within 5 working days.'
-      : 'Ces modèles sont disponibles en stock : expédition sous 48 h, livraison en 5 jours ouvrés maximum.';
+      ? 'Please note that these models are in stock: shipped within 48 hours, delivered within 5 working days.'
+      : 'À noter que ces modèles sont disponibles en stock : expédition sous 48 h, livraison en 5 jours ouvrés maximum.';
     else if(f.catalog.length) delay = en
-      ? 'Some models need to be restocked: allow about 14 weeks for those.'
-      : 'Certains modèles sont à réapprovisionner : comptez environ 14 semaines pour ceux-ci.';
-    const goal = f.custom.length ? (en?'start production':'lancer la production') : (f.inStock ? (en?'ship your chairs':'expédier vos chaises') : (en?'launch your order':'lancer votre commande'));
-    const pay = dep>0
-      ? (en ? 'You can approve the quote online and pay the '+dep+' % deposit, so that we can '+goal+'.'
-            : 'Je vous invite à valider le devis en ligne et à régler l’acompte de '+dep+' %, afin que nous puissions '+goal+'.')
-      : (en ? 'You can approve the quote online and proceed with payment, so that we can '+goal+'.'
-            : 'Je vous invite à valider le devis en ligne et à procéder au règlement, afin que nous puissions '+goal+'.');
+      ? 'Please note that some models need to be restocked, with a lead time of about 14 weeks.'
+      : 'À noter que certains modèles nécessitent un réapprovisionnement, avec un délai d’environ 14 semaines.';
+    const greet = sendGreetings(d).def;
     const body = en
-      ? ['Hello'+(first?' '+first:'')+',', 'Thank you for your interest in Martingale chairs.\nPlease find below our quote for '+what+'.', delay, pay, 'I remain at your disposal for any question or change.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
-      : ['Bonjour'+(first?' '+first:'')+',', 'Merci pour votre intérêt pour les chaises Martingale.\nVous trouverez ci-dessous notre devis pour '+what+'.', delay, pay, 'Je reste à votre disposition pour toute question ou modification.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
+      ? [greet+',', 'Thank you for your interest in MARTINGALE chairs.\nFollowing our discussions, please find below our proposal for '+what+'.', delay, 'Feel free to share your thoughts or any questions. We can of course adjust our proposal to your needs.', 'I remain at your disposal and would be delighted to support you in this project.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
+      : [greet+',', 'Merci pour l’intérêt que vous portez à nos chaises MARTINGALE.\nSuite à nos échanges, vous trouverez ci-dessous notre proposition commerciale pour '+what+'.', delay, 'N’hésitez pas à me faire part de vos impressions ou de vos éventuelles questions. Nous pouvons naturellement ajuster notre proposition en fonction de vos besoins.', 'Je reste à votre disposition et serai ravi de vous accompagner dans ce projet.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
     return {subject: en ? 'Martingale Paris quote · Rattan chairs' : 'Devis Martingale Paris - Chaises en rotin', message: body.filter(Boolean).join('\n\n')};
   }
   const label = d.type==='FAC' ? (en?'deposit invoice':'facture d’acompte') : (en?'invoice':'facture');
   return en
-    ? {subject:'Martingale Paris '+label+' '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your '+label+' '+d.num+' below.\nBank details are on the document.\n\nThank you for your trust.\n\nBest regards,\n'+quoteMailSignature(true)}
-    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVous trouverez ci-dessous votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci encore pour votre confiance.\n\nBien cordialement,\n'+quoteMailSignature(false)};
+    ? {subject:'Martingale Paris '+label+' '+d.num, message:sendGreetings(d).def+',\n\nPlease find your '+label+' '+d.num+' below.\nBank details are on the document.\n\nThank you for your trust.\n\nBest regards,\n'+quoteMailSignature(true)}
+    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:sendGreetings(d).def+',\n\nVous trouverez ci-dessous votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci encore pour votre confiance.\n\nBien cordialement,\n'+quoteMailSignature(false)};
 }
 
 function openSendDocument(id){
@@ -5860,6 +5872,7 @@ function openSendDocument(id){
     <div style="font-size:12px;color:#888">Le client reçoit un lien sécurisé vers le document${d.type==='DEV'?', avec le bon pour accord en ligne':''}. Le lien reste valable 90 jours.</div>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Destinataire</span><input id="sd-to" type="email" value="${escapeHTML(d.email||'')}" placeholder="client@exemple.fr"></label>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Objet</span><input id="sd-subject" type="text" value="${escapeHTML(def.subject)}"></label>
+    <div class="sd-greet" role="group" aria-label="Formule d’appel">${sendGreetings(d).opts.map(o=>`<button type="button" class="ag-chip${o.t===sendGreetings(d).def?' is-on':''}" data-greet="${escapeHTML(o.t)}">${escapeHTML(o.t)}</button>`).join('')}</div>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Message</span><textarea id="sd-message" rows="9">${escapeHTML(def.message)}</textarea></label>
     <div id="sd-link" style="display:none;font-size:12px;background:#F5F5EE;border-radius:7px;padding:8px 10px;overflow-wrap:anywhere"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
@@ -5869,6 +5882,12 @@ function openSendDocument(id){
     </div></div>`;
   document.body.appendChild(ov);
   ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+  ov.querySelectorAll('.sd-greet [data-greet]').forEach(b=>b.addEventListener('click', ()=>{
+    const ta = document.getElementById('sd-message'); if(!ta) return;
+    const lines = ta.value.split('\n'); lines[0] = b.dataset.greet+',';
+    ta.value = lines.join('\n');
+    ov.querySelectorAll('.sd-greet [data-greet]').forEach(x=>x.classList.toggle('is-on', x===b));
+  }));
   const val = id2 => document.getElementById(id2).value.trim();
   const getLink = async () => {
     const r = await callCrmFunction('document-share',{action:'link', num:d.num});
@@ -5876,7 +5895,15 @@ function openSendDocument(id){
     const box=document.getElementById('sd-link'); box.style.display='block'; box.textContent=r.url;
     return r.url;
   };
-  const openGmail = url => window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(val('sd-to'))+'&su='+encodeURIComponent(val('sd-subject'))+'&body='+encodeURIComponent(val('sd-message')+'\n\n'+url),'_blank');
+  // Gmail ajoute ta signature : on retire celle du texte et on place le lien avant la formule de fin.
+  const gmailBody = url => {
+    let t = val('sd-message');
+    [quoteMailSignature(false), quoteMailSignature(true)].forEach(sig=>{ t = t.replace('\n'+sig, ''); });
+    const link = (en ? 'View the quote: ' : (d.type==='DEV' ? 'Voir le devis : ' : 'Voir le document : '))+url;
+    const m = t.match(/\n\n(Très belle journée|Have a lovely day|Bien cordialement|Best regards)/);
+    return m ? t.slice(0, m.index)+'\n\n'+link+t.slice(m.index) : t+'\n\n'+link;
+  };
+  const openGmail = url => window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(val('sd-to'))+'&su='+encodeURIComponent(val('sd-subject'))+'&body='+encodeURIComponent(gmailBody(url)),'_blank');
   document.getElementById('sd-copy').onclick = async () => {
     try{ const url=await getLink(); try{ await navigator.clipboard.writeText(url); toast('Lien copié'); }catch(e){ toast('Lien prêt, sélectionne-le pour le copier'); } }
     catch(e){ toast(e.message,'error'); }
