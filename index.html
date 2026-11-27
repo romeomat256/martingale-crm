@@ -427,6 +427,7 @@ body.nd-open{overflow:hidden}
 .nd-pages{font-size:12px;color:var(--gris-l);margin-top:-6px}
 /* Aujourd'hui */
 .td-chips{display:flex;gap:8px;flex-wrap:wrap}
+.td-tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--vert-pale);color:var(--vert);margin-right:8px;vertical-align:1px}
 .td-chip{padding:6px 12px;border-radius:999px;background:#fff;border:1px solid var(--border);font-size:13px}
 .td-wrap{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
 .td-main{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:26px}
@@ -1137,6 +1138,11 @@ button.ag-client:hover{text-decoration:underline}
         </div>
 
         <!-- À FAIRE DE LA FICHE -->
+        <div class="card" id="fiche-call-card" hidden style="margin-bottom:16px">
+          <div class="card-title">Nouvelle demande : appel fait ?</div>
+          <div style="font-size:13px;color:var(--gris-l);margin:-4px 0 8px">Résume l’appel en une phrase. La fiche se classe toute seule (devis à préparer, rappel, en attente…).</div>
+          <div id="fiche-call"></div>
+        </div>
         <div class="card" id="fiche-tasks-card" hidden>
           <div class="card-title">À faire</div>
           <div id="fiche-tasks"></div>
@@ -8033,19 +8039,22 @@ async function loadAutomationState(){
 // Une phrase qui commence par une action (« envoyer… », « rappeler… », « il faut… », « penser à… ») devient une tâche,
 // avec sa date si elle est dite (« vendredi », « le 12/12 », « dans 15 jours »).
 const TASK_PREFIX = /^\s*(?:[-•*→>]+\s*)?(?:(?:il faut|faut|je dois|on doit|pens(?:er|e) à|pens(?:er|e) a|ne pas oublier(?: de| d['’])?|n['’]oublie pas(?: de| d['’])?|à faire|a faire|todo|to do|tâche|tache)\s*:?\s*)/i;
-const TASK_VERB = /^(?:envoyer|renvoyer|rappeler|relancer|appeler|recontacter|contacter|refaire|faire|preparer|chiffrer|commander|livrer|expedier|verifier|demander|confirmer|passer|caler|planifier|prevoir|organiser|reserver|transmettre|mettre a jour|modifier|corriger|valider|facturer|emettre|recuperer|ecrire|repondre|proposer|presenter|montrer|partager|faire suivre|terminer|finir|imprimer|deposer|signer)\b/;
+const TASK_NOUN = /^(?:le |un |les |des |la |une |l['’ ])?(?:devis|mail|e-mail|email|echantillon|echantillons|catalogue|facture|photos?|visuels?|fiche|rappel|relance|commande)\b[^.]{0,30}?\b(?:a|à) (?:faire|envoyer|renvoyer|preparer|refaire|relancer|rappeler|chiffrer|corriger|modifier|valider)\b/;
+const TASK_VERB = /^(?:(?:lui|leur|les|le|la|l['’ ]|me|nous|vous) )?(?:envoyer|renvoyer|rappeler|relancer|appeler|recontacter|contacter|refaire|faire|preparer|chiffrer|commander|livrer|expedier|verifier|demander|confirmer|passer|caler|planifier|prevoir|organiser|reserver|transmettre|mettre a jour|modifier|corriger|valider|facturer|emettre|recuperer|ecrire|repondre|proposer|presenter|montrer|partager|faire suivre|terminer|finir|imprimer|deposer|signer)\b/;
 const TASK_SUBJECT = /^(?:je|on|j['’ ]?)\s*(?:lui |leur |vous |les |le |la |l['’ ])?(?:envoie|renvoie|rappelle|relance|appelle|fais|prepare|chiffre|passe|verifie|confirme|transmets|ecris|reponds|propose|recontacte|dois)\b/;
 function taskKind(n){ return /\b(devis|chiffr|cotation)/.test(n) ? 'devis' : /\b(rappel|relanc|appel|recontact|telephon)/.test(n) ? 'rappel' : /\b(envoy|envoi|expedi|livr|echantillon|catalogue)/.test(n) ? 'envoi' : 'autre'; }
 function extractTasksFromText(text, todayISO){
   const out = [], seen = new Set();
-  String(text||'').split(/\n+|(?<=[.!?;])\s+/).forEach(raw=>{
+  // Une note = plusieurs morceaux : lignes, phrases, puis « …, envoyer le devis vendredi ».
+  String(text||'').split(/\n+|(?<=[.!?;])\s+|,\s+(?=(?:et |puis |aussi |il faut |faut |je dois |on doit |penser |ne pas oublier |lui |leur )?[a-zà-ÿ'’]+)/i).forEach(raw=>{
     const seg = raw.replace(/^\s*\[[^\]]*\]\s*/,'').trim();
     if(seg.length < 6 || seg.length > 300) return;
     const prefixed = TASK_PREFIX.test(seg) && seg.replace(TASK_PREFIX,'').trim().length >= 4;
     const body = seg.replace(TASK_PREFIX,'').trim();
     const n = qaNorm(body).replace(/[’']/g,"'");
-    if(!(prefixed || TASK_VERB.test(n) || TASK_SUBJECT.test(n))) return;
-    let titre = body.replace(/[\s.;!]+$/,'');
+    const n2 = n.replace(/^(?:et|puis|aussi)\s+/,'');
+    if(!(prefixed || TASK_VERB.test(n2) || TASK_SUBJECT.test(n2) || TASK_NOUN.test(n2))) return;
+    let titre = body.replace(/^(?:et|puis|aussi)\s+/i,'').replace(/[\s.;!]+$/,'');
     titre = titre.charAt(0).toUpperCase() + titre.slice(1);
     const key = qaNorm(titre);
     if(seen.has(key)) return; seen.add(key);
@@ -8054,6 +8063,64 @@ function extractTasksFromText(text, todayISO){
   return out.slice(0,8);
 }
 function crmTasks(){ return (autoStore().tasks || []).filter(t=>!t.fait_at); }
+// Ce qu'on peut oublier, trouvé tout seul (pas besoin d'une note) : écartable d'un clic jusqu'au prochain événement.
+function todoDismissed(){ try{ return JSON.parse(localStorage.getItem('mp_todo_dismiss')||'{}'); }catch(e){ return {}; } }
+function dismissTodo(key, stamp){
+  const d = todoDismissed(); d[key] = stamp || Date.now();
+  try{ localStorage.setItem('mp_todo_dismiss', JSON.stringify(d)); }catch(e){}
+  refreshTaskViews(); toast('Retiré de « À faire »');
+}
+function hasQuoteFor(pid){ return uniqueDocs().some(d=>d.type==='DEV' && d.prospectId===pid); }
+// Mails : le client a écrit en dernier (fiches suivies, hors perdues et nouvelles demandes déjà listées ailleurs).
+function todoMails(pid){
+  const st = exchangeStore().byId, dis = todoDismissed();
+  return prospects.filter(p=>(!pid || p.id===pid) && !['Perdu','Nouveau'].includes(p.statut) && st[p.id] && st[p.id].recu && st[p.id].recu > (st[p.id].envoye||0) && !(dis['mail:'+p.id] >= st[p.id].recu))
+    .map(p=>({p, t: st[p.id].recu, d: daysSince(new Date(st[p.id].recu).toISOString())}));
+}
+// Devis : demandé au téléphone (fiche marquée), ou demande chiffrée sur une fiche déjà contactée sans aucun devis.
+function todoQuotes(pid){
+  const dis = todoDismissed(), big = bigQuoteProspects();
+  return prospects.filter(p=>(!pid || p.id===pid) && !['Perdu','Gagné','En attente chantier'].includes(p.statut)).map(p=>{
+    if(p.devis_demande_at) return {p, d: daysSince(p.devis_demande_at), brief: true};
+    if(['Contacté','Relance'].includes(p.statut) && prospectDemandLabel(p) && !hasQuoteFor(p.id) && !isSmallRequest(p, big) && !dis['devis:'+p.id])
+      return {p, d: daysSince(p.date_updated || p.date_created), brief: false};
+    return null;
+  }).filter(Boolean);
+}
+// Liste unique, la plus ancienne attente en premier
+function todoItems(pid){
+  const items = [];
+  todoMails(pid).forEach(x=>items.push({type:'mail', p:x.p, age:x.d??0, x}));
+  todoQuotes(pid).forEach(x=>items.push({type:'devis', p:x.p, age:x.d??0, x}));
+  (pid ? tasksForProspect(pid) : tasksDue()).forEach(t=>{ const dd = taskDayDiff(t); items.push({type:'task', p: t.prospect_id ? prospects.find(y=>y.id===t.prospect_id) : null, age: dd===null ? 0 : -dd, t}); });
+  return items.sort((a,b)=>b.age-a.age);
+}
+function todoRow(it){
+  const esc = escapeHTML, p = it.p;
+  const who = p ? `<button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Fiche')}</b><span>${esc(p.statut||'')}</span></button>`
+                : `<div class="td-who" style="cursor:default"><b>Sans fiche</b><span>${esc(it.t && it.t.origine==='manuel'?'ajouté à la main':'')}</span></div>`;
+  const age = d => d<=0 ? 'aujourd’hui' : (d===1 ? 'hier' : 'il y a '+d+' j');
+  if(it.type==='mail') return `<div class="td-row">${who}
+      <span class="td-what"><span class="td-tag">Mail</span>Répondre au client${prospectDemandLabel(p)?'<small class="td-sub">'+esc(prospectDemandLabel(p))+'</small>':''}</span>
+      <span class="td-when ${ageClass(it.age,1,3)}">a écrit ${age(it.age)}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="openFiche('${esc(p.id)}')">Lire</button><button type="button" class="btn btn-sm td-ok" onclick="dismissTodo('mail:${esc(p.id)}', ${+it.x.t})" title="Déjà répondu ou rien à répondre">Fait</button></div>
+    </div>`;
+  if(it.type==='devis'){
+    const b = p.devis_brief||{}, dl = prospectDemandLabel(p);
+    const what = it.x.brief ? (quoteBriefLines(p).map(i=>{const pr=PRODUCTS.find(x=>x.id===i.id);return (pr?pr.name:i.id)+' × '+i.qty;}).join(', ') || ((b.qty||p.qty)?(b.qty||p.qty)+' chaises':'')) : dl;
+    return `<div class="td-row">${who}
+      <span class="td-what"><span class="td-tag">Devis</span>${it.x.brief?'Préparer le devis demandé':'Devis pas encore fait'}${what?'<small class="td-sub">'+esc(what)+(+b.remise_pct&&it.x.brief?' · −'+esc(b.remise_pct)+' %':'')+'</small>':''}${it.x.brief&&b.delai?'<small class="td-sub">'+esc(b.delai)+'</small>':''}${it.x.brief&&quoteMissing(p).length?'<small class="td-sub td-miss">à préciser : '+esc(quoteMissing(p).join(', '))+'</small>':''}</span>
+      <span class="td-when ${ageClass(it.age,1,3)}">${it.x.brief?'demandé '+age(it.age):'en attente depuis '+(it.age<=0?'aujourd’hui':it.age+' j')}</span>
+      <div class="td-act"><button type="button" class="btn btn-sm" onclick="${it.x.brief?`dropQuoteRequest('${esc(p.id)}')`:`dismissTodo('devis:${esc(p.id)}')`}" title="Le client n’attend pas de devis">Plus besoin</button><button type="button" class="btn btn-sm btn-primary" onclick="${it.x.brief?`prepareQuoteFromBrief('${esc(p.id)}')`:`openDocGenerator('${esc(p.id)}')`}">${dl?'Devis '+esc(dl):'Faire le devis'}</button></div>
+    </div>`;
+  }
+  const t = it.t, w = taskWhen(t);
+  return `<div class="td-row">${who}
+      <span class="td-what"><span class="td-tag">${t.origine==='appel'?'Appel':(t.origine==='manuel'?'Tâche':'Note')}</span>${esc(t.titre)}${t.origine!=='manuel'&&t.extrait&&t.extrait!==t.titre?'<small class="td-sub">« '+esc(t.extrait.slice(0,120))+' »</small>':''}</span>
+      <span class="td-when ${w.cls}">${esc(w.label)}</span>
+      <div class="td-act">${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${esc(String(t.id))}')">Fait</button></div>
+    </div>`;
+}
 function tasksForProspect(id){ return crmTasks().filter(t=>t.prospect_id===id); }
 function taskDayDiff(t){ if(!t.echeance) return null; return Math.round((new Date(t.echeance+'T12:00:00') - new Date(todayParisISO()+'T12:00:00'))/86400000); }
 function tasksDue(){
@@ -8157,9 +8224,15 @@ function taskAction(t){
 function renderFicheTasks(id){
   const card = document.getElementById('fiche-tasks-card'), box = document.getElementById('fiche-tasks');
   if(!card || !box) return;
-  const list = tasksForProspect(id).sort((a,b)=>(taskDayDiff(a)??999)-(taskDayDiff(b)??999));
+  const esc = escapeHTML;
+  const list = todoItems(id);
   card.hidden = !list.length;
-  box.innerHTML = list.map(t=>{ const w = taskWhen(t); return `<div class="fiche-task"><span>${escapeHTML(t.titre)}</span><small class="${w.cls}">${escapeHTML(w.label)}</small>${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${escapeHTML(String(t.id))}')">Fait</button></div>`; }).join('');
+  box.innerHTML = list.map(it=>{
+    if(it.type==='mail') return `<div class="fiche-task"><span><span class="td-tag">Mail</span>Répondre au client</span><small class="${ageClass(it.age,1,3)}">${it.age<=0?'a écrit aujourd’hui':(it.age===1?'a écrit hier':'a écrit il y a '+it.age+' j')}</small><button type="button" class="btn btn-sm td-ok" onclick="dismissTodo('mail:${esc(id)}', ${+it.x.t})">Fait</button></div>`;
+    if(it.type==='devis'){ const dl = prospectDemandLabel(it.p); return `<div class="fiche-task"><span><span class="td-tag">Devis</span>${it.x.brief?'Préparer le devis demandé':'Devis pas encore fait'}</span><small class="${ageClass(it.age,1,3)}">${dl?esc(dl):''}</small><button type="button" class="btn btn-sm btn-primary" onclick="${it.x.brief?`prepareQuoteFromBrief('${esc(id)}')`:`openDocGenerator('${esc(id)}')`}">Faire le devis</button><button type="button" class="btn btn-sm td-ok" onclick="${it.x.brief?`dropQuoteRequest('${esc(id)}')`:`dismissTodo('devis:${esc(id)}')`}">Plus besoin</button></div>`; }
+    const t = it.t, w = taskWhen(t);
+    return `<div class="fiche-task"><span>${esc(t.titre)}</span><small class="${w.cls}">${esc(w.label)}</small>${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${esc(String(t.id))}')">Fait</button></div>`;
+  }).join('');
 }
 function refreshTaskViews(){
   try{ if(typeof currentProspectId!=='undefined' && currentProspectId) renderFicheTasks(currentProspectId); }catch(e){}
@@ -9414,15 +9487,15 @@ function toggleCallDone(id){
   renderToday();
   if(st.open) setTimeout(()=>{ try{ previewCallDone(); document.getElementById('td-done-text')?.focus(); }catch(e){} }, 30);
 }
-function callDonePanel(p){
+function callDonePanel(p, inFiche){
   const st = doneStore(), esc = escapeHTML;
   return `<div class="td-done">
     <textarea id="td-done-text" rows="2" placeholder="Résumé de l’appel. Ex. : veut un devis pour 20 chaises kaki, livraison Bordeaux, rappeler lundi." oninput="doneStore().text=this.value;previewCallDone()">${esc(st.text||'')}</textarea>
     <div class="td-done-bar">
       <div id="td-done-preview" class="td-done-preview"></div>
       <div class="td-done-go">
-        <button type="button" class="btn btn-sm" onclick="toggleCallDone('${esc(p.id)}')">Annuler</button>
-        <button type="button" class="btn btn-sm btn-primary" onclick="saveCallDone('${esc(p.id)}',this)">Valider</button>
+        ${inFiche?'':`<button type="button" class="btn btn-sm" onclick="toggleCallDone('${esc(p.id)}')">Annuler</button>`}
+        <button type="button" class="btn btn-sm btn-primary" onclick="saveCallDone('${esc(p.id)}',this)">${inFiche?'Appel fait':'Valider'}</button>
       </div>
     </div>
   </div>`;
@@ -9464,6 +9537,7 @@ async function saveCallDone(id, btn){
     st.open = null; st.text = ''; st.date = '';
     try{ updateBadge(); renderDashboard(); }catch(e){}
     renderToday();
+    try{ if(currentProspectId===id && document.getElementById('s-fiche')?.classList.contains('active')) populateFiche(id); }catch(e){}
     let added = [];
     if(summary && r.suite!=='sans_suite'){ try{ added = await createTasksFromText(summary, p, 'appel', {skipKinds:['rappel','devis']}); }catch(e){ console.warn('À faire :', e); } }
     const callMsg = (p.name||p.contact||'Fiche')+' : '+suite.toLowerCase()+(r.rappel_date && r.suite!=='sans_suite' ? ', rappel prévu' : '')+(r.source==='ia' ? ' (classé par l’IA)' : '');
@@ -9605,6 +9679,8 @@ function prepareQuoteFromBrief(id){
   toast(miss.length ? 'Devis prérempli. À compléter : '+miss.join(', ')+'.' : 'Devis prérempli depuis l’appel : relis et génère.');
 }
 async function dropQuoteRequest(id){
+  // « Plus besoin » vaut aussi pour la règle « devis pas encore fait »
+  try{ const dm = todoDismissed(); dm['devis:'+id] = Date.now(); localStorage.setItem('mp_todo_dismiss', JSON.stringify(dm)); }catch(e){}
   const p = prospects.find(x=>x.id===id);
   if(!p) return;
   p.devis_demande_at = null;
@@ -9658,12 +9734,13 @@ function renderToday(){
   // 10. À faire
   const taskDue=tasksDue(), taskSoon=tasksSoon();
 
-  const total=nouveaux.length+(petits.length?1:0)+taskDue.length+toQuote.length+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+awaiting.length+noReply.length+viewed.length;
+  const todoCount=todoItems(null).length;
+  const total=todoCount+toCheck.length+suggs.length+rappels.length+relances.length+drafts.length+unpaid.length+receipts.length+toBill.length+noReply.length+viewed.length;
   document.getElementById('td-title').textContent = total ? (total+' chose'+(total>1?'s':'')+' à faire aujourd’hui') : 'Rien d’urgent aujourd’hui';
   const badge=document.getElementById('badge-morning');
   if(badge){ badge.textContent=total; badge.style.display=total?'':'none'; }
   const chip=(n,l)=>n?`<span class="td-chip"><b>${n}</b> ${l}</span>`:'';
-  document.getElementById('td-chips').innerHTML=chip(taskDue.length,'à faire')+chip(nouveaux.length,'demande'+(nouveaux.length>1?'s':''))+chip(petits.length,'petite'+(petits.length>1?'s':''))+chip(toQuote.length,'devis à préparer')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(awaiting.length,'réponse'+(awaiting.length>1?'s':'')+' reçue'+(awaiting.length>1?'s':''))+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
+  document.getElementById('td-chips').innerHTML=chip(todoCount,'à faire')+chip(suggs.length,'proposition'+(suggs.length>1?'s':''))+chip(toCheck.length,'mail'+(toCheck.length>1?'s':'')+' à vérifier')+chip(rappels.length+relances.length+noReply.length,'relance'+(rappels.length+relances.length+noReply.length>1?'s':''))+chip(receipts.length,'encaissement'+(receipts.length>1?'s':''))+chip(drafts.length+toBill.length,'à facturer')+chip(unpaid.length,'paiement'+(unpaid.length>1?'s':''));
 
   const prodSummary=p=>(p.produits||[]).map(i=>{const pr=resolveProspectProduct(i);return pr?pr.name+' × '+(i.qty||1):'';}).filter(Boolean).slice(0,2).join(', ')||(p.qty?p.qty+' chaises':'');
   const section=(title,sub,rows,more)=>rows?`<section class="td-sec"><div class="td-sec-h"><h2>${title}</h2><span>${sub}</span></div><div class="td-list">${rows}${more||''}</div></section>`:'';
@@ -9678,17 +9755,11 @@ function renderToday(){
       <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideSuggestion(${+x.id},'ignorer',this)">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideSuggestion(${+x.id},'appliquer',this)">${esc(SUGG_LABELS[x.kind]||'Appliquer')}</button></div>
     </div>`;}).join(''));
   // À faire : toujours affiché, pour pouvoir ajouter une tâche d'une phrase.
-  const taskRow=t=>{const p=t.prospect_id?prospects.find(y=>y.id===t.prospect_id):null;const w=taskWhen(t);return `
-    <div class="td-row">
-      ${p?`<button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Fiche')}</b><span>${esc(p.statut||'')}</span></button>`:`<div class="td-who" style="cursor:default"><b>Sans fiche</b><span>${esc(t.origine==='manuel'?'ajoutée à la main':'')}</span></div>`}
-      <span class="td-what">${esc(t.titre)}${t.origine!=='manuel'&&t.extrait&&t.extrait!==t.titre?'<small class="td-sub">'+esc(t.origine==='appel'?'appel':'note')+' : « '+esc(t.extrait.slice(0,120))+' »</small>':''}</span>
-      <span class="td-when ${w.cls}">${esc(w.label)}</span>
-      <div class="td-act">${taskAction(t)}<button type="button" class="btn btn-sm td-ok" onclick="completeTask('${esc(String(t.id))}')">Fait</button></div>
-    </div>`;};
-  html+=`<section class="td-sec" id="td-tasks"><div class="td-sec-h"><h2>À faire</h2><span>tiré de tes notes et de tes appels</span></div><div class="td-list">
+  const todo = todoItems(null);
+  html+=`<section class="td-sec" id="td-tasks"><div class="td-sec-h"><h2>À faire</h2><span>tes notes, les devis pas encore faits, les mails sans réponse</span></div><div class="td-list">
     <form class="td-task-add" onsubmit="addQuickTask(event)"><input id="td-task-input" type="text" autocomplete="off" placeholder="Ajouter une tâche : « envoyer le catalogue à Place Verte vendredi »" aria-label="Ajouter une tâche"><button type="submit" class="btn btn-sm">Ajouter</button></form>
-    ${taskDue.slice(0,10).map(taskRow).join('')}
-    ${taskDue.length>10?`<div class="td-more" style="cursor:default">${taskDue.length-10} autres tâches ensuite</div>`:''}
+    ${todo.slice(0,12).map(todoRow).join('')}
+    ${todo.length>12?`<div class="td-more" style="cursor:default">${todo.length-12} autres ensuite</div>`:''}
     ${taskSoon.length?`<div class="td-more" style="cursor:default;font-weight:500;color:var(--gris-f)">À venir cette semaine : ${taskSoon.slice(0,4).map(t=>esc(t.titre.slice(0,50))+' ('+esc(taskWhen(t).label)+')').join(', ')}${taskSoon.length>4?', et '+(taskSoon.length-4)+' autres':''}</div>`:''}
   </div></section>`;
   html+=section('Mails à vérifier','nouveaux contacts, peut-être des clients', toCheck.slice(0,6).map(c=>{const d=daysSince(c.sent_at);const f=c.fiche||{};return `
@@ -9698,32 +9769,7 @@ function renderToday(){
       <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
       <div class="td-act"><button type="button" class="btn btn-sm" onclick="decideCandidate(${+c.id},'ignorer',this)" title="Ce n’est pas un client : le mail est effacé du CRM">Ignorer</button><button type="button" class="btn btn-sm btn-primary" onclick="decideCandidate(${+c.id},'creer',this)">Créer la fiche</button></div>
     </div>`;}).join(''), toCheck.length>6?`<div class="td-more" style="cursor:default">${toCheck.length-6} autres mails à vérifier ensuite</div>`:'');
-  const newRow=({p,d})=>`
-    <div class="td-row">
-      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.source,p.ville||(p.dept?'('+p.dept+')':''),p.tel||p.email].filter(Boolean).join(' · '))}${(()=>{const k=findProspectDuplicates(p,p.id)[0];return k?' · <em style="font-style:normal;color:#B9770E;font-weight:600">existe déjà : '+esc(k.name||k.contact||'fiche')+'</em>':'';})()}</span></button>
-      <span class="td-what">${esc(prodSummary(p))}</span>
-      <span class="td-when ${ageClass(d,1,3)}">${ageLabel(d)}</span>
-      <div class="td-act">${telLink(p.tel)}<button type="button" class="btn btn-sm td-ok" onclick="toggleCallDone('${esc(p.id)}')" aria-expanded="${doneStore().open===p.id}">Fait</button><button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
-      ${doneStore().open===p.id?callDonePanel(p):''}
-    </div>`;
-  const smallFold = petits.length ? `<button type="button" class="td-more td-small-fold" aria-expanded="${tdSmallOpen}" onclick="toggleTodaySmall()">${tdSmallOpen?'Replier':'Voir'} ${petits.length>1?'les '+petits.length+' petites demandes':'la petite demande'} (moins de ${SMALL_REQUEST_MAX+1} chaises)</button>`
-    + (tdSmallOpen ? petits.slice(0,12).map(newRow).join('') : '') : '';
-  if(nouveaux.length || petits.length)
-    html+=`<section class="td-sec"><div class="td-sec-h"><h2>Nouvelles demandes</h2><span>à rappeler sous 24 h</span></div><div class="td-list">${nouveaux.slice(0,6).map(newRow).join('')}${nouveaux.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${nouveaux.length} demandes non traitées</button>`:''}${smallFold}</div></section>`;
-  html+=section('Devis à préparer','demandés au téléphone, prêts à chiffrer', toQuote.slice(0,8).map(({p,d})=>{const b=p.devis_brief||{};const lines=quoteBriefLines(p);const miss=quoteMissing(p);return `
-    <div class="td-row">
-      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.contact,b.ville||p.ville||((b.dept||p.dept)?'('+(b.dept||p.dept)+')':'')].filter(Boolean).join(' · '))}</span></button>
-      <span class="td-what">${esc(lines.length?lines.map(i=>{const pr=PRODUCTS.find(x=>x.id===i.id);return (pr?pr.name:i.id)+' × '+i.qty;}).join(', '):((b.qty||p.qty)?(b.qty||p.qty)+' chaises':''))}${+b.remise_pct?' · −'+esc(b.remise_pct)+' %':''}${b.delai?'<small class="td-sub">'+esc(b.delai)+'</small>':''}${miss.length?'<small class="td-sub td-miss">à préciser : '+esc(miss.join(', '))+'</small>':''}</span>
-      <span class="td-when ${ageClass(d,1,3)}">${d<=0?'demandé aujourd’hui':(d===1?'demandé hier':'demandé il y a '+d+' j')}</span>
-      <div class="td-act"><button type="button" class="btn btn-sm" onclick="dropQuoteRequest('${esc(p.id)}')" title="Le client n’attend plus de devis">Plus besoin</button><button type="button" class="btn btn-sm btn-primary" onclick="prepareQuoteFromBrief('${esc(p.id)}')">Préparer le devis</button></div>
-    </div>`;}).join(''), toQuote.length>8?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${toQuote.length} devis à préparer</button>`:'');
-  html+=section('Réponses reçues','le client a écrit en dernier', awaiting.slice(0,6).map(({p,t})=>{const d=daysSince(new Date(t).toISOString());return `
-    <div class="td-row">
-      <button type="button" class="td-who" onclick="openFiche('${esc(p.id)}')"><b>${esc(p.name||p.contact||'Sans nom')}</b><span>${esc([p.statut,p.contact,p.ville].filter(Boolean).join(' · '))}</span></button>
-      <span class="td-what">${esc(prodSummary(p))}</span>
-      <span class="td-when ${ageClass(d,1,3)}">${d<=0?'a écrit aujourd’hui':(d===1?'a écrit hier':'a écrit il y a '+d+' j')}</span>
-      <div class="td-act"><button type="button" class="btn btn-sm" onclick="openFiche('${esc(p.id)}')">Lire</button><button type="button" class="btn btn-sm btn-primary" onclick="openDocGenerator('${esc(p.id)}')">Faire le devis</button></div>
-    </div>`;}).join(''), awaiting.length>6?`<button type="button" class="td-more" onclick="go('prospects')">Voir les ${awaiting.length} réponses</button>`:'');
+  // Nouvelles demandes : suivies dans Clients, colonne « Nouveau » (plus d'encart ici, pour éviter le doublon).
   html+=section('Encaissements à rattacher','virements reçus, client à confirmer', bankTodayRows(receipts.slice(0,8)),
     receipts.length>8?`<div class="td-more" style="cursor:default">${receipts.length-8} autres encaissements à traiter ensuite</div>`:'');
   html+=section('Rappels','prévus aujourd’hui ou en retard', rappels.map(p=>{const d=daysSince(p.rappel_date);return `
@@ -10048,8 +10094,18 @@ function prospectDemandLabel(p){
   if(items.length>1) return total+' ch. · '+items.length+' modèles';
   return total+' chaises';
 }
+function renderFicheCall(p){
+  const card = document.getElementById('fiche-call-card'), box = document.getElementById('fiche-call');
+  if(!card || !box) return;
+  const show = !!p && (p.statut||'Nouveau')==='Nouveau';
+  card.hidden = !show;
+  if(!show){ box.innerHTML = ''; return; }
+  const st = doneStore(); if(st.open!==p.id){ st.open = p.id; st.text = ''; }
+  box.innerHTML = callDonePanel(p, true);
+}
 function populateFiche(id){
   stopDictation();
+  try{ renderFicheCall(prospects.find(x=>x.id===id)); }catch(e){}
   try{
     const qb = document.getElementById('fiche-quote-btn');
     const pp = prospects.find(x=>x.id===id);
