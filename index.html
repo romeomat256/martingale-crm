@@ -4615,6 +4615,24 @@ function getDocDetailSupabaseFields(doc){
 // Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
 const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
 // Acompte prévu par un devis : celui choisi à la création, 50 % pour les anciens devis (CGV, art. 3.2).
+// Règle de Roméo : acompte 50 % seulement au-delà de 40 chaises avec plusieurs produits. Sinon paiement intégral.
+const DEPOSIT_MIN_CHAIRS = 40;
+function dgDepositRule(lines){
+  const ls = (lines||[]).filter(l=>l && l.prodId && l.prodId!=='__pending__' && (+l.qty||0)>0);
+  const isChair = l => { if(/^(cfg-|custom-)/.test(l.prodId)) return true; const pr = PRODUCTS.find(x=>x.id===l.prodId); return !!pr && (pr.custom || pr.category==='sur-mesure' || productCategory(pr)==='chaise'); };
+  const chairs = ls.filter(isChair).reduce((s,l)=>s+(+l.qty||0),0);
+  const products = new Set(ls.map(l=>l.prodId)).size;
+  return {deposit: chairs > DEPOSIT_MIN_CHAIRS && products >= 2, chairs, products};
+}
+function syncDepositCheckbox(){
+  const el = document.getElementById('dg-quote-deposit'); if(!el) return;
+  const r = dgDepositRule(typeof dgLignes!=='undefined' ? dgLignes : []);
+  if(!window.__dgDepositManual) el.checked = r.deposit;
+  const hint = document.getElementById('dg-deposit-hint');
+  if(hint) hint.textContent = window.__dgDepositManual
+    ? 'Choisi à la main pour ce devis.'
+    : (r.deposit ? 'Coché : plus de '+DEPOSIT_MIN_CHAIRS+' chaises et plusieurs produits.' : 'Paiement intégral à la commande. L’acompte s’active au-delà de '+DEPOSIT_MIN_CHAIRS+' chaises avec plusieurs produits.');
+}
 function quoteDepositPct(q){
   if(!q) return 50;
   const v = q.depositPct ?? q.doc_meta?.depositPct;
@@ -4785,6 +4803,7 @@ function printDocumentAndReturn(win, docHTML){
 // ══════════════════════════════════════════════════════════════
 function openDocGenerator(prospectId){
   window.__mpDgProspectId = prospectId || null;
+  window.__dgDepositManual = false;
   // Ouvert depuis une fiche : on y revient après la création
   window.__mpDgOrigin = (document.getElementById('s-fiche')?.classList.contains('active') && currentProspectId) ? {fiche: currentProspectId} : null;
   document.getElementById('doc-generator-overlay')?.remove();
@@ -4902,7 +4921,8 @@ function openDocGenerator(prospectId){
                 <label><input type="radio" name="dg-availability" value="commande"><span>Sur commande (${DOC_LEAD_TIME_WEEKS} sem.)</span></label>
               </div>
               <label class="nd-f"><span>Validité du devis</span><input type="text" id="dg-validite" value="30 jours"></label>
-              <label class="nd-check"><input type="checkbox" id="dg-quote-deposit" checked onchange="updateDocCalc()">Acompte 50 % à la commande, solde avant livraison</label>
+              <label class="nd-check"><input type="checkbox" id="dg-quote-deposit" onchange="window.__dgDepositManual=true;updateDocCalc()">Acompte 50 % à la commande, solde avant livraison</label>
+              <div id="dg-deposit-hint" style="font-size:12px;color:var(--gris-l);margin:-2px 0 0 26px"></div>
             </div>
             <label class="nd-f"><span>Geste commercial (% sur le total)</span>
               <span class="nd-inline"><input type="number" id="dg-remise" value="0" min="0" max="100" oninput="updateDocCalc()" style="max-width:90px"> % <span id="dg-remise-montant" class="nd-minus"></span></span></label>
@@ -5347,6 +5367,7 @@ function getDgLignesData(){
 }
 
 function updateDocCalc(){
+  try{ syncDepositCheckbox(); }catch(e){}
   scheduleGeneratorPreview();
   const el = id => document.getElementById(id);
   const lines = getDgLignesData();
@@ -5784,9 +5805,12 @@ function defaultSendMessage(d){
     else if(f.catalog.length) delay = en
       ? 'Some models need to be restocked: allow about 14 weeks for those.'
       : 'Certains modèles sont à réapprovisionner : comptez environ 14 semaines pour ceux-ci.';
-    const pay = dep>0 ? (en
-      ? 'You can approve the quote online and pay the '+dep+' % deposit, so that we can launch your order.'
-      : 'Je vous invite à valider le devis en ligne et à régler l’acompte de '+dep+' %, afin que nous puissions lancer votre commande.') : '';
+    const goal = f.custom.length ? (en?'start production':'lancer la production') : (f.inStock ? (en?'ship your chairs':'expédier vos chaises') : (en?'launch your order':'lancer votre commande'));
+    const pay = dep>0
+      ? (en ? 'You can approve the quote online and pay the '+dep+' % deposit, so that we can '+goal+'.'
+            : 'Je vous invite à valider le devis en ligne et à régler l’acompte de '+dep+' %, afin que nous puissions '+goal+'.')
+      : (en ? 'You can approve the quote online and proceed with payment, so that we can '+goal+'.'
+            : 'Je vous invite à valider le devis en ligne et à procéder au règlement, afin que nous puissions '+goal+'.');
     const body = en
       ? ['Hello'+(first?' '+first:'')+',', 'Thank you for your interest in Martingale chairs.\nPlease find below our quote for '+what+'.', delay, pay, 'I remain at your disposal for any question or change.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
       : ['Bonjour'+(first?' '+first:'')+',', 'Merci pour votre intérêt pour les chaises Martingale.\nVous trouverez ci-dessous notre devis pour '+what+'.', delay, pay, 'Je reste à votre disposition pour toute question ou modification.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
@@ -6390,8 +6414,8 @@ function buildDocHtml(ctx){
   if(isQuote){
     const intl = !!vat.isInternational || locale.currency !== 'EUR';
     const avail = ctx.availability === 'commande'
-      ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines.${depPct?'':' Règlement par virement, sans escompte.'}`,
-          `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks.${depPct?'':' Payment by international bank transfer (SWIFT), no early-payment discount.'}`)
+      ? L(`Produits sur commande : fabrication et livraison sous ${DOC_LEAD_TIME_WEEKS} semaines.${depPct?'':' Règlement intégral à la commande, par virement, sans escompte.'}`,
+          `Made-to-order products: manufactured and delivered within ${DOC_LEAD_TIME_WEEKS} weeks.${depPct?'':' Full payment upon order by international bank transfer (SWIFT), no early-payment discount.'}`)
       : L(`Produits en stock : expédition sous 48 h${intl?'':', livraison sous 5 jours ouvrés'}. ${depPct?'':'Règlement intégral à la commande, par virement, sans escompte.'}`,
           `In-stock products: shipped within 48 hours.${depPct?'':' Full payment upon order by international bank transfer (SWIFT), no early-payment discount.'}`);
     const parts = [avail.trim()];
