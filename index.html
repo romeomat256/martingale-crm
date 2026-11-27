@@ -472,6 +472,10 @@ body.nd-open{overflow:hidden}
 .kb-af{grid-template-columns:repeat(4,minmax(230px,1fr))}
 #affaires-list-wrap[hidden]{display:none}
 .af-card{cursor:pointer}
+.af-zones{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.af-zones .kb-lost{grid-column:auto}
+.af-trash{border-color:#C9C6B8;background:#F6F5EF;color:#4A4A40}
+.af-trash.is-over{background:#ECEADF;border-color:#7E7D63}
 .af-card[draggable="true"]{cursor:grab}
 .af-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-width:0}
 .af-amt{font-size:13px;font-weight:700;color:var(--vert);white-space:nowrap}
@@ -4633,7 +4637,7 @@ function getDocDetailSupabaseFields(doc){
 }
 
 // Champs du devis sans colonne dédiée : devise, taux, droits US, disponibilité
-const DOC_META_KEYS = ['docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
+const DOC_META_KEYS = ['payeManuelAt','docLocale','docCurrency','fxRate','ttcCurrency','htCurrency','usDutyRate','usDuties','usClearance','usSalesTaxRate','usSalesTax','usDutiesIncluded','availability','depositPct'];
 // Acompte prévu par un devis : celui choisi à la création, 50 % pour les anciens devis (CGV, art. 3.2).
 // Règle de Roméo : acompte 50 % seulement au-delà de 40 chaises avec plusieurs produits. Sinon paiement intégral.
 const DEPOSIT_MIN_CHAIRS = 40;
@@ -10294,7 +10298,7 @@ const DEVIS_STATUT_CLASS = {
 };
 // Documents rangés : version remplacée par une autre, ou copie identique. Ils sortent des listes et des relances,
 // rien n'est supprimé. On les retrouve avec le filtre « Archivés ».
-function isArchivedDoc(d){ return !!d && (d.statut==='Remplacé' || d.statut==='Doublon'); }
+function isArchivedDoc(d){ return !!d && (d.statut==='Remplacé' || d.statut==='Doublon' || d.statut==='Abandonné'); }
 async function restoreArchivedDoc(id){
   const d = findQuoteRecord(id);
   if(!d || !isArchivedDoc(d)) return;
@@ -10451,6 +10455,7 @@ function afStore(){ return window.__mpAf || (window.__mpAf = {open:{}, dragId:nu
 function afIssuedInvoices(q){ return getQuoteInvoices(q.num).filter(i=>i.invoiceIssuedAt && i.statut!=='Annulée'); }
 function afIsPaid(d){
   if(d.type!=='DEV') return d.statut==='Payée' || !!(d.pennylane && d.pennylane.paid);
+  if(d.payeManuelAt) return true;
   const ps = quotePaymentState(d);
   if(ps && ps.rest===0 && ps.paid>0) return true;
   return afIssuedInvoices(d).some(i=>i.type!=='FAC' && (i.statut==='Payée' || (i.pennylane && i.pennylane.paid)));
@@ -10487,15 +10492,16 @@ function afCard(d, col){
   else if(col==='facture' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC')) act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facture définitive</button>`;
   const toBillPaid = col==='paye' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC');
   if(toBillPaid) act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facturer</button>`;
-  const moves = d.type==='DEV' && ['envoye','accepte'].includes(col)
-    ? `<select class="kb-move" aria-label="Déplacer ${esc(d.num)}" onclick="event.stopPropagation()" onchange="afDrop('${id}',this.value)">${[['envoye','Devis envoyé'],['accepte','Accepté'],['refuse','Refusé']].map(([k,t])=>`<option value="${k}"${k===col?' selected':''}>${k===col?'Ici : ':'Vers '}${t}</option>`).join('')}</select>` : '';
-  return `<div class="kb-card af-card" ${d.type==='DEV'&&['envoye','accepte'].includes(col)?`draggable="true" ondragstart="afDragStart(event,'${id}')" ondragend="afDragEnd(event)"`:''} onclick="openStoredDocument('${esc(d.num)}')" title="Ouvrir ${esc(d.num)}">
+  const targets = d.type==='DEV' ? [['envoye','Devis envoyé'],['accepte','Accepté'],['facture','Facturé'],['paye','Payé'],['refuse','Refusé'],['jeter','Jeter']] : [['facture','Facturé'],['paye','Payé']];
+  const moves = `<select class="kb-move" aria-label="Déplacer ${esc(d.num)}" onclick="event.stopPropagation()" onchange="afDrop('${id}',this.value)">${targets.map(([k,t])=>`<option value="${k}"${k===col?' selected':''}>${k===col?'Ici : ':'Vers '}${t}</option>`).join('')}</select>`;
+  return `<div class="kb-card af-card" draggable="true" ondragstart="afDragStart(event,'${id}')" ondragend="afDragEnd(event)" onclick="openStoredDocument('${esc(d.num)}')" title="Ouvrir ${esc(d.num)}">
     <span class="af-top"><b>${esc(client)}</b><span class="af-amt">${d.ttc?formatDocMoney(+d.ttc):'—'}</span></span>
     <span class="kb-sub">${esc(d.num)}${d.type!=='DEV'?' · facture directe':''}${inv.length?' · '+esc(inv.map(i=>i.num).join(', ')):''}</span>
     ${what?`<span class="kb-what">${esc(String(what).replace(/<[^>]+>/g,''))}</span>`:''}
     ${viewed?`<span class="af-flag">${esc(viewed)}</span>`:''}
     ${ps && col!=='paye' && ps.paid>0?`<span class="af-flag pay">${esc(ps.label)}</span>`:''}
     ${toBillPaid?'<span class="af-flag">Facture à émettre</span>':''}
+    ${col==='paye' && d.payeManuelAt?'<span class="af-flag pay">Payé, noté à la main</span>':''}
     <span class="kb-foot">${d.prospectId?`<button type="button" class="kb-more" style="padding:0" onclick="event.stopPropagation();openFiche('${esc(d.prospectId)}')">Fiche</button>`:''}<span class="kb-ago">${esc(ago)}</span></span>
     ${act?`<span class="af-act">${act}</span>`:''}
     ${moves}
@@ -10519,7 +10525,8 @@ function renderAffairesKanban(){
       ${items.length>shown.length?`<button type="button" class="kb-more" onclick="afStore().open['${c.key}']=true;renderAffairesKanban()">Voir les ${items.length-shown.length} autres</button>`:''}</div>
     </section>`;
   }).join('')
-  + `<div class="kb-lost" data-col="refuse" ondragover="afDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="afDropEvent(event,'refuse')"><b>Devis refusé</b><span>le client a dit non</span></div>`
+  + `<div class="af-zones"><div class="kb-lost" data-col="refuse" ondragover="afDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="afDropEvent(event,'refuse')"><b>Devis refusé</b><span>le client a dit non, la fiche passe en Perdu</span></div>`
+  + `<div class="kb-lost af-trash" data-col="jeter" ondragover="afDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="afDropEvent(event,'jeter')"><b>Jeter le devis</b><span>erreur, test, version inutile : archivé, la fiche ne bouge pas</span></div></div>`
   + `<div class="kb-lost-link">${groups.refuse.length?`<button type="button" class="kb-more" onclick="setAffairesView('list');filterDevis('Refusé', document.querySelectorAll('#s-devis .sort-btn')[3])">${groups.refuse.length} devis refusé${groups.refuse.length>1?'s':''}, dans la liste</button>`:''}</div>`;
 }
 function afDragStart(e, id){
@@ -10536,16 +10543,84 @@ function afDragEnd(e){
 }
 function afDragOver(e){ if(!afStore().dragId) return; e.preventDefault(); try{ e.dataTransfer.dropEffect = 'move'; }catch(err){} e.currentTarget.classList.add('is-over'); }
 function afDropEvent(e, col){ const id = afStore().dragId; e.preventDefault(); e.currentTarget.classList.remove('is-over'); if(id) afDrop(id, col); }
+function afFind(id){ return devisList.find(x=>x.id===id || x.num===id) || docHistory.find(x=>x.id===id || x.num===id) || null; }
+// Mémo dans doc_meta, sans écraser ce que la base y a déjà
+async function afSaveMeta(d, patch){
+  Object.assign(d, patch);
+  saveDevisLocal();
+  if(!sb || NOT_CONFIGURED || !currentUser) return true;
+  let q = sb.from('documents').select('id,doc_meta');
+  q = isUuid(d.id) ? q.eq('id', d.id) : q.eq('num', d.num).eq('type', d.type||'DEV');
+  const {data, error} = await q.maybeSingle();
+  if(error || !data){ toast('Non enregistré : '+((error && error.message)||'document introuvable'),'error'); return false; }
+  const meta = {...(data.doc_meta||{})};
+  Object.entries(patch).forEach(([k,v])=>{ if(v===null || v===undefined) delete meta[k]; else meta[k] = v; });
+  const {error: e2} = await sb.from('documents').update({doc_meta: meta}).eq('id', data.id);
+  if(e2){ toast('Non enregistré : '+e2.message,'error'); return false; }
+  return true;
+}
+async function afSetInvoicePaid(num){
+  if(sb && !NOT_CONFIGURED && currentUser){
+    const {error} = await sb.from('documents').update({statut:'Payée'}).eq('num', num);
+    if(error){ toast('Facture '+num+' non mise à jour : '+error.message,'error'); return false; }
+  }
+  [devisList, docHistory].forEach(list=>list.forEach(x=>{ if(x.num===num) x.statut='Payée'; }));
+  saveDevisLocal();
+  try{ localStorage.setItem('mp_doc_history', JSON.stringify(docHistory,documentCacheReplacer)); }catch(e){}
+  return true;
+}
+// Payé à la main : le devis (accepté au passage) et ses factures émises passent payés
+async function afMarkPaid(d){
+  const inv = d.type==='DEV' ? afIssuedInvoices(d).filter(i=>i.statut!=='Payée') : [];
+  const what = d.type==='DEV' ? d.num+(inv.length?' et '+inv.map(i=>i.num).join(', '):'') : d.num;
+  if(!confirm('Marquer '+what+' payé en totalité ?')){ renderAffairesKanban(); return; }
+  if(d.type!=='DEV'){ if(await afSetInvoicePaid(d.num)) toast(d.num+' payée'); renderDevisList(); try{ renderToday(); }catch(e){} return; }
+  if(d.statut==='Envoyé') await accepterDevis(d.id||d.num);
+  for(const i of inv) await afSetInvoicePaid(i.num);
+  if(await afSaveMeta(d, {payeManuelAt: new Date().toISOString()})) toast(d.num+' passé en « Payé »'+(inv.length?' avec '+inv.map(i=>i.num).join(', '):''));
+  renderDevisList(); try{ renderToday(); }catch(e){}
+}
+// Jeter : le devis sort du tableau (archivé, restaurable). Rien ne change sur la fiche du client.
+async function afTrash(d){
+  if(d.type!=='DEV' || afIssuedInvoices(d).length){ renderAffairesKanban(); toast('Ce devis a des factures émises : il ne se jette pas. Pour une facture, fais un avoir.','error'); return; }
+  if(!confirm('Jeter '+d.num+' ? Il part dans les archives (Liste > Archivés), d’où tu peux le restaurer.')){ renderAffairesKanban(); return; }
+  if(d.payeManuelAt) await afSaveMeta(d, {payeManuelAt: null});
+  d.statut = 'Abandonné'; saveDevisLocal(); updateDocumentStatut(d, 'Abandonné');
+  renderDevisList(); try{ renderToday(); }catch(e){}
+  toastAction(d.num+' jeté', 'Annuler', ()=>restoreArchivedDoc(d.id||d.num));
+}
 async function afDrop(id, col){
-  const d = devisList.find(x=>x.id===id || x.num===id);
-  if(!d || d.type!=='DEV') return;
+  const d = afFind(id);
+  if(!d) return;
   const from = afColumnOf(d);
   if(from===col) return;
-  if(col==='accepte') return accepterDevis(d.id||d.num);
+  if(col==='paye') return afMarkPaid(d);
+  if(col==='jeter') return afTrash(d);
+  if(d.type!=='DEV'){ renderAffairesKanban(); toast('Une facture émise ne revient pas en arrière. Pour l’annuler, fais un avoir.'); return; }
+  // Sortir de « Payé » à la main : on enlève seulement la marque posée à la main
+  if(from==='paye'){
+    if(!d.payeManuelAt){ renderAffairesKanban(); toast('Ce paiement vient de la banque : il ne se retire pas d’ici.'); return; }
+    await afSaveMeta(d, {payeManuelAt: null});
+    if(col==='refuse' || col==='envoye'){ renderDevisList(); return afDrop(id, col); }
+    renderDevisList(); toast(d.num+' n’est plus marqué payé'); return;
+  }
+  if(col==='accepte'){
+    if(d.statut==='Accepté' || d.statut==='Facturé'){ renderAffairesKanban(); toast('Ses factures sont déjà émises : il reste en « Facturé ».'); return; }
+    return accepterDevis(d.id||d.num);
+  }
+  if(col==='facture'){
+    renderAffairesKanban();
+    if(d.statut==='Envoyé') await accepterDevis(d.id||d.num);
+    const fac = quoteDepositPct(d)>0 && !afIssuedInvoices(d).some(i=>i.type==='FAC');
+    toast('Émets la facture pour passer en « Facturé ».');
+    return openBilling(d.id||d.num, fac ? 'FAC' : 'FDF');
+  }
   if(col==='refuse'){ if(!confirm('Marquer '+d.num+' refusé ? La fiche client passe en Perdu.')){ renderAffairesKanban(); return; } return refuserDevis(d.id||d.num); }
-  if(col==='envoye' && from==='accepte'){ d.statut = 'Envoyé'; saveDevisLocal(); updateDocumentStatut(d, 'Envoyé'); renderDevisList(); toast(d.num+' repasse en « Devis envoyé »'); return; }
+  if(col==='envoye'){
+    if(from!=='accepte'){ renderAffairesKanban(); toast('Ses factures sont émises : il ne redevient pas un simple devis.'); return; }
+    d.statut = 'Envoyé'; saveDevisLocal(); updateDocumentStatut(d, 'Envoyé'); renderDevisList(); toast(d.num+' repasse en « Devis envoyé »'); return;
+  }
   renderAffairesKanban();
-  toast(col==='facture' ? 'Pour facturer, utilise le bouton de la carte : la facture est émise et scellée.' : 'Cette colonne se remplit toute seule quand le paiement arrive.');
 }
 
 function renderDevisList(){
