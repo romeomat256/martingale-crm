@@ -568,6 +568,17 @@ button.ag-client:hover{text-decoration:underline}
 .prod-row select{font:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;width:100%}
 .prod-empty{padding:16px;color:var(--gris-l);font-size:13px}
 .prod-row-stock{grid-template-columns:52px minmax(0,1fr) auto}
+.fiche-title-edit{cursor:text;border-radius:6px;padding:0 4px;margin:0 -4px}
+.fiche-title-edit:hover{background:var(--vert-pale)}
+.fiche-rename{border:0;background:none;color:var(--gris-l);width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.fiche-rename:hover{background:var(--vert-pale);color:var(--noir)}
+.fiche-name-input{font:inherit;font-size:inherit;font-weight:inherit;color:inherit;border:1px solid var(--border);border-radius:7px;padding:2px 8px;width:min(520px,60vw);background:#fff}
+.dict-btn{display:inline-flex;align-items:center;gap:6px}
+.dict-btn[hidden]{display:none}
+.dict-btn.on{background:#A33A2A;border-color:#A33A2A;color:#fff}
+.dict-btn.on svg{animation:dictPulse 1.2s ease-in-out infinite}
+@keyframes dictPulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dict-btn.on svg{animation:none}}
 .stk-kpis{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px}
 .stk-kpi{flex:1 1 170px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
 .stk-kpi b{font-family:var(--display);font-size:26px;font-weight:600}
@@ -1035,7 +1046,7 @@ button.ag-client:hover{text-decoration:underline}
   <div class="page-content">
     <div class="kb-bar" id="kb-bar"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-      <input type="text" placeholder="Rechercher..." style="width:160px" id="search-input" oninput="filterProspects()">
+      <input type="search" placeholder="Nom, e-mail ou 06…" style="width:180px" id="search-input" oninput="filterProspects()">
       <select style="width:auto" id="filter-profil" onchange="filterProspects()">
         <option value="">Tous les profils</option>
         <option>Restaurateur premium</option>
@@ -1097,7 +1108,8 @@ button.ag-client:hover{text-decoration:underline}
     <div>
       <div style="display:flex;align-items:center;gap:10px">
         <div class="back-btn" onclick="go('prospects')" style="margin:0">← Retour</div>
-        <div class="page-title" id="fiche-title" style="overflow-wrap:anywhere;min-width:0">—</div>
+        <div class="page-title fiche-title-edit" id="fiche-title" style="overflow-wrap:anywhere;min-width:0" title="Cliquer pour renommer" onclick="startRenameFiche()">—</div>
+        <button type="button" class="fiche-rename" aria-label="Renommer la fiche" title="Renommer" onclick="startRenameFiche()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path><path d="M13.5 6.5l4 4"></path></svg></button>
       </div>
       <div id="fiche-meta" style="display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap"></div>
     </div>
@@ -1133,7 +1145,10 @@ button.ag-client:hover{text-decoration:underline}
         <div class="card">
           <div class="card-title">Note rapide</div>
           <textarea id="fiche-note" rows="3" placeholder="Ajouter une note sur cet échange... Une phrase comme « envoyer le devis vendredi » va aussi dans À faire."></textarea>
-          <button class="btn" id="save-prospect-note" style="width:100%;margin-top:8px" onclick="saveNote()">Enregistrer la note</button>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button type="button" class="btn dict-btn" id="fiche-dict" aria-pressed="false" onclick="toggleDictation('fiche-note', this)" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg><span>Dicter</span></button>
+            <button class="btn" id="save-prospect-note" style="flex:1" onclick="saveNote()">Enregistrer la note</button>
+          </div>
         </div>
       </div>
       <!-- COLONNE DROITE -->
@@ -2454,13 +2469,72 @@ function toggleNav(force){
   document.getElementById('mbar-menu')?.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
+// ── Dictée vocale (reconnaissance du navigateur : Chrome, Edge, Safari)
+const __dict = {rec:null, btn:null, target:null};
+function dictationSupported(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+function setupDictationButtons(){ document.querySelectorAll('.dict-btn').forEach(b=>{ b.hidden = !dictationSupported(); }); }
+function dictUi(on){
+  const b = __dict.btn; if(!b) return;
+  b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const l = b.querySelector('span'); if(l) l.textContent = on ? 'Arrêter' : 'Dicter';
+}
+function stopDictation(){ if(__dict.rec){ try{ __dict.rec.stop(); }catch(e){} } }
+function toggleDictation(targetId, btn){
+  if(__dict.rec){ stopDictation(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const ta = document.getElementById(targetId);
+  if(!SR || !ta){ toast('Dictée non disponible dans ce navigateur','error'); return; }
+  const rec = new SR();
+  rec.lang = 'fr-FR'; rec.continuous = true; rec.interimResults = true;
+  const base = ta.value.replace(/\s+$/,'');
+  let finals = '';
+  const cap = t => t ? t.charAt(0).toUpperCase()+t.slice(1) : t;
+  rec.onresult = e=>{
+    let interim = '';
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const t = e.results[i][0].transcript.trim();
+      if(!t) continue;
+      if(e.results[i].isFinal) finals += (finals ? ' ' : '') + cap(t) + (/[.!?]$/.test(t) ? '' : '.');
+      else interim += (interim ? ' ' : '') + t;
+    }
+    ta.value = [base, finals, interim].filter(Boolean).join(base && !/\n$/.test(base) ? ' ' : '');
+    ta.scrollTop = ta.scrollHeight;
+  };
+  rec.onerror = e=>{
+    if(e.error==='not-allowed' || e.error==='service-not-allowed') toast('Autorise le micro pour ce site dans le navigateur','error');
+    else if(e.error==='no-speech') toast('Je n’ai rien entendu. Réessaie.');
+    else if(e.error!=='aborted') toast('Dictée interrompue : '+e.error,'error');
+  };
+  rec.onend = ()=>{ __dict.rec = null; dictUi(false); __dict.btn = null; };
+  __dict.rec = rec; __dict.btn = btn; __dict.target = targetId;
+  try{ rec.start(); dictUi(true); }catch(e){ __dict.rec = null; toast('Dictée impossible : '+(e.message||e),'error'); }
+}
+document.addEventListener('DOMContentLoaded', setupDictationButtons);
+
+// ── Téléphone : on compare les chiffres, au format français (06…, +33 6…, 0033 6…)
+function phoneNational(v){
+  let d = String(v||'').replace(/\D/g,'');
+  if(d.startsWith('0033')) d = '0'+d.slice(4);
+  else if(d.startsWith('33') && d.length===11) d = '0'+d.slice(2);
+  return d;
+}
+function isPhoneQuery(q){ const t = String(q||'').trim(); return /^[+\d][\d\s.()+-]*$/.test(t) && t.replace(/\D/g,'').length >= 4; }
+function prospectPhoneMatch(p, q){
+  if(!isPhoneQuery(q)) return false;
+  const qn = phoneNational(q), qd = String(q).replace(/\D/g,'');
+  return [p.tel, p.phone, p.whatsapp, p.mobile].filter(Boolean).some(v=>{
+    const n = phoneNational(v);
+    return n.includes(qn) || String(v).replace(/\D/g,'').includes(qd) || (qn.length>=9 && n.slice(-9)===qn.slice(-9));
+  });
+}
+
 function globalSearch(q){
   const box=document.getElementById('global-search-results');
   if(!box) return;
   const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const t=norm(q).trim();
   if(t.length<2){ box.hidden=true; box.innerHTML=''; return; }
-  const pr=(typeof prospects!=='undefined'?prospects:[]).filter(p=>norm([p.name,p.contact,p.email,p.tel,p.ville].join(' ')).includes(t)).slice(0,6);
+  const pr=(typeof prospects!=='undefined'?prospects:[]).filter(p=>norm([p.name,p.contact,p.email,p.tel,p.ville].join(' ')).includes(t) || prospectPhoneMatch(p, q)).slice(0,6);
   const seen=new Set();
   const docs=[...(typeof devisList!=='undefined'?devisList:[]),...(typeof docHistory!=='undefined'?docHistory:[])]
     .filter(d=>d.num&&!seen.has(d.num)&&seen.add(d.num))
@@ -2555,7 +2629,7 @@ function renderProspects(){
   const smallCount=list.filter(p=>isSmallRequest(p,bigSet)).length;
   const withSmall=showSmallRequests() || !!search;
   if(!withSmall) list=list.filter(p=>!isSmallRequest(p,bigSet));
-  if(search)list=list.filter(p=>[p.name,p.contact,p.email,p.tel].some(value=>String(value||'').toLowerCase().includes(search.toLowerCase())));
+  if(search)list=list.filter(p=>[p.name,p.contact,p.email,p.tel].some(value=>String(value||'').toLowerCase().includes(search.toLowerCase())) || prospectPhoneMatch(p, search));
   if(profil)list=list.filter(p=>p.profil===profil);
   if(source)list=list.filter(p=>p.source===source);
   if(statut)list=list.filter(p=>p.statut===statut);
@@ -3708,6 +3782,7 @@ async function appendProspectNote(p,entry){
 }
 
 async function saveNote(){
+  stopDictation();
   const ta = document.getElementById('fiche-note');
   if(!ta||!ta.value.trim()){toast('Note vide','error');return;}
   if(!currentProspectId){toast('Aucun prospect sélectionné','error');return;}
@@ -9839,7 +9914,40 @@ function renderDashboard(){
 // ══════════════════════════════════════════════════════════════
 // FICHE PROSPECT — POPULATE DYNAMICALLY
 // ══════════════════════════════════════════════════════════════
+// Renommer la fiche : clic sur le nom ou le crayon, Entrée pour valider, Échap pour annuler
+function startRenameFiche(){
+  const t = document.getElementById('fiche-title');
+  const p = prospects.find(x=>x.id===currentProspectId);
+  if(!t || !p || t.querySelector('input')) return;
+  t.innerHTML = '';
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'fiche-name-input'; inp.value = p.name || ''; inp.setAttribute('aria-label','Nom de la fiche');
+  let done = false;
+  const finish = save=>{ if(done) return; done = true; commitRenameFiche(save ? inp.value : null); };
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); finish(true); } else if(e.key==='Escape'){ e.preventDefault(); finish(false); } e.stopPropagation(); });
+  inp.addEventListener('blur', ()=>finish(true));
+  inp.addEventListener('click', e=>e.stopPropagation());
+  t.appendChild(inp); inp.focus(); inp.select();
+}
+function commitRenameFiche(value, silent){
+  const t = document.getElementById('fiche-title');
+  const p = prospects.find(x=>x.id===currentProspectId);
+  if(!p){ if(t) t.textContent = '—'; return; }
+  const before = p.name || '';
+  const v = value==null ? before : String(value).replace(/\s+/g,' ').trim();
+  if(t) t.textContent = v || before;
+  if(!v || v===before) return;
+  p.name = v;
+  if(t) t.textContent = v;
+  upsertProspect(p);
+  try{ renderProspects(); }catch(e){}
+  try{ renderToday(); }catch(e){}
+  if(!silent) toastAction('Fiche renommée : '+v, 'Annuler', ()=>{ if(currentProspectId===p.id) commitRenameFiche(before, true); else { p.name = before; upsertProspect(p); try{ renderProspects(); }catch(e){} } });
+}
+
 function populateFiche(id){
+  stopDictation();
+  setupDictationButtons();
   const p = prospects.find(x=>x.id===id);
   if(!p) return;
   try{ renderFicheTasks(id); }catch(e){}
