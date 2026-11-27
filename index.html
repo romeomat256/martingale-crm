@@ -469,6 +469,16 @@ body.nd-open{overflow:hidden}
 .kb-col[data-col="attente"]{background:#F3F1E7}
 .kb-col[data-col="attente"] .kb-card{opacity:.92}
 .kb-B{grid-template-columns:repeat(6,minmax(168px,1fr))}
+.kb-af{grid-template-columns:repeat(4,minmax(230px,1fr))}
+#affaires-list-wrap[hidden]{display:none}
+.af-card{cursor:pointer}
+.af-card[draggable="true"]{cursor:grab}
+.af-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-width:0}
+.af-amt{font-size:13px;font-weight:700;color:var(--vert);white-space:nowrap}
+.af-flag{align-self:flex-start;font-size:11px;font-weight:700;color:#7A5413;background:#F6EEDC;border-radius:999px;padding:1px 8px;margin-top:3px}
+.af-flag.pay{color:#335A2F;background:#E8EFE2}
+.af-act{display:flex;gap:6px;margin-top:6px}
+.kb-col[data-col="paye"] .kb-col-h b{color:#335A2F}
 .kb-col{background:#F4F3EC;border:1px solid var(--ligne);border-radius:10px;padding:8px;min-height:120px;transition:background .12s,box-shadow .12s}
 .kb-col.is-over{background:#E9E8DA;box-shadow:inset 0 0 0 2px #403F21}
 .kb-col-h{display:flex;justify-content:space-between;align-items:baseline;padding:4px 6px 8px}
@@ -490,7 +500,7 @@ body.nd-open{overflow:hidden}
 .kb-empty{font-size:12px;color:var(--gris-l);text-align:center;padding:18px 4px;border:1px dashed #D4D3B8;border-radius:8px}
 .kb-more{font-family:inherit;font-size:12px;border:0;background:none;color:#403F21;text-decoration:underline;cursor:pointer;padding:6px}
 @media(hover:none){.kb-move{display:block}.kb-card{cursor:pointer}}
-@media(max-width:700px){.kb-A,.kb-B{grid-template-columns:repeat(var(--kbn,4),260px)}.kb-B{--kbn:6}.kb-test span{display:none}}
+@media(max-width:700px){.kb-A,.kb-B,.kb-af{grid-template-columns:repeat(var(--kbn,4),260px)}.kb-B{--kbn:6}.kb-test span{display:none}}
 /* Agenda */
 .ag-nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .ag-q{font-family:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;width:200px;background:#fff}
@@ -1211,6 +1221,10 @@ button.ag-client:hover{text-decoration:underline}
     </div>
   </div>
   <div class="page-content">
+    <div class="kb-bar" id="af-bar"></div>
+    <div id="invoice-drafts" class="drafts" style="display:none"></div>
+    <div class="kb kb-af" id="affaires-kanban" hidden></div>
+    <div id="affaires-list-wrap">
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       <button class="sort-btn active" onclick="filterDevis('',this)">Tous</button>
       <button class="sort-btn" onclick="filterDevis('Envoyé',this)">Envoyés</button>
@@ -1218,7 +1232,6 @@ button.ag-client:hover{text-decoration:underline}
       <button class="sort-btn" onclick="filterDevis('Refusé',this)">Refusés</button>
       <button class="sort-btn" onclick="filterDevis('__archives',this)" title="Versions remplacées et doublons">Archivés</button>
     </div>
-    <div id="invoice-drafts" class="drafts" style="display:none"></div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -1234,6 +1247,7 @@ button.ag-client:hover{text-decoration:underline}
         </thead>
         <tbody id="devis-tbody"></tbody>
       </table>
+    </div>
     </div>
   </div>
 </div>
@@ -10424,7 +10438,124 @@ function filterDevis(statut, btn){
   renderDevisList();
 }
 
+// ── Affaires en cartes : un devis = une affaire, du devis envoyé jusqu'au paiement.
+const AF_COLS = [
+  {key:'envoye', title:'Devis envoyé'},
+  {key:'accepte', title:'Accepté'},
+  {key:'facture', title:'Facturé'},
+  {key:'paye', title:'Payé'}
+];
+function afView(){ try{ return localStorage.getItem('mp_affaires_view')==='list' ? 'list' : 'kanban'; }catch(e){ return 'kanban'; } }
+function setAffairesView(v){ try{ localStorage.setItem('mp_affaires_view', v); }catch(e){} renderDevisList(); }
+function afStore(){ return window.__mpAf || (window.__mpAf = {open:{}, dragId:null}); }
+function afIssuedInvoices(q){ return getQuoteInvoices(q.num).filter(i=>i.invoiceIssuedAt && i.statut!=='Annulée'); }
+function afIsPaid(d){
+  if(d.type!=='DEV') return d.statut==='Payée' || !!(d.pennylane && d.pennylane.paid);
+  const ps = quotePaymentState(d);
+  if(ps && ps.rest===0 && ps.paid>0) return true;
+  return afIssuedInvoices(d).some(i=>i.type!=='FAC' && (i.statut==='Payée' || (i.pennylane && i.pennylane.paid)));
+}
+function afColumnOf(d){
+  if(d.type==='DEV'){
+    if(d.statut==='Refusé') return 'refuse';
+    if(afIsPaid(d)) return 'paye';
+    if(d.statut==='Facturé' || afIssuedInvoices(d).length) return 'facture';
+    if(d.statut==='Accepté') return 'accepte';
+    return 'envoye';
+  }
+  // Facture sans devis (vente directe) : sa propre carte
+  if(!d.invoiceIssuedAt || d.statut==='Annulée') return null;
+  return afIsPaid(d) ? 'paye' : 'facture';
+}
+function afDocs(){
+  const seen = new Set();
+  return [...devisList, ...docHistory].filter(d=>d && d.num && !seen.has(d.num) && seen.add(d.num))
+    .filter(d=>!isArchivedDoc(d) && (d.type==='DEV' || !d.sourceQuoteNum));
+}
+function afCard(d, col){
+  const esc = escapeHTML, id = esc(d.id||d.num);
+  const client = getDocClientLabel(d) || (d.prospectId ? getProspectName(d.prospectId) : '') || 'Client';
+  const what = getDocProductSummary(d);
+  const ps = d.type==='DEV' ? quotePaymentState(d) : null;
+  const viewed = d.type==='DEV' && col==='envoye' ? docViewedLabel(d.num) : '';
+  const inv = d.type==='DEV' ? afIssuedInvoices(d) : [];
+  const ts = parseDocDateValue(d.createdAt||d.date);
+  const ago = ts ? relativeTime(new Date(ts).toISOString()) : (d.date||'');
+  let act = '';
+  if(col==='envoye') act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openSendDocument('${id}')">${viewed?'Relancer':'Envoyer'}</button>`;
+  else if(col==='accepte'){ const fac = quoteDepositPct(d)>0 && !inv.some(i=>i.type==='FAC'); act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','${fac?'FAC':'FDF'}')">${fac?'Facture d’acompte':'Facturer'}</button>`; }
+  else if(col==='facture' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC')) act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facture définitive</button>`;
+  const toBillPaid = col==='paye' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC');
+  if(toBillPaid) act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facturer</button>`;
+  const moves = d.type==='DEV' && ['envoye','accepte'].includes(col)
+    ? `<select class="kb-move" aria-label="Déplacer ${esc(d.num)}" onclick="event.stopPropagation()" onchange="afDrop('${id}',this.value)">${[['envoye','Devis envoyé'],['accepte','Accepté'],['refuse','Refusé']].map(([k,t])=>`<option value="${k}"${k===col?' selected':''}>${k===col?'Ici : ':'Vers '}${t}</option>`).join('')}</select>` : '';
+  return `<div class="kb-card af-card" ${d.type==='DEV'&&['envoye','accepte'].includes(col)?`draggable="true" ondragstart="afDragStart(event,'${id}')" ondragend="afDragEnd(event)"`:''} onclick="openStoredDocument('${esc(d.num)}')" title="Ouvrir ${esc(d.num)}">
+    <span class="af-top"><b>${esc(client)}</b><span class="af-amt">${d.ttc?formatDocMoney(+d.ttc):'—'}</span></span>
+    <span class="kb-sub">${esc(d.num)}${d.type!=='DEV'?' · facture directe':''}${inv.length?' · '+esc(inv.map(i=>i.num).join(', ')):''}</span>
+    ${what?`<span class="kb-what">${esc(String(what).replace(/<[^>]+>/g,''))}</span>`:''}
+    ${viewed?`<span class="af-flag">${esc(viewed)}</span>`:''}
+    ${ps && col!=='paye' && ps.paid>0?`<span class="af-flag pay">${esc(ps.label)}</span>`:''}
+    ${toBillPaid?'<span class="af-flag">Facture à émettre</span>':''}
+    <span class="kb-foot">${d.prospectId?`<button type="button" class="kb-more" style="padding:0" onclick="event.stopPropagation();openFiche('${esc(d.prospectId)}')">Fiche</button>`:''}<span class="kb-ago">${esc(ago)}</span></span>
+    ${act?`<span class="af-act">${act}</span>`:''}
+    ${moves}
+  </div>`;
+}
+function renderAffairesKanban(){
+  const host = document.getElementById('affaires-kanban');
+  if(!host) return;
+  const esc = escapeHTML, st = afStore();
+  const groups = {envoye:[], accepte:[], facture:[], paye:[], refuse:[]};
+  afDocs().forEach(d=>{ const c = afColumnOf(d); if(c && groups[c]) groups[c].push(d); });
+  const when = d => parseDocDateValue(d.createdAt||d.date) || 0;
+  host.innerHTML = AF_COLS.map(c=>{
+    const items = groups[c.key].slice().sort((a,b)=>when(b)-when(a));
+    const limit = c.key==='paye' ? 12 : 30;
+    const shown = st.open[c.key] ? items : items.slice(0, limit);
+    const sum = items.reduce((s,d)=>s+(+d.ttc||0),0);
+    return `<section class="kb-col" data-col="${c.key}" ondragover="afDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="afDropEvent(event,'${c.key}')">
+      <header class="kb-col-h"><b>${esc(c.title)}</b><span>${items.length}${sum?' · '+esc(formatDocMoney(sum)):''}</span></header>
+      <div class="kb-list">${shown.map(d=>afCard(d, c.key)).join('') || `<div class="kb-empty">${c.key==='envoye'?'Aucun devis en cours':'Rien ici'}</div>`}
+      ${items.length>shown.length?`<button type="button" class="kb-more" onclick="afStore().open['${c.key}']=true;renderAffairesKanban()">Voir les ${items.length-shown.length} autres</button>`:''}</div>
+    </section>`;
+  }).join('')
+  + `<div class="kb-lost" data-col="refuse" ondragover="afDragOver(event)" ondragleave="kbDragLeave(event)" ondrop="afDropEvent(event,'refuse')"><b>Devis refusé</b><span>le client a dit non</span></div>`
+  + `<div class="kb-lost-link">${groups.refuse.length?`<button type="button" class="kb-more" onclick="setAffairesView('list');filterDevis('Refusé', document.querySelectorAll('#s-devis .sort-btn')[3])">${groups.refuse.length} devis refusé${groups.refuse.length>1?'s':''}, dans la liste</button>`:''}</div>`;
+}
+function afDragStart(e, id){
+  afStore().dragId = id;
+  document.getElementById('affaires-kanban')?.classList.add('is-dragging');
+  try{ e.dataTransfer.setData('text/x-crm-af', id); e.dataTransfer.effectAllowed = 'move'; }catch(err){}
+  e.currentTarget?.classList.add('is-drag');
+}
+function afDragEnd(e){
+  e.currentTarget?.classList.remove('is-drag');
+  document.getElementById('affaires-kanban')?.classList.remove('is-dragging');
+  document.querySelectorAll('#affaires-kanban .is-over').forEach(c=>c.classList.remove('is-over'));
+  afStore().dragId = null;
+}
+function afDragOver(e){ if(!afStore().dragId) return; e.preventDefault(); try{ e.dataTransfer.dropEffect = 'move'; }catch(err){} e.currentTarget.classList.add('is-over'); }
+function afDropEvent(e, col){ const id = afStore().dragId; e.preventDefault(); e.currentTarget.classList.remove('is-over'); if(id) afDrop(id, col); }
+async function afDrop(id, col){
+  const d = devisList.find(x=>x.id===id || x.num===id);
+  if(!d || d.type!=='DEV') return;
+  const from = afColumnOf(d);
+  if(from===col) return;
+  if(col==='accepte') return accepterDevis(d.id||d.num);
+  if(col==='refuse'){ if(!confirm('Marquer '+d.num+' refusé ? La fiche client passe en Perdu.')){ renderAffairesKanban(); return; } return refuserDevis(d.id||d.num); }
+  if(col==='envoye' && from==='accepte'){ d.statut = 'Envoyé'; saveDevisLocal(); updateDocumentStatut(d, 'Envoyé'); renderDevisList(); toast(d.num+' repasse en « Devis envoyé »'); return; }
+  renderAffairesKanban();
+  toast(col==='facture' ? 'Pour facturer, utilise le bouton de la carte : la facture est émise et scellée.' : 'Cette colonne se remplit toute seule quand le paiement arrive.');
+}
+
 function renderDevisList(){
+  // Vue cartes ou liste
+  const afv = afView(), afBar = document.getElementById('af-bar');
+  if(afBar) afBar.innerHTML = `<div class="kb-seg" role="group" aria-label="Affichage"><button type="button" class="${afv==='kanban'?'on':''}" aria-pressed="${afv==='kanban'}" onclick="setAffairesView('kanban')">Tableau</button><button type="button" class="${afv==='list'?'on':''}" aria-pressed="${afv==='list'}" onclick="setAffairesView('list')">Liste</button></div>`;
+  const afKb = document.getElementById('affaires-kanban'), afList = document.getElementById('affaires-list-wrap');
+  if(afKb) afKb.hidden = afv!=='kanban';
+  if(afList) afList.hidden = afv==='kanban';
+  if(afv==='kanban'){ try{ renderAffairesKanban(); }catch(e){ console.error('Affaires :', e); } }
   const tbody = document.getElementById('devis-tbody');
   if(!tbody) return;
   
