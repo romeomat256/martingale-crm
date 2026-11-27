@@ -10488,8 +10488,9 @@ function afCard(d, col){
   const ago = ts ? relativeTime(new Date(ts).toISOString()) : (d.date||'');
   let act = '';
   if(col==='envoye') act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openSendDocument('${id}')">${viewed?'Relancer':'Envoyer'}</button>`;
-  else if(col==='accepte'){ const fac = quoteDepositPct(d)>0 && !inv.some(i=>i.type==='FAC'); act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','${fac?'FAC':'FDF'}')">${fac?'Facture d’acompte':'Facturer'}</button>`; }
-  else if(col==='facture' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC')) act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facture définitive</button>`;
+  // Un seul bouton « Facturer » : le choix Facture / Acompte se fait dans la fenêtre qui s'ouvre
+  else if(col==='accepte') act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','FDF')" title="Facture, ou acompte au choix dans la fenêtre">Facturer</button>`;
+  else if(col==='facture' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC')) act = `<button type="button" class="btn btn-sm" onclick="event.stopPropagation();openBilling('${id}','FDF')" title="Facture, ou nouvel acompte au choix dans la fenêtre">Facturer</button>`;
   const toBillPaid = col==='paye' && d.type==='DEV' && !inv.some(i=>i.type!=='FAC');
   if(toBillPaid) act = `<button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation();openBilling('${id}','FDF')">Facturer</button>`;
   const targets = d.type==='DEV' ? [['envoye','Devis envoyé'],['accepte','Accepté'],['facture','Facturé'],['paye','Payé'],['refuse','Refusé'],['jeter','Jeter']] : [['facture','Facturé'],['paye','Payé']];
@@ -10611,9 +10612,8 @@ async function afDrop(id, col){
   if(col==='facture'){
     renderAffairesKanban();
     if(d.statut==='Envoyé') await accepterDevis(d.id||d.num);
-    const fac = quoteDepositPct(d)>0 && !afIssuedInvoices(d).some(i=>i.type==='FAC');
-    toast('Émets la facture pour passer en « Facturé ».');
-    return openBilling(d.id||d.num, fac ? 'FAC' : 'FDF');
+    toast('Émets la facture (ou un acompte) pour passer en « Facturé ».');
+    return openBilling(d.id||d.num, 'FDF');
   }
   if(col==='refuse'){ if(!confirm('Marquer '+d.num+' refusé ? La fiche client passe en Perdu.')){ renderAffairesKanban(); return; } return refuserDevis(d.id||d.num); }
   if(col==='envoye'){
