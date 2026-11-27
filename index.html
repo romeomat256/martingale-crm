@@ -1119,7 +1119,7 @@ button.ag-client:hover{text-decoration:underline}
         <option>Relance</option><option>En attente chantier</option><option>Gagné</option><option>Perdu</option>
       </select>
       <select id="fiche-responsable-select" onchange="saveFicheResponsable(this.value)" title="Qui suit ce client" aria-label="Responsable de la fiche" style="display:none;font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit"></select>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openDocGenerator(currentProspectId)">Faire un devis</button>
+      <button type="button" class="btn btn-primary btn-sm" id="fiche-quote-btn" onclick="openDocGenerator(currentProspectId)">Faire un devis</button>
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentProspect()">Supprimer</button>
     </div>
   </div>
@@ -5747,17 +5747,55 @@ async function saveQuoteHtml(num, html){
   if(error) console.warn('document_html',error.message);
 }
 
+// Mail d'envoi : repris des mails de Roméo (accroche, délai selon le type de chaise, acompte, formule, signature)
+function quoteMailFacts(d){
+  const items = normalizeDocLineItems(d.lineItems || d.line_items).filter(l=>(+l.qty||0)>0);
+  const isCustom = l => l.productCategory==='sur-mesure' || /^(cfg-|custom-)/.test(l.prodId||'');
+  const name = l => { const pr = PRODUCTS.find(x=>x.id===l.prodId); return (pr && pr.name) || l.productLabel || l.productName || ''; };
+  const chairs = items.filter(l=>l.productCategory==='chaise' || isCustom(l) || PRODUCTS.some(x=>x.id===l.prodId && isCatalogChair(x)));
+  const custom = chairs.filter(isCustom), catalog = chairs.filter(l=>!isCustom(l));
+  const total = chairs.reduce((s,l)=>s+(+l.qty||0),0) || getDocTotalQty(d);
+  const inStock = catalog.length>0 && catalog.every(l=>Math.round(stockData[l.prodId]||0) >= (+l.qty||0));
+  return {items, chairs, custom, catalog, total, inStock, name};
+}
+function quoteMailSignature(en){
+  const me = (typeof memberName==='function' && typeof myAuthId==='function') ? (memberName(myAuthId())||'') : '';
+  if(me && !/rom[ée]o/i.test(me)) return me+'\nMartingale Paris';
+  return 'Roméo MATHIEU\n06 72 25 84 00\n'+(en?'Sales Manager':'Responsable Commercial');
+}
 function defaultSendMessage(d){
   const en = d.docLocale==='US'||d.docLocale==='UK';
   const first = String(d.contactName||'').trim().split(/\s+/)[0]||'';
-  const qty = getDocTotalQty(d);
-  if(d.type==='DEV') return en
-    ? {subject:'Your Martingale Paris quote '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your quote '+d.num+(qty?' for '+qty+' Martingale chairs':'')+'.\nYou can view it, save it as a PDF and approve it online.\n\nI remain at your disposal for any question.\n\nBest regards,\nRoméo\nMartingale Paris'}
-    : {subject:'Votre devis Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVoici votre devis '+d.num+(qty?' pour '+qty+' chaises Martingale':'')+'.\nVous pouvez le consulter, l’enregistrer en PDF et nous donner votre accord directement en ligne.\n\nJe reste disponible pour toute question.\n\nBien à vous,\nRoméo\nMartingale Paris'};
+  if(d.type==='DEV'){
+    const f = quoteMailFacts(d);
+    const join = (arr, and) => arr.length<2 ? (arr[0]||'') : arr.slice(0,-1).join(', ')+' '+and+' '+arr[arr.length-1];
+    let what;
+    if(f.custom.length && !f.catalog.length) what = en ? f.total+' custom Martingale chairs' : f.total+' chaises personnalisées';
+    else if(f.chairs.length && f.chairs.length<=3 && f.chairs.every(l=>f.name(l))) what = join(f.chairs.map(l=>(+l.qty)+(en?' ':' chaises ')+f.name(l)+(en?' chairs':'')), en?'and':'et');
+    else what = f.total ? (en ? f.total+' Martingale chairs' : f.total+' chaises Martingale') : (en ? 'your Martingale chairs' : 'vos chaises Martingale');
+    const dep = typeof quoteDepositPct==='function' ? quoteDepositPct(d) : 50;
+    let delay;
+    if(f.custom.length) delay = en
+      ? 'As a reminder, production and delivery take 16 weeks for custom models. We start production as soon as your order is confirmed.'
+      : 'Pour rappel, le délai de fabrication et de livraison est de 16 semaines pour les modèles personnalisés. Nous lançons la production dès la confirmation de votre commande.';
+    else if(f.inStock) delay = en
+      ? 'These models are in stock: shipped within 48 hours, delivered within 5 working days.'
+      : 'Ces modèles sont disponibles en stock : expédition sous 48 h, livraison en 5 jours ouvrés maximum.';
+    else if(f.catalog.length) delay = en
+      ? 'Some models need to be restocked: allow about 14 weeks for those.'
+      : 'Certains modèles sont à réapprovisionner : comptez environ 14 semaines pour ceux-ci.';
+    const pay = dep>0 ? (en
+      ? 'You can approve the quote online and pay the '+dep+' % deposit, so that we can launch your order.'
+      : 'Je vous invite à valider le devis en ligne et à régler l’acompte de '+dep+' %, afin que nous puissions lancer votre commande.') : '';
+    const body = en
+      ? ['Hello'+(first?' '+first:'')+',', 'Thank you for your interest in Martingale chairs.\nPlease find below our quote for '+what+'.', delay, pay, 'I remain at your disposal for any question or change.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
+      : ['Bonjour'+(first?' '+first:'')+',', 'Merci pour votre intérêt pour les chaises Martingale.\nVous trouverez ci-dessous notre devis pour '+what+'.', delay, pay, 'Je reste à votre disposition pour toute question ou modification.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
+    return {subject: en ? 'Martingale Paris quote · Rattan chairs' : 'Devis Martingale Paris - Chaises en rotin', message: body.filter(Boolean).join('\n\n')};
+  }
   const label = d.type==='FAC' ? (en?'deposit invoice':'facture d’acompte') : (en?'invoice':'facture');
   return en
-    ? {subject:'Martingale Paris '+label+' '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your '+label+' '+d.num+'.\nBank details are on the document.\n\nThank you for your trust.\n\nRoméo\nMartingale Paris'}
-    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVeuillez trouver votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci pour votre confiance.\n\nRoméo\nMartingale Paris'};
+    ? {subject:'Martingale Paris '+label+' '+d.num, message:'Hello'+(first?' '+first:'')+',\n\nPlease find your '+label+' '+d.num+' below.\nBank details are on the document.\n\nThank you for your trust.\n\nBest regards,\n'+quoteMailSignature(true)}
+    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:'Bonjour'+(first?' '+first:'')+',\n\nVous trouverez ci-dessous votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci encore pour votre confiance.\n\nBien cordialement,\n'+quoteMailSignature(false)};
 }
 
 function openSendDocument(id){
@@ -9977,8 +10015,22 @@ function commitRenameFiche(value, silent){
   if(!silent) toastAction('Fiche renommée : '+v, 'Annuler', ()=>{ if(currentProspectId===p.id) commitRenameFiche(before, true); else { p.name = before; upsertProspect(p); try{ renderProspects(); }catch(e){} } });
 }
 
+// Demande du client en quelques mots : « 40 ch. Vert Orangerie », « 36 ch. · 3 modèles »
+function prospectDemandLabel(p){
+  const items = (p.produits||[]).map(i=>({prod: resolveProspectProduct(i), qty: +i.qty||0})).filter(x=>x.qty>0);
+  const total = items.reduce((s,x)=>s+x.qty,0) || (+p.qty||0);
+  if(!total) return '';
+  if(items.length===1 && items[0].prod) return total+' ch. '+items[0].prod.name;
+  if(items.length>1) return total+' ch. · '+items.length+' modèles';
+  return total+' chaises';
+}
 function populateFiche(id){
   stopDictation();
+  try{
+    const qb = document.getElementById('fiche-quote-btn');
+    const pp = prospects.find(x=>x.id===id);
+    if(qb && pp){ const dl = prospectDemandLabel(pp); qb.textContent = dl ? 'Devis '+dl : 'Faire un devis'; qb.title = dl ? 'Ouvre le devis déjà rempli avec la demande du client' : 'Nouveau devis pour ce client'; }
+  }catch(e){}
   setupDictationButtons();
   const p = prospects.find(x=>x.id===id);
   if(!p) return;
