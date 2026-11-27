@@ -3,7 +3,8 @@
 //   GET  ?t=TOKEN                                   (public)  -> le document à afficher
 //   POST { action: "accept", t, name }               (public)  -> bon pour accord sur un devis
 //   POST { action: "link", num }                     (CRM)     -> crée ou réutilise le lien
-//   POST { action: "send", num, to, subject, message } (CRM)   -> envoie l'email avec le lien
+//   POST { action: "send", num, to, subject, message, pdf_base64?, filename? } (CRM)
+//        -> envoie l'email ; avec pdf_base64, le document part en pièce jointe PDF (pas de lien)
 // Clés facultatives : RESEND_API_KEY, MAIL_FROM (ex. « Martingale Paris <devis@martingaleparis.fr> »).
 // verify_jwt = false : les deux actions publiques n'ont pas de session ; les autres vérifient la session.
 
@@ -12,8 +13,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const USER_ID = "e0ea9ee1-90e8-4162-9e80-d264b7f993fb";
 const VIEW_URL = Deno.env.get("PUBLIC_DOC_URL") || "https://martingale-crm.vercel.app/document.html";
 // Adresse de réponse et de copie des envois : gardée dans les secrets Supabase (MAIL_REPLY_TO), pas dans le code.
-// À renseigner AVANT de déployer cette version, sinon les mails partent sans adresse de réponse ni copie.
+// Sans ce secret, les réponses et la copie vont à l'adresse de la personne connectée qui envoie.
 const REPLY_TO = (Deno.env.get("MAIL_REPLY_TO") || "").trim();
+const MAX_BODY = 12_000_000; // le PDF joint (base64) passe par ici
 
 function cors(origin: string | null): Record<string, string> {
   const ok = origin && (/^https:\/\/martingale-crm[a-z0-9-]*\.vercel\.app$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin));
@@ -82,7 +84,13 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return rep(405, { ok: false });
 
   let body: Record<string, any> = {};
-  try { body = JSON.parse((await req.text()).slice(0, 20000) || "{}"); } catch { return rep(400, { ok: false, error: "payload" }); }
+  try {
+    const raw = await req.text();
+    if (raw.length > MAX_BODY) return rep(413, { ok: false, error: "trop_lourd" });
+    body = JSON.parse(raw || "{}");
+    // Seul l'envoi avec PDF joint a besoin d'un gros message ; les actions publiques restent petites.
+    if (body.action !== "send" && raw.length > 20000) return rep(413, { ok: false, error: "trop_lourd" });
+  } catch { return rep(400, { ok: false, error: "payload" }); }
 
   // ── Public : bon pour accord
   if (body.action === "accept") {
@@ -133,32 +141,39 @@ Deno.serve(async (req: Request) => {
   if (body.action === "send") {
     const to = String(body.to || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return rep(400, { ok: false, error: "email" });
-    const url = await ensureLink(num);
+    // PDF joint : envoyé par le CRM, pas de lien dans le mail
+    const pdf = typeof body.pdf_base64 === "string" ? body.pdf_base64.replace(/\s+/g, "") : "";
+    if (pdf && (!/^[A-Za-z0-9+/=]+$/.test(pdf) || !pdf.startsWith("JVBER"))) return rep(400, { ok: false, error: "pdf" });
+    const isQuote = doc.type === "DEV";
+    const filename = String(body.filename || `${isQuote ? "Devis" : "Facture"} ${num}.pdf`).replace(/[^\w .()\-À-ÿ]/g, "").slice(0, 120) || `${num}.pdf`;
+    const url = pdf ? "" : await ensureLink(num);
     const key = Deno.env.get("RESEND_API_KEY");
     if (!key) return rep(200, { ok: false, error: "not_configured", url });
     const subject = String(body.subject || `Martingale Paris · ${num}`).slice(0, 200);
     const message = String(body.message || "").slice(0, 5000);
-    const isQuote = doc.type === "DEV";
     const en = body.lang === "en";
-    const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F1F1A;max-width:560px">
-${esc(message).replace(/\n/g, "<br>")}
+    const replyTo = REPLY_TO || String(who?.user?.email || "").trim();
+    const linkBlock = url ? `
 <p style="margin:28px 0"><a href="${url}" style="background:#4D5038;color:#F7F5F0;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:700">${en ? (isQuote ? "View quote" : "View invoice") : (isQuote ? "Voir le devis" : "Voir la facture")} ${esc(num)}</a></p>
-<p style="color:#6B6B5E;font-size:13px">${en ? `The document opens in your browser. You can print it or save it as a PDF${isQuote ? ", and approve it online" : ""}.` : `Le document s’ouvre dans votre navigateur. Vous pouvez l’imprimer ou l’enregistrer en PDF${isQuote ? ", et donner votre accord en ligne" : ""}.`}</p>
+<p style="color:#6B6B5E;font-size:13px">${en ? `The document opens in your browser. You can print it or save it as a PDF${isQuote ? ", and approve it online" : ""}.` : `Le document s’ouvre dans votre navigateur. Vous pouvez l’imprimer ou l’enregistrer en PDF${isQuote ? ", et donner votre accord en ligne" : ""}.`}</p>` : "";
+    const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F1F1A;max-width:560px">
+${esc(message).replace(/\n/g, "<br>")}${linkBlock}
 <p style="color:#8A8A7C;font-size:12px;margin-top:28px">MARTINGALE · 30 rue de l’Étang, 64600 Anglet${en ? ", France" : ""} · martingaleparis.fr</p></div>`;
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: Deno.env.get("MAIL_FROM") || "Martingale Paris <devis@martingaleparis.fr>",
-        to: [to], ...(REPLY_TO ? { reply_to: REPLY_TO, bcc: [REPLY_TO] } : {}), subject, html,
-        text: `${message}\n\n${url}`,
+        to: [to], ...(replyTo ? { reply_to: replyTo, bcc: [replyTo] } : {}), subject, html,
+        text: url ? `${message}\n\n${url}` : message,
+        ...(pdf ? { attachments: [{ filename, content: pdf }] } : {}),
       }),
     });
     const out = await r.json().catch(() => ({}));
     if (!r.ok) return rep(502, { ok: false, error: "envoi", detail: JSON.stringify(out).slice(0, 300), url });
     if (doc.prospect_id) {
       const { data: p } = await sb.from("prospects").select("notes").eq("id", doc.prospect_id).maybeSingle();
-      const note = `--- ${new Date().toISOString().slice(0, 16).replace("T", " ")} · ${num} envoyé par email à ${to}`;
+      const note = `--- ${new Date().toISOString().slice(0, 16).replace("T", " ")} · ${num} envoyé par email à ${to}${pdf ? " (PDF joint)" : ""}`;
       await sb.from("prospects").update({ notes: p?.notes ? `${p.notes}\n\n${note}` : note, date_updated: new Date().toISOString() }).eq("id", doc.prospect_id);
     }
     return rep(200, { ok: true, sent: true, url });

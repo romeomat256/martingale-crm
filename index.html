@@ -5848,14 +5848,14 @@ function defaultSendMessage(d){
       : 'À noter que certains modèles nécessitent un réapprovisionnement, avec un délai d’environ 14 semaines.';
     const greet = sendGreetings(d).def;
     const body = en
-      ? [greet+',', 'Thank you for your interest in MARTINGALE chairs.\nFollowing our discussions, please find below our proposal for '+what+'.', delay, 'Feel free to share your thoughts or any questions. We can of course adjust our proposal to your needs.', 'I remain at your disposal and would be delighted to support you in this project.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
-      : [greet+',', 'Merci pour l’intérêt que vous portez à nos chaises MARTINGALE.\nSuite à nos échanges, vous trouverez ci-dessous notre proposition commerciale pour '+what+'.', delay, 'N’hésitez pas à me faire part de vos impressions ou de vos éventuelles questions. Nous pouvons naturellement ajuster notre proposition en fonction de vos besoins.', 'Je reste à votre disposition et serai ravi de vous accompagner dans ce projet.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
+      ? [greet+',', 'Thank you for your interest in MARTINGALE chairs.\nFollowing our discussions, please find attached our proposal for '+what+'.', delay, 'Feel free to share your thoughts or any questions. We can of course adjust our proposal to your needs.', 'I remain at your disposal and would be delighted to support you in this project.', 'Have a lovely day,', 'Best regards,\n'+quoteMailSignature(true)]
+      : [greet+',', 'Merci pour l’intérêt que vous portez à nos chaises MARTINGALE.\nSuite à nos échanges, vous trouverez ci-joint notre proposition commerciale pour '+what+'.', delay, 'N’hésitez pas à me faire part de vos impressions ou de vos éventuelles questions. Nous pouvons naturellement ajuster notre proposition en fonction de vos besoins.', 'Je reste à votre disposition et serai ravi de vous accompagner dans ce projet.', 'Très belle journée,', 'Bien cordialement,\n'+quoteMailSignature(false)];
     return {subject: en ? 'Martingale Paris quote · Rattan chairs' : 'Devis Martingale Paris - Chaises en rotin', message: body.filter(Boolean).join('\n\n')};
   }
   const label = d.type==='FAC' ? (en?'deposit invoice':'facture d’acompte') : (en?'invoice':'facture');
   return en
-    ? {subject:'Martingale Paris '+label+' '+d.num, message:sendGreetings(d).def+',\n\nPlease find your '+label+' '+d.num+' below.\nBank details are on the document.\n\nThank you for your trust.\n\nBest regards,\n'+quoteMailSignature(true)}
-    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:sendGreetings(d).def+',\n\nVous trouverez ci-dessous votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci encore pour votre confiance.\n\nBien cordialement,\n'+quoteMailSignature(false)};
+    ? {subject:'Martingale Paris '+label+' '+d.num, message:sendGreetings(d).def+',\n\nPlease find attached your '+label+' '+d.num+'.\nBank details are on the document.\n\nThank you for your trust.\n\nBest regards,\n'+quoteMailSignature(true)}
+    : {subject:'Votre '+label+' Martingale Paris '+d.num, message:sendGreetings(d).def+',\n\nVous trouverez ci-joint votre '+label+' '+d.num+'.\nLes coordonnées bancaires figurent sur le document.\n\nMerci encore pour votre confiance.\n\nBien cordialement,\n'+quoteMailSignature(false)};
 }
 
 function openSendDocument(id){
@@ -5869,14 +5869,13 @@ function openSendDocument(id){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px';
   ov.innerHTML=`<div style="background:#fff;border-radius:12px;width:560px;max-width:96vw;max-height:94vh;overflow:auto;padding:24px 26px;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:16px;font-weight:600">Envoyer ${escapeHTML(d.num)}</div><button type="button" aria-label="Fermer" onclick="this.closest('#send-doc-overlay').remove()" style="border:0;background:none;font-size:22px;cursor:pointer;color:#999">×</button></div>
-    <div style="font-size:12px;color:#888">Le client reçoit un lien sécurisé vers le document${d.type==='DEV'?', avec le bon pour accord en ligne':''}. Le lien reste valable 90 jours.</div>
+    <div style="font-size:12px;color:#888">Le ${d.type==='DEV'?'devis':'document'} part en pièce jointe PDF : « ${escapeHTML(sendPdfName(d))} ».</div>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Destinataire</span><input id="sd-to" type="email" value="${escapeHTML(d.email||'')}" placeholder="client@exemple.fr"></label>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Objet</span><input id="sd-subject" type="text" value="${escapeHTML(def.subject)}"></label>
     <div class="sd-greet" role="group" aria-label="Formule d’appel">${sendGreetings(d).opts.map(o=>`<button type="button" class="ag-chip${o.t===sendGreetings(d).def?' is-on':''}" data-greet="${escapeHTML(o.t)}">${escapeHTML(o.t)}</button>`).join('')}</div>
     <label class="field" style="margin:0"><span style="font-size:10px;font-weight:600;color:#999;text-transform:uppercase">Message</span><textarea id="sd-message" rows="9">${escapeHTML(def.message)}</textarea></label>
-    <div id="sd-link" style="display:none;font-size:12px;background:#F5F5EE;border-radius:7px;padding:8px 10px;overflow-wrap:anywhere"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
-      <button type="button" class="btn" id="sd-copy">Copier le lien</button>
+      <button type="button" class="btn" id="sd-pdf">Télécharger le PDF</button>
       <button type="button" class="btn" id="sd-gmail">Ouvrir dans Gmail</button>
       <button type="button" class="btn btn-primary" id="sd-send">Envoyer</button>
     </div></div>`;
@@ -5889,36 +5888,69 @@ function openSendDocument(id){
     ov.querySelectorAll('.sd-greet [data-greet]').forEach(x=>x.classList.toggle('is-on', x===b));
   }));
   const val = id2 => document.getElementById(id2).value.trim();
-  const getLink = async () => {
-    const r = await callCrmFunction('document-share',{action:'link', num:d.num});
-    if(!r?.ok){ if(r?.error==='no_html') throw new Error('Ce devis date d’avant l’envoi en ligne : régénère-le pour pouvoir l’envoyer.'); throw new Error(r?.error||'Lien indisponible'); }
-    const box=document.getElementById('sd-link'); box.style.display='block'; box.textContent=r.url;
-    return r.url;
+  // Le PDF du document, fabriqué une fois puis gardé pour la fenêtre
+  let pdfCache = null;
+  const getPdf = async () => {
+    if(pdfCache) return pdfCache;
+    const html = await sendDocHtml(d);
+    pdfCache = await htmlToPdfBase64(html);
+    return pdfCache;
   };
-  // Gmail ajoute ta signature : on retire celle du texte et on place le lien avant la formule de fin.
-  const gmailBody = url => {
+  const downloadPdf = async () => {
+    const b64 = await getPdf();
+    const bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bytes], {type:'application/pdf'}));
+    a.download = sendPdfName(d);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  };
+  // Gmail ajoute ta signature : on retire celle du texte.
+  const gmailBody = () => {
     let t = val('sd-message');
     [quoteMailSignature(false), quoteMailSignature(true)].forEach(sig=>{ t = t.replace('\n'+sig, ''); });
-    const link = (en ? 'View the quote: ' : (d.type==='DEV' ? 'Voir le devis : ' : 'Voir le document : '))+url;
-    const m = t.match(/\n\n(Très belle journée|Have a lovely day|Bien cordialement|Best regards)/);
-    return m ? t.slice(0, m.index)+'\n\n'+link+t.slice(m.index) : t+'\n\n'+link;
+    return t;
   };
-  const openGmail = url => window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(val('sd-to'))+'&su='+encodeURIComponent(val('sd-subject'))+'&body='+encodeURIComponent(gmailBody(url)),'_blank');
-  document.getElementById('sd-copy').onclick = async () => {
-    try{ const url=await getLink(); try{ await navigator.clipboard.writeText(url); toast('Lien copié'); }catch(e){ toast('Lien prêt, sélectionne-le pour le copier'); } }
-    catch(e){ toast(e.message,'error'); }
+  const openGmail = () => window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(val('sd-to'))+'&su='+encodeURIComponent(val('sd-subject'))+'&body='+encodeURIComponent(gmailBody()),'_blank');
+  const busy = (btn, label) => { const old = btn.textContent; btn.disabled = true; btn.textContent = label; return ()=>{ btn.disabled = false; btn.textContent = old; }; };
+  document.getElementById('sd-pdf').onclick = async ev => {
+    const done = busy(ev.currentTarget, 'Préparation…');
+    try{ await downloadPdf(); toast('PDF téléchargé'); }catch(e){ toast('PDF impossible : '+(e.message||e),'error'); }
+    finally{ done(); }
   };
-  document.getElementById('sd-gmail').onclick = async () => { try{ openGmail(await getLink()); }catch(e){ toast(e.message,'error'); } };
+  document.getElementById('sd-gmail').onclick = async ev => {
+    const done = busy(ev.currentTarget, 'Préparation…');
+    try{ await downloadPdf(); openGmail(); toast('Le PDF est téléchargé : glisse-le dans le mail Gmail.'); }
+    catch(e){ toast('PDF impossible : '+(e.message||e),'error'); }
+    finally{ done(); }
+  };
   document.getElementById('sd-send').onclick = async ev => {
-    const btn=ev.currentTarget; btn.disabled=true; btn.textContent='Envoi…';
+    const btn = ev.currentTarget;
+    const done = busy(btn, 'Préparation du PDF…');
     try{
-      const r = await callCrmFunction('document-share',{action:'send', num:d.num, to:val('sd-to'), subject:val('sd-subject'), message:val('sd-message'), lang: en?'en':'fr'});
-      if(r?.sent){ toast('Envoyé à '+val('sd-to')); ov.remove(); if(d.type==='DEV' && d.prospectId) closeQuoteTasks(d.prospectId, 'sent'); return; }
-      if(r?.error==='not_configured'){ toast('Envoi automatique pas encore branché : Gmail s’ouvre avec le message prêt.'); openGmail(r.url); ov.remove(); return; }
+      const pdf = await getPdf();
+      btn.textContent = 'Envoi…';
+      const r = await callCrmFunction('document-share',{action:'send', num:d.num, to:val('sd-to'), subject:val('sd-subject'), message:val('sd-message'), lang: en?'en':'fr', pdf_base64: pdf, filename: sendPdfName(d)});
+      if(r?.sent){ toast('Envoyé à '+val('sd-to')+', PDF joint'); ov.remove(); if(d.type==='DEV' && d.prospectId) closeQuoteTasks(d.prospectId, 'sent'); return; }
+      if(r?.error==='not_configured'){ await downloadPdf(); openGmail(); toast('Envoi automatique pas encore branché : le PDF est téléchargé et Gmail s’ouvre, glisse le PDF dans le mail.'); ov.remove(); return; }
       throw new Error(r?.error==='no_html'?'Ce devis date d’avant l’envoi en ligne : régénère-le pour pouvoir l’envoyer.':(r?.detail||r?.error||'Envoi impossible'));
-    }catch(e){ toast(e.message,'error'); }
-    finally{ btn.disabled=false; btn.textContent='Envoyer'; }
+    }catch(e){ toast(e.message||String(e),'error'); }
+    finally{ done(); }
   };
+}
+// Nom du PDF joint, comme tes envois : « Devis DEV-261127-056.pdf »
+function sendPdfName(d){
+  const label = d.type==='DEV' ? (d.docLocale==='US'||d.docLocale==='UK' ? 'Quote' : 'Devis') : (d.type==='FAC' ? 'Facture d’acompte' : 'Facture');
+  return label+' '+d.num+'.pdf';
+}
+// Le HTML du document à mettre en PDF : copie gardée du devis, ou facture scellée
+async function sendDocHtml(d){
+  if(d.type!=='DEV') return getInvoiceHtml(d);
+  if(!(d.num in docHtmlStore())) await fetchDocHtml([d.num]);
+  const html = docHtmlStore()[d.num];
+  if(!html) throw new Error('La copie de ce devis n’a pas été gardée : régénère-le pour l’envoyer.');
+  return html;
 }
 
 // Vérification VIES du n° de TVA d'un client européen
