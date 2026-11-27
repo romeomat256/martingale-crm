@@ -1119,6 +1119,7 @@ button.ag-client:hover{text-decoration:underline}
         <option>Relance</option><option>En attente chantier</option><option>Gagné</option><option>Perdu</option>
       </select>
       <select id="fiche-responsable-select" onchange="saveFicheResponsable(this.value)" title="Qui suit ce client" aria-label="Responsable de la fiche" style="display:none;font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit"></select>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openDocGenerator(currentProspectId)">Faire un devis</button>
       <button class="btn btn-danger btn-sm" onclick="deleteCurrentProspect()">Supprimer</button>
     </div>
   </div>
@@ -1170,6 +1171,11 @@ button.ag-client:hover{text-decoration:underline}
             <button class="btn" style="background:#FDEDEC;color:#922B21;border-color:#F5CBA7" onclick="supprimerRappel(currentProspectId)" title="Supprimer le rappel">✕ Supprimer</button>
           </div>
           <div id="fiche-rappels-list"></div>
+        </div>
+        <!-- DEVIS ET COMMANDES -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Devis et commandes</div>
+          <div id="fiche-commercial-summary"></div>
         </div>
         <!-- HISTORIQUE -->
         <div class="card">
@@ -4729,7 +4735,9 @@ function closeDocGeneratorAndReturnToDevis(){
   else document.querySelectorAll('[style*="z-index"]').forEach(node=>{
     if(node.querySelector && node.querySelector('#dg-type')) node.remove();
   });
-  if(typeof go === 'function') go('devis');
+  const origin = window.__mpDgOrigin;
+  if(origin && origin.fiche && prospects.some(p=>p.id===origin.fiche)) openFiche(origin.fiche);
+  else if(typeof go === 'function') go('devis');
   if(typeof renderDevisList === 'function') renderDevisList();
   if(typeof renderDocHistory === 'function') renderDocHistory();
 }
@@ -4777,6 +4785,8 @@ function printDocumentAndReturn(win, docHTML){
 // ══════════════════════════════════════════════════════════════
 function openDocGenerator(prospectId){
   window.__mpDgProspectId = prospectId || null;
+  // Ouvert depuis une fiche : on y revient après la création
+  window.__mpDgOrigin = (document.getElementById('s-fiche')?.classList.contains('active') && currentProspectId) ? {fiche: currentProspectId} : null;
   document.getElementById('doc-generator-overlay')?.remove();
   dgSourceQuote = null; dgDeductions = []; dgEditingDraft = null;
   const p = prospectId ? prospects.find(x=>x.id===prospectId) : 
@@ -4805,7 +4815,8 @@ function openDocGenerator(prospectId){
       </div>
       <div class="nd-head-r">
         <button id="dg-resume-invoice" onclick="resumeInvoiceIssuance()" style="display:${readPendingInvoice()?'block':'none'}" class="btn">Reprendre la facture en attente</button>
-        <button id="dg-generate" class="btn btn-primary nd-cta" onclick="generateAndPrint()">Générer le PDF</button>
+        <button id="dg-generate" class="btn nd-cta" onclick="generateAndPrint()">Générer le PDF</button>
+        <button id="dg-send" class="btn btn-primary nd-cta" onclick="generateAndPrint({send:true})">Créer et envoyer par mail</button>
       </div>
     </header>
 
@@ -5005,7 +5016,9 @@ function selectDocType(btn, type){
   const dueMode=document.getElementById('dg-due-mode');
   if(dueMode&&type!=='DEV'){dueMode.value=(type==='FDF'&&dgDeductions.length)?'expedition':'reception';syncDueModeField();}
   const generateButton=document.getElementById('dg-generate');
-  if(generateButton)generateButton.textContent=type==='DEV'?'Générer le PDF':'Enregistrer le brouillon';
+  if(generateButton){ generateButton.textContent=type==='DEV'?'Générer le PDF':'Enregistrer le brouillon'; generateButton.classList.toggle('btn-primary', type!=='DEV'); }
+  const sendButton=document.getElementById('dg-send');
+  if(sendButton) sendButton.style.display = type==='DEV' ? '' : 'none';
   const depositBox=document.getElementById('dg-deposit-box');
   if(depositBox)depositBox.style.display=type==='FAC'?'block':'none';
   updateDocCalc();
@@ -6584,19 +6597,25 @@ function buildGeneratorRecord(G, prospectId){
   return record;
 }
 
-async function generateAndPrint(){
+async function generateAndPrint(opts){
   if(documentGenerationBusy)return;
+  const sendAfter = !!(opts && opts.send);
   documentGenerationBusy=true;
   const generateButton=document.getElementById('dg-generate');
   if(generateButton)generateButton.disabled=true;
+  const sendButton=document.getElementById('dg-send');
+  if(sendButton)sendButton.disabled=true;
   let printWin = null;
   try {
   const pre = computeGeneratorDoc();
   if(pre.error){ toast(pre.error,'error'); return; }
-  printWin = openPrintWindowPlaceholder();
-  if(!printWin){ toast('Autoriser les popups pour générer le PDF','error'); return; }
+  if(sendAfter && pre.isInvoice){ toast('L’envoi direct est réservé aux devis','error'); return; }
+  if(!sendAfter){
+    printWin = openPrintWindowPlaceholder();
+    if(!printWin){ toast('Autoriser les popups pour générer le PDF','error'); return; }
+  }
   const G = pre.isInvoice ? pre : computeGeneratorDoc({numOverride: await getNextDocNum(pre.type)});
-  if(G.error){ toast(G.error,'error'); try{printWin.close();}catch(e){} return; }
+  if(G.error){ toast(G.error,'error'); try{ if(printWin) printWin.close(); }catch(e){} return; }
   const {type,isInvoice,contact,company,addr,tel,email,livraison,dept,invoiceDetails,validite,remisePct,vatSettings,docLocale,docFx,isEnglishQuote,
     lines,firstLine,prodId,qty,prod,sousTotalBrut,sousTotal,remiseMontant,sousTotalNet,shipping,shipHT,curAmounts,landedEUR,baseHT,tva,ttc,due,dueCur,
     typeLabel,availability,docNum,today,docHTML} = G;
@@ -6660,6 +6679,18 @@ async function generateAndPrint(){
     return;
   }else{
     const savedInBase = await saveDocToHistory(record);
+    if(sendAfter){
+      await saveQuoteHtml(record.num, docHTML); // le lien envoyé au client lit ce document
+      window.CrmDocuments?.quote(record,docHTML);
+      closeDocGeneratorAndReturnToDevis();
+      if(savedInBase === false){
+        toast('Devis '+record.num+' créé, mais la base ne l’a pas enregistré : l’envoi attendra la prochaine ouverture.','error');
+        return;
+      }
+      openSendDocument(record.id || record.num);
+      toast('Devis '+record.num+' créé. Vérifie le message, puis Envoyer.');
+      return;
+    }
     saveQuoteHtml(record.num, docHTML);
     window.CrmDocuments?.quote(record,docHTML);
     printDocumentAndReturn(printWin,docHTML);
@@ -6668,7 +6699,7 @@ async function generateAndPrint(){
       return;
     }
   }
-  toast('Document généré ✓ Retour au menu Devis');
+  toast(window.__mpDgOrigin && window.__mpDgOrigin.fiche ? 'Document généré. Retour à la fiche.' : 'Document généré. Retour au menu Devis.');
   } catch(err) {
     try { if(printWin && !printWin.closed) printWin.close(); } catch(e){}
     console.error('generateAndPrint error:', err);
@@ -6676,6 +6707,7 @@ async function generateAndPrint(){
   } finally {
     documentGenerationBusy=false;
     if(generateButton)generateButton.disabled=false;
+    if(sendButton)sendButton.disabled=false;
     const resume=document.getElementById('dg-resume-invoice');
     if(resume)resume.style.display=readPendingInvoice()?'block':'none';
   }
@@ -10039,21 +10071,7 @@ function populateFiche(id){
     const mesDevis = devisList.filter(d=>d.prospectId===id);
     const mesCmd = commandesList.filter(c=>c.prospect_id===id);
     
-    // Stock dispo per product
-    const stockItems = (p.produits||[]).map(item=>{
-      const prod = resolveProspectProduct(item);
-      if(!prod) return '';
-      const stockC = (stockData[prod.id]||0);
-      const dispo = getDispoDate(prod.id, item.qty);
-      const col = dispo.statut==='Disponible'?'var(--vert-ok)':dispo.statut==='Sur arrivage'||dispo.statut==='Partiel'?'var(--orange)':'var(--rouge)';
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-        <span style="font-weight:500">${prod.ref?'['+prod.ref+'] ':''} ${prod.name} × ${item.qty}</span>
-        <div style="text-align:right">
-          <div style="font-size:11px;font-weight:600;color:${col}">${dispo.statut}</div>
-          ${dispo.statut!=='Disponible'?`<div style="font-size:10px;color:var(--gris-l)">${dispo.dateLabel}${dispo.joursLabel?' · '+dispo.joursLabel:''}</div>`:''}
-        </div>
-      </div>`;
-    }).join('');
+    const stockItems = '';
     
     const devisHtml = mesDevis.length ? mesDevis.slice(0,3).map(d=>{
       const cls = DEVIS_STATUT_CLASS[d.statut]||'b-new';
@@ -10068,6 +10086,8 @@ function populateFiche(id){
         </div>
         <div style="font-size:10px;color:var(--gris-l);margin-top:3px">${getDocProductSummary(d)}</div>
         <div style="font-size:10px;color:var(--gris-l);margin-top:2px">${d.date||''}${vatSettings.isVatExempt?' · TVA 0%':''}${d.shippingHT!==null&&d.shippingHT!==undefined?' · Liv. '+formatDocMoney(d.shippingHT)+' HT':''}</div>
+        ${d.type==='DEV'&&docViewedLabel(d.num)?`<div style="font-size:11px;color:var(--vert-ok);font-weight:600;margin-top:3px">${escapeHTML(docViewedLabel(d.num))}</div>`:''}
+        ${d.type==='DEV'&&!['Refusé','Remplacé','Doublon','Archivé'].includes(d.statut)?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn btn-sm${d.statut==='Envoyé'||d.statut==='Accepté'?'':' btn-primary'}" onclick="openSendDocument('${d.id||d.num}')">${d.statut==='Envoyé'||d.statut==='Accepté'?'Renvoyer par mail':'Envoyer par mail'}</button></div>`:''}
         ${d.type==='DEV'&&['Envoyé','Accepté'].includes(d.statut)?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="invoiceFromQuote('${d.id||d.num}','FAC')">Acompte</button><button class="btn btn-sm btn-primary" onclick="invoiceFromQuote('${d.id||d.num}','FDF')">${findDraftForQuote(d.num,'FDF')?'Reprendre la facture':'Facture définitive'}</button></div>`:''}
       </div>`;
     }).join('') : '<div style="font-size:11px;color:var(--gris-l);padding:8px 0">Aucun devis généré</div>';
@@ -10089,7 +10109,7 @@ function populateFiche(id){
           <span>Payé : <strong style="color:var(--vert-ok)">${fmt(paye)}</strong></span>
           <span>Reste : <strong style="color:${reste>0?'var(--rouge)':'var(--vert-ok)'}">${fmt(reste)}</strong></span>
         </div>
-        ${proj?`<div style="margin-top:6px;font-size:11px;color:${proj.color};font-weight:500">📦 ${proj.label}${proj.jours!==null?' — dans '+proj.jours+'j':''}</div>`:''}
+        ${proj?`<div style="margin-top:6px;font-size:11px;color:${proj.color};font-weight:500">${proj.label}${proj.jours>0?', dans '+proj.jours+' j':''}</div>`:''}
       </div>`;
     }).join('') : '';
     
@@ -10101,7 +10121,7 @@ function populateFiche(id){
       <div style="margin-bottom:14px">
         <div style="font-size:10px;font-weight:600;color:var(--gris-l);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Devis</div>
         ${devisHtml}
-        <button class="btn btn-sm btn-primary" style="width:100%;margin-top:8px;font-size:11px" onclick="openDocGenerator('${id}')">+ Créer un document</button>
+        <button class="btn btn-sm" style="width:100%;margin-top:8px;font-size:11px" onclick="openDocGenerator('${id}')">+ Créer un document</button>
         <button class="btn btn-sm" style="width:100%;margin-top:8px;font-size:11px" onclick="window.CrmDocuments?.show('${id}')">Documents archivés</button>
       </div>
       ${mesCmd.length?`<div>
